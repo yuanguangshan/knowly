@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,10 +21,22 @@ import (
 )
 
 func main() {
+	// 0. 处理 --stop（无需加载配置）
+	if len(os.Args) > 1 && os.Args[1] == "--stop" {
+		stopDaemon()
+		return
+	}
+
 	// 1. 加载配置
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// 处理 --status
+	if len(os.Args) > 1 && os.Args[1] == "--status" {
+		showStatus(cfg)
+		return
 	}
 
 	// 2. 初始化组件
@@ -45,8 +59,13 @@ func main() {
 
 	// 3. 处理 CLI 命令
 	if len(os.Args) > 1 {
-		handleCLI(os.Args[1:], cfg, histStore)
-		return
+		if os.Args[1] == "--daemon" {
+			writePidFile()
+			// 继续执行守护逻辑
+		} else {
+			handleCLI(os.Args[1:], cfg, histStore)
+			return
+		}
 	}
 
 	// 4. 启动守护逻辑
@@ -82,6 +101,7 @@ func main() {
 		select {
 		case <-ctx.Done():
 			mon.Stop()
+			removePidFile()
 			log.Println("[INFO] knas daemon stopped")
 			return
 		case payload := <-mon.Items():
@@ -184,6 +204,64 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 		NASPath: nasPath,
 	})
 	log.Printf("[INFO] Relay synced & archived: %s", nasPath)
+}
+
+// writePidFile 将当前进程 PID 写入文件
+func writePidFile() {
+	pidPath := config.GetPidPath()
+	os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644)
+}
+
+// removePidFile 删除 PID 文件
+func removePidFile() {
+	os.Remove(config.GetPidPath())
+}
+
+// stopDaemon 停止守护进程
+func stopDaemon() {
+	pidPath := config.GetPidPath()
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		fmt.Println("knas daemon is not running (no PID file)")
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		fmt.Println("Invalid PID file")
+		return
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		fmt.Printf("Failed to stop daemon (PID %d): %v\n", pid, err)
+		os.Remove(pidPath)
+		return
+	}
+	os.Remove(pidPath)
+	fmt.Printf("✓ knas daemon stopped (PID %d)\n", pid)
+}
+
+// showStatus 显示守护进程状态
+func showStatus(cfg *config.Config) {
+	pidPath := config.GetPidPath()
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		fmt.Println("✗ knas daemon is not running")
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		fmt.Println("✗ Invalid PID file")
+		return
+	}
+	if err := syscall.Kill(pid, 0); err != nil {
+		fmt.Println("✗ knas daemon is not running (process dead)")
+		os.Remove(pidPath)
+		return
+	}
+	fmt.Printf("✓ knas daemon is running (PID: %d)\n", pid)
+	if cfg != nil {
+		fmt.Printf("  SSH: %s@%s:%s\n", cfg.SSH.User, cfg.SSH.Host, cfg.SSH.Port)
+		fmt.Printf("  Base Path: %s\n", cfg.SSH.BasePath)
+	}
 }
 
 // handleCLI 处理命令行指令
