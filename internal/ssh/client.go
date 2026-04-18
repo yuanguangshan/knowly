@@ -203,7 +203,7 @@ func (c *Client) WriteFile(path string, content string) error {
 	return nil
 }
 
-func (c *Client) SyncItem(content string, timestamp time.Time) error {
+func (c *Client) SyncItem(content string, timestamp time.Time) (string, error) {
 	// 生成路径：~/knas_archive/YYYY/MM/DD/HHMMSS_前N字符.md
 	year := timestamp.Format("2006")
 	month := timestamp.Format("01")
@@ -225,7 +225,7 @@ func (c *Client) SyncItem(content string, timestamp time.Time) error {
 
 	// 创建目录
 	if err := c.MkdirAll(filepath.Join(c.config.BasePath, relPath)); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
+		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	// 准备文件内容
@@ -233,11 +233,11 @@ func (c *Client) SyncItem(content string, timestamp time.Time) error {
 
 	// 写入文件
 	if err := c.WriteFile(fullPath, fileContent); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
+		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
 	log.Printf("[INFO] Synced to remote: %s", fullPath)
-	return nil
+	return fullPath, nil
 }
 
 // extractContentPrefix 提取内容的前 n 个字符，清理特殊字符
@@ -309,7 +309,7 @@ func (c *Client) TestConnection() error {
 }
 
 // SyncImage 同步图片到远程服务器
-func (c *Client) SyncImage(data []byte, timestamp time.Time) error {
+func (c *Client) SyncImage(data []byte, timestamp time.Time) (string, error) {
 	// 生成路径：~/knas_archive/YYYY/MM/DD/HHMMSS_image.png
 	year := timestamp.Format("2006")
 	month := timestamp.Format("01")
@@ -322,16 +322,16 @@ func (c *Client) SyncImage(data []byte, timestamp time.Time) error {
 
 	// 创建目录
 	if err := c.MkdirAll(filepath.Join(c.config.BasePath, relPath)); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
+		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	// 写入图片
 	if err := c.WriteBinary(fullPath, data); err != nil {
-		return fmt.Errorf("failed to write image: %w", err)
+		return "", fmt.Errorf("failed to write image: %w", err)
 	}
 
 	log.Printf("[INFO] Synced image to remote: %s", fullPath)
-	return nil
+	return fullPath, nil
 }
 
 // WriteBinary 二进制安全写入
