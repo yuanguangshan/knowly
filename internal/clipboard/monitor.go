@@ -249,8 +249,7 @@ func (m *Monitor) enhanceAndSend(content string, hash string) {
 }
 
 func (m *Monitor) archiveImage(img ImagePayload) {
-	// TODO: 调用 sshClient.SyncImage(img.Data, img.Timestamp)
-	log.Printf("[INFO] Image archived (%d bytes), ready to sync", len(img.Data))
+	log.Printf("[INFO] Image detected (%d bytes), sending to sync", len(img.Data))
 	
 	// 发送到 Channel 供主程序消费
 	select {
