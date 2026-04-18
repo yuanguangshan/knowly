@@ -1,0 +1,214 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/yuanguangshan/knas/internal/clipboard"
+	"github.com/yuanguangshan/knas/internal/config"
+	"github.com/yuanguangshan/knas/internal/history"
+	"github.com/yuanguangshan/knas/internal/relay"
+	"github.com/yuanguangshan/knas/internal/retry"
+	"github.com/yuanguangshan/knas/internal/ssh"
+	xclip "golang.design/x/clipboard"
+)
+
+func main() {
+	// 1. 加载配置
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// 2. 初始化组件
+	client := ssh.NewClient(&cfg.SSH)
+	histStore := history.NewStore(config.GetConfigDir())
+	
+	mon := clipboard.NewMonitor(clipboard.MonitorConfig{
+		MinLength:    cfg.Clipboard.MinLength,
+		MaxLength:    cfg.Clipboard.MaxLength,
+		PollInterval: time.Duration(cfg.Clipboard.PollInterval) * time.Millisecond,
+		ExcludeWords: cfg.Clipboard.ExcludeWords,
+	}, config.GetConfigDir()+"/status.json", histStore)
+
+	// 3. 处理 CLI 命令
+	if len(os.Args) > 1 {
+		handleCLI(os.Args[1:], histStore)
+		return
+	}
+
+	// 4. 启动守护逻辑
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := client.Connect(); err != nil {
+		log.Fatalf("SSH connect failed: %v", err)
+	}
+	defer client.Disconnect()
+
+	mon.Start()
+	log.Println("[INFO] knas daemon started")
+
+	// 5. 启动 Relay 拉取器（如果启用）
+	if cfg.Relay.Enabled && cfg.Relay.Endpoint != "" {
+		puller := relay.NewPuller(
+			cfg.Relay.Endpoint,
+			cfg.Relay.Secret,
+			time.Duration(cfg.Relay.Interval)*time.Second,
+			func(content string) {
+				// Relay 内容也走统一的同步+归档流程
+				go syncAndArchiveText(client, cfg, content, "relay", histStore)
+			},
+		)
+		puller.Start()
+		defer puller.Stop()
+		log.Println("[INFO] Relay puller started")
+	}
+
+	// 6. 消费 Payload 循环
+	for {
+		select {
+		case <-ctx.Done():
+			mon.Stop()
+			log.Println("[INFO] knas daemon stopped")
+			return
+		case payload := <-mon.Items():
+			go handlePayload(client, cfg, payload, histStore)
+		}
+	}
+}
+
+// handlePayload 处理来自 Monitor 的同步项
+func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, histStore *history.Store) {
+	retryCfg := retry.Config{
+		MaxRetries: cfg.Sync.MaxRetries,
+		BaseDelay:  time.Duration(cfg.Sync.RetryDelay) * time.Millisecond,
+		MaxDelay:   30 * time.Second,
+	}
+
+	var nasPath string
+	var err error
+	var entryType string
+	var entryContent string
+
+	switch v := p.(type) {
+	case clipboard.TextPayload:
+		entryType = "text"
+		entryContent = v.Content
+		err = retry.Do(context.Background(), retryCfg, func() error {
+			path, syncErr := client.SyncItem(v.Content, v.Timestamp)
+			if syncErr == nil {
+				nasPath = path
+			}
+			return syncErr
+		})
+	case clipboard.ImagePayload:
+		entryType = "image"
+		entryContent = fmt.Sprintf("[IMAGE] %d bytes", len(v.Data))
+		err = retry.Do(context.Background(), retryCfg, func() error {
+			path, syncErr := client.SyncImage(v.Data, v.Timestamp)
+			if syncErr == nil {
+				nasPath = path
+			}
+			return syncErr
+		})
+	}
+
+	if err != nil {
+		log.Printf("[ERROR] Sync failed (%s): %v", entryType, err)
+		return
+	}
+
+	// 同步成功 -> 记录历史（含 NASPath）
+	histStore.Append(history.Entry{
+		Content: entryContent,
+		Type:    entryType,
+		NASPath: nasPath,
+	})
+	log.Printf("[INFO] Synced & Archived (%s): %s", entryType, nasPath)
+}
+
+// syncAndArchiveText 处理来自 Relay 的文本同步
+func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source string, histStore *history.Store) {
+	retryCfg := retry.Config{
+		MaxRetries: cfg.Sync.MaxRetries,
+		BaseDelay:  time.Duration(cfg.Sync.RetryDelay) * time.Millisecond,
+		MaxDelay:   30 * time.Second,
+	}
+
+	var nasPath string
+	err := retry.Do(context.Background(), retryCfg, func() error {
+		path, syncErr := client.SyncItem(content, time.Now())
+		if syncErr == nil {
+			nasPath = path
+		}
+		return syncErr
+	})
+
+	if err != nil {
+		log.Printf("[ERROR] Relay sync failed: %v", err)
+		return
+	}
+
+	preview := content
+	if len(preview) > 200 {
+		preview = preview[:200] + "..."
+	}
+
+	histStore.Append(history.Entry{
+		Content: preview,
+		Type:    "text",
+		NASPath: nasPath,
+	})
+	log.Printf("[INFO] Relay synced & archived: %s", nasPath)
+}
+
+// handleCLI 处理命令行指令
+func handleCLI(args []string, histStore *history.Store) {
+	cmd := args[0]
+	switch cmd {
+	case "history":
+		n := 20
+		if len(args) > 1 {
+			fmt.Sscanf(args[1], "%d", &n)
+		}
+		entries, err := histStore.Recent(n)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if len(entries) == 0 {
+			fmt.Println("暂无历史记录")
+			return
+		}
+		for _, e := range entries {
+			displayID := e.ID
+			if len(displayID) > 14 {
+				displayID = displayID[:14]
+			}
+			fmt.Printf("[%s] (%s) %s\n", displayID, e.Type, e.Content)
+		}
+	case "restore":
+		if len(args) < 2 {
+			log.Fatal("Usage: knas restore <id>")
+		}
+		id := args[1]
+		entry, err := histStore.Find(id)
+		if err != nil || entry == nil {
+			log.Fatal("Entry not found")
+		}
+		if entry.Type != "text" {
+			log.Fatal("目前仅支持恢复文本内容")
+		}
+		if err := xclip.Write(xclip.FmtText, []byte(entry.Content)); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("✓ 已将记录 %s 恢复到剪贴板\n", id[:14])
+	default:
+		fmt.Println("Unknown command:", cmd)
+	}
+}
