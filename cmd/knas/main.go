@@ -286,7 +286,12 @@ func handleCLI(args []string, cfg *config.Config, histStore *history.Store) {
 			if len(displayID) > 14 {
 				displayID = displayID[:14]
 			}
-			fmt.Printf("[%s] (%s) %s\n", displayID, e.Type, e.Content)
+			preview := strings.ReplaceAll(e.Content, "\n", " ")
+			preview = strings.ReplaceAll(preview, "\r", "")
+			if runes := []rune(preview); len(runes) > 60 {
+				preview = string(runes[:57]) + "..."
+			}
+			fmt.Printf("[%s] (%s) %s\n", displayID, e.Type, preview)
 		}
 	case "restore":
 		if len(args) < 2 {

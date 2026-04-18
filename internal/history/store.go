@@ -73,11 +73,16 @@ func (s *Store) Recent(n int) ([]Entry, error) {
 
 	var entries []Entry
 	scanner := bufio.NewScanner(f)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 2*1024*1024) // 允许最大 2MB 单行
 	for scanner.Scan() {
 		var e Entry
 		if err := json.Unmarshal(scanner.Bytes(), &e); err == nil {
 			entries = append(entries, e)
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read history error: %w", err)
 	}
 
 	// 取最后 n 条
@@ -101,11 +106,16 @@ func (s *Store) Find(id string) (*Entry, error) {
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 2*1024*1024) // 允许最大 2MB 单行
 	for scanner.Scan() {
 		var e Entry
 		if json.Unmarshal(scanner.Bytes(), &e) == nil && e.ID == id {
 			return &e, nil
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("find history error: %w", err)
 	}
 	return nil, nil
 }
