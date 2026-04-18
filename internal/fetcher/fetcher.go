@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 )
 
 // URLRegex 匹配 HTTP/HTTPS URL
@@ -15,9 +14,9 @@ var URLRegex = regexp.MustCompile(`https?://[^\s]+`)
 
 // FetchTitle 从 URL 抓取页面标题
 func FetchTitle(ctx context.Context, url string) (string, error) {
-	// 创建 HTTP 客户端，设置超时
+	// 创建 HTTP 客户端
+	// 超时控制完全由调用方传入的 context 负责
 	client := &http.Client{
-		Timeout: 10 * time.Second,
 		// 不跟随重定向
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
