@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"path/filepath"
@@ -303,4 +304,104 @@ func (c *Client) TestConnection() error {
 	}
 
 	return nil
+}
+
+// SyncImage 同步图片到远程服务器
+func (c *Client) SyncImage(data []byte, timestamp time.Time) error {
+	// 生成路径：~/knas_archive/YYYY/MM/DD/HHMMSS_image.png
+	year := timestamp.Format("2006")
+	month := timestamp.Format("01")
+	day := timestamp.Format("02")
+	timeStr := timestamp.Format("150405")
+
+	relPath := filepath.Join(year, month, day)
+	fileName := fmt.Sprintf("%s_image.png", timeStr)
+	fullPath := filepath.Join(c.config.BasePath, relPath, fileName)
+
+	// 创建目录
+	if err := c.MkdirAll(filepath.Join(c.config.BasePath, relPath)); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// 写入图片
+	if err := c.WriteBinary(fullPath, data); err != nil {
+		return fmt.Errorf("failed to write image: %w", err)
+	}
+
+	log.Printf("[INFO] Synced image to remote: %s", fullPath)
+	return nil
+}
+
+// WriteBinary 写入二进制文件
+func (c *Client) WriteBinary(path string, data []byte) error {
+	session, err := c.sshClient.NewSession()
+	if err != nil {
+		return fmt.Errorf("failed to create session: %w", err)
+	}
+	defer session.Close()
+
+	fullPath := c.expandPath(path)
+	cmd := fmt.Sprintf("cat > %s", shellEscape(fullPath))
+
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stdin pipe: %w", err)
+	}
+
+	var stderr bytes.Buffer
+	session.Stderr = &stderr
+
+	if err := session.Start(cmd); err != nil {
+		return fmt.Errorf("failed to start command: %w", err)
+	}
+
+	if _, err := stdin.Write(data); err != nil {
+		return fmt.Errorf("failed to write binary to stdin: %w", err)
+	}
+
+	if err := stdin.Close(); err != nil {
+		return fmt.Errorf("failed to close stdin: %w", err)
+	}
+
+	if err := session.Wait(); err != nil {
+		return fmt.Errorf("command failed: %s, stderr: %s", err, stderr.String())
+	}
+
+	return nil
+}
+
+// retryWithBackoff 执行带指数退避的函数
+func (c *Client) retryWithBackoff(maxRetries int, baseDelay time.Duration, fn func() error) error {
+	var err error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// 指数退避 + Jitter
+			delay := baseDelay * time.Duration(1<<uint(attempt-1))
+			jitter := time.Duration(rand.Int63n(int64(delay / 2)))
+			total := delay + jitter
+			log.Printf("[RETRY] Waiting %v before retry %d/%d...", total, attempt, maxRetries)
+			time.Sleep(total)
+		}
+
+		err = fn()
+		if err == nil {
+			return nil
+		}
+		log.Printf("[RETRY] Attempt %d failed: %v", attempt+1, err)
+	}
+	return fmt.Errorf("failed after %d retries: %w", maxRetries, err)
+}
+
+// SyncItemWithRetry 带重试的文本同步
+func (c *Client) SyncItemWithRetry(content string, timestamp time.Time, maxRetries int, baseDelay time.Duration) error {
+	return c.retryWithBackoff(maxRetries, baseDelay, func() error {
+		return c.SyncItem(content, timestamp)
+	})
+}
+
+// SyncImageWithRetry 带重试的图片同步
+func (c *Client) SyncImageWithRetry(data []byte, timestamp time.Time, maxRetries int, baseDelay time.Duration) error {
+	return c.retryWithBackoff(maxRetries, baseDelay, func() error {
+		return c.SyncImage(data, timestamp)
+	})
 }

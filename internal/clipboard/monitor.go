@@ -10,14 +10,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/atotto/clipboard"
 	"github.com/yuanguangshan/knas/internal/fetcher"
+	"golang.design/x/clipboard"
 )
 
 type ClipboardItem struct {
 	Content   string
 	Timestamp time.Time
 	Hash      string
+	IsImage   bool
+	ImageData []byte
 }
 
 type Monitor struct {
@@ -55,6 +57,10 @@ func NewMonitor(config MonitorConfig) *Monitor {
 		config.BufferSize = 10
 	}
 
+	if err := clipboard.Init(); err != nil {
+		log.Printf("[ERROR] Failed to init clipboard: %v", err)
+	}
+
 	return &Monitor{
 		minLength:    config.MinLength,
 		maxLength:    config.MaxLength,
@@ -67,6 +73,11 @@ func NewMonitor(config MonitorConfig) *Monitor {
 
 func (m *Monitor) hashContent(content string) string {
 	hash := md5.Sum([]byte(content))
+	return hex.EncodeToString(hash[:])
+}
+
+func (m *Monitor) hashImage(data []byte) string {
+	hash := md5.Sum(data)
 	return hex.EncodeToString(hash[:])
 }
 
@@ -92,19 +103,37 @@ func (m *Monitor) shouldSync(content string) (bool, string) {
 	return !isDup, hash
 }
 
-func (m *Monitor) readClipboard() (string, error) {
-	content, err := clipboard.ReadAll()
-	if err != nil {
-		return "", fmt.Errorf("failed to read clipboard: %w", err)
+func (m *Monitor) readClipboard() (*ClipboardItem, error) {
+	// 1. 优先尝试读取图片
+	imgData := clipboard.Read(clipboard.FmtImage)
+	if len(imgData) > 0 {
+		return &ClipboardItem{
+			IsImage:   true,
+			ImageData: imgData,
+			Timestamp: time.Now(),
+			Hash:      m.hashImage(imgData),
+		}, nil
 	}
-	return content, nil
+
+	// 2. 回退读取文本
+	txtData := clipboard.Read(clipboard.FmtText)
+	if len(txtData) == 0 {
+		return nil, fmt.Errorf("clipboard empty")
+	}
+
+	content := string(txtData)
+	return &ClipboardItem{
+		Content:   content,
+		Timestamp: time.Now(),
+		Hash:      m.hashContent(content),
+	}, nil
 }
 
 func (m *Monitor) Start() {
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		log.Println("[INFO] Clipboard monitor started")
+		log.Println("[INFO] Clipboard monitor started (Text + Image)")
 
 		ticker := time.NewTicker(m.pollInterval)
 		defer ticker.Stop()
@@ -115,26 +144,48 @@ func (m *Monitor) Start() {
 				log.Println("[INFO] Clipboard monitor stopped")
 				return
 			case <-ticker.C:
-				content, err := m.readClipboard()
+				item, err := m.readClipboard()
 				if err != nil {
 					continue
 				}
 
-				if ok, hash := m.shouldSync(content); ok {
-					// v1.3.0: 立即更新状态，不阻塞主循环
-					m.mu.Lock()
-					m.lastHash = hash
-					m.lastContent = content
-					m.mu.Unlock()
+				// 检查重复
+				m.mu.RLock()
+				isDup := item.Hash == m.lastHash
+				m.mu.RUnlock()
 
-					log.Printf("[INFO] New clipboard item detected: %s (length: %d)", hash[:8], len(content))
+				if isDup {
+					continue
+				}
 
-					// v1.3.0: 异步增强，主循环瞬间回归监听
-					go m.enhanceAndSend(content, hash)
+				// 更新状态
+				m.mu.Lock()
+				m.lastHash = item.Hash
+				if !item.IsImage {
+					m.lastContent = item.Content
+				}
+				m.mu.Unlock()
+
+				log.Printf("[INFO] New item detected: %s (type: %v)", item.Hash[:8], item.IsImage)
+
+				// 分发处理
+				if item.IsImage {
+					go m.emitItem(*item)
+				} else {
+					// 文本需要增强（抓标题）
+					go m.enhanceAndSend(item.Content, item.Hash)
 				}
 			}
 		}
 	}()
+}
+
+func (m *Monitor) emitItem(item ClipboardItem) {
+	select {
+	case m.itemChan <- item:
+	default:
+		log.Printf("[WARN] Item channel full, dropping item")
+	}
 }
 
 // v1.3.0: 独立的增强逻辑，包含超时控制
