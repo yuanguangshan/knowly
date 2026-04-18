@@ -7,11 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-<<<<<<< Updated upstream
 	"os"
 	"strings"
-=======
->>>>>>> Stashed changes
 	"sync"
 	"time"
 
@@ -30,19 +27,19 @@ type Payload interface {
 type TextPayload struct {
 	Content   string
 	Timestamp time.Time
-	Hash      string
+	hash      string
 }
 
 type ImagePayload struct {
 	Data      []byte
 	Timestamp time.Time
-	Hash      string
+	hash      string
 }
 
 func (TextPayload) isPayload()  {}
 func (ImagePayload) isPayload() {}
-func (t TextPayload) Hash() string { return t.Hash }
-func (i ImagePayload) Hash() string { return i.Hash }
+func (t TextPayload) Hash() string { return t.hash }
+func (i ImagePayload) Hash() string { return i.hash }
 func (TextPayload) Type() string  { return "text" }
 func (ImagePayload) Type() string { return "image" }
 func (t TextPayload) Preview() string { return t.Content }
@@ -102,7 +99,6 @@ func NewMonitor(config MonitorConfig, statusPath string) *Monitor {
 		excludeWords: config.ExcludeWords,
 		statusPath:   statusPath,
 		stopChan:     make(chan struct{}),
-<<<<<<< Updated upstream
 		itemChan:     make(chan Payload, config.BufferSize),
 	}
 
@@ -126,31 +122,8 @@ func (m *Monitor) readPayload() (Payload, error) {
 	if len(img) > 0 {
 		return ImagePayload{
 			Data:      img,
-=======
-		itemChan:     make(chan ClipboardItem, config.BufferSize),
-	}
-}
-
-func (m *Monitor) hashContent(content string) string {
-	hash := md5.Sum([]byte(content))
-	return hex.EncodeToString(hash[:])
-}
-
-func (m *Monitor) hashImage(data []byte) string {
-	hash := md5.Sum(data)
-	return hex.EncodeToString(hash[:])
-}
-
-func (m *Monitor) readClipboard() (*ClipboardItem, error) {
-	// 1. 优先尝试读取图片
-	imgData := clipboard.Read(clipboard.FmtImage)
-	if len(imgData) > 0 {
-		return &ClipboardItem{
-			IsImage:   true,
-			ImageData: imgData,
->>>>>>> Stashed changes
 			Timestamp: time.Now(),
-			Hash:      hashBytes(img),
+			hash:      hashBytes(img),
 		}, nil
 	}
 
@@ -163,7 +136,7 @@ func (m *Monitor) readClipboard() (*ClipboardItem, error) {
 	return TextPayload{
 		Content:   content,
 		Timestamp: time.Now(),
-		Hash:      hashStr(content),
+		hash:      hashStr(content),
 	}, nil
 }
 
@@ -200,16 +173,16 @@ func (m *Monitor) Start() {
 							break
 						}
 					}
-					if skip || m.isDuplicate(v.Hash) {
+					if skip || m.isDuplicate(v.Hash()) {
 						continue
 					}
 
-					m.updateState(v.Hash, v.Preview(), v.Type())
-					go m.enhanceAndSend(v.Content, v.Hash)
+					m.updateState(v.Hash(), v.Preview(), v.Type())
+					go m.enhanceAndSend(v.Content, v.Hash())
 
 				case ImagePayload:
-					if !m.isDuplicate(v.Hash) {
-						m.updateState(v.Hash, v.Preview(), v.Type())
+					if !m.isDuplicate(v.Hash()) {
+						m.updateState(v.Hash(), v.Preview(), v.Type())
 						go m.archiveImage(v)
 					}
 				}
@@ -252,28 +225,20 @@ func (m *Monitor) enhanceAndSend(content string, hash string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
-<<<<<<< Updated upstream
 		// 直接调用，FetchTitle 已支持 context
-=======
->>>>>>> Stashed changes
 		title, err := fetcher.FetchTitle(ctx, content)
 		if err == nil && title != "" {
 			enhanced = fmt.Sprintf("%s\n\n%s", content, title)
 			log.Printf("[INFO] Fetched title for URL")
-<<<<<<< Updated upstream
 		} else {
 			log.Printf("[DEBUG] Failed to fetch title: %v", err)
-=======
-		} else if ctx.Err() != nil {
-			log.Printf("[WARN] Title fetch timed out")
->>>>>>> Stashed changes
 		}
 	}
 
 	item := TextPayload{
 		Content:   enhanced,
 		Timestamp: time.Now(),
-		Hash:      hash,
+		hash:      hash,
 	}
 
 	select {

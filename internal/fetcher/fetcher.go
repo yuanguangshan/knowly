@@ -12,16 +12,11 @@ import (
 // URLRegex 匹配 HTTP/HTTPS URL
 var URLRegex = regexp.MustCompile(`https?://[^\s]+`)
 
-<<<<<<< Updated upstream
 // 包级别正则，避免重复编译
 var (
 	titleRegex      = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 	whitespaceRegex = regexp.MustCompile(`\s+`)
 )
-=======
-// titleRegex 匹配 HTML title 标签
-var titleRegex = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
->>>>>>> Stashed changes
 
 // FetchTitle 从 URL 抓取页面标题
 func FetchTitle(ctx context.Context, url string) (string, error) {

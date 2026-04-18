@@ -143,9 +143,6 @@ func shellEscape(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
-// 包级别正则，避免重复编译
-var whitespaceRegex = regexp.MustCompile(`\s+`)
-
 func (c *Client) MkdirAll(path string) error {
 	session, err := c.sshClient.NewSession()
 	if err != nil {
