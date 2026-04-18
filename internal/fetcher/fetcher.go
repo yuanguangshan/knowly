@@ -1,6 +1,7 @@
 package fetcher
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,7 +14,7 @@ import (
 var URLRegex = regexp.MustCompile(`https?://[^\s]+`)
 
 // FetchTitle 从 URL 抓取页面标题
-func FetchTitle(url string) (string, error) {
+func FetchTitle(ctx context.Context, url string) (string, error) {
 	// 创建 HTTP 客户端，设置超时
 	client := &http.Client{
 		Timeout: 10 * time.Second,
@@ -24,7 +25,7 @@ func FetchTitle(url string) (string, error) {
 	}
 
 	// 创建请求
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}

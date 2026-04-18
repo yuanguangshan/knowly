@@ -70,26 +70,26 @@ func (m *Monitor) hashContent(content string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func (m *Monitor) shouldSync(content string) bool {
+func (m *Monitor) shouldSync(content string) (bool, string) {
 	// 检查长度
 	if len(content) < m.minLength || len(content) > m.maxLength {
-		return false
+		return false, ""
 	}
 
 	// 检查是否包含排除词
 	for _, word := range m.excludeWords {
 		if strings.Contains(content, word) {
-			return false
+			return false, ""
 		}
 	}
 
 	// 检查是否是重复内容 (v1.3.0: 加锁保护)
+	hash := m.hashContent(content)
 	m.mu.RLock()
-	currentHash := m.hashContent(content)
-	isDup := currentHash == m.lastHash
+	isDup := hash == m.lastHash
 	m.mu.RUnlock()
 
-	return !isDup
+	return !isDup, hash
 }
 
 func (m *Monitor) readClipboard() (string, error) {
@@ -120,9 +120,7 @@ func (m *Monitor) Start() {
 					continue
 				}
 
-				if m.shouldSync(content) {
-					hash := m.hashContent(content)
-
+				if ok, hash := m.shouldSync(content); ok {
 					// v1.3.0: 立即更新状态，不阻塞主循环
 					m.mu.Lock()
 					m.lastHash = hash
@@ -148,7 +146,7 @@ func (m *Monitor) enhanceAndSend(content string, hash string) {
 
 		done := make(chan string, 1)
 		go func() {
-			title, err := fetcher.FetchTitle(content)
+			title, err := fetcher.FetchTitle(ctx, content)
 			if err == nil && title != "" {
 				done <- fmt.Sprintf("%s\n\n%s", content, title)
 			} else {
