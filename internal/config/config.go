@@ -11,6 +11,7 @@ type Config struct {
 	SSH          SSHConfig          `json:"ssh"`
 	Clipboard    ClipboardConfig    `json:"clipboard"`
 	Sync         SyncConfig         `json:"sync"`
+	Relay        RelayConfig        `json:"relay"`
 }
 
 type SSHConfig struct {
@@ -33,6 +34,13 @@ type SyncConfig struct {
 	Enabled     bool `json:"enabled"`
 	MaxRetries  int  `json:"max_retries"`
 	RetryDelay  int  `json:"retry_delay_ms"`
+}
+
+type RelayConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Endpoint string `json:"endpoint"`
+	Secret   string `json:"secret"`
+	Interval int    `json:"pull_interval_sec"`
 }
 
 const (
@@ -151,6 +159,12 @@ func DefaultConfig() *Config {
 			Enabled:     true,
 			MaxRetries:  3,
 			RetryDelay:  5000,
+		},
+		Relay: RelayConfig{
+			Enabled:  false,
+			Endpoint: "",
+			Secret:   "",
+			Interval: 5,
 		},
 	}
 }
