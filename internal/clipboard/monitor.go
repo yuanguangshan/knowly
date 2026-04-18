@@ -14,7 +14,6 @@ import (
 
 	xclip "golang.design/x/clipboard"
 	"github.com/yuanguangshan/knas/internal/fetcher"
-	"github.com/yuanguangshan/knas/internal/history"
 )
 
 // 统一载荷接口
@@ -69,7 +68,6 @@ type Monitor struct {
 	itemChan     chan Payload
 	pollInterval time.Duration
 	excludeWords []string
-	historyStore *history.Store
 }
 
 type MonitorConfig struct {
@@ -80,7 +78,7 @@ type MonitorConfig struct {
 	BufferSize   int
 }
 
-func NewMonitor(config MonitorConfig, statusPath string, histStore *history.Store) *Monitor {
+func NewMonitor(config MonitorConfig, statusPath string) *Monitor {
 	if config.MinLength == 0 {
 		config.MinLength = 100
 	}
@@ -102,8 +100,10 @@ func NewMonitor(config MonitorConfig, statusPath string, histStore *history.Stor
 		statusPath:   statusPath,
 		stopChan:     make(chan struct{}),
 		itemChan:     make(chan Payload, config.BufferSize),
-		historyStore: histStore,
 	}
+
+	// 从 status.json 恢复 lastHash，防止重启后重复同步
+	m.loadStatus()
 
 	// 关键：x/clipboard 必须在程序启动时 Init 一次
 	if err := xclip.Init(); err != nil {
@@ -111,6 +111,28 @@ func NewMonitor(config MonitorConfig, statusPath string, histStore *history.Stor
 	}
 
 	return m
+}
+
+// loadStatus 从 status.json 恢复上次的 hash 和状态
+func (m *Monitor) loadStatus() {
+	data, err := os.ReadFile(m.statusPath)
+	if err != nil {
+		return
+	}
+	var status map[string]any
+	if err := json.Unmarshal(data, &status); err != nil {
+		return
+	}
+	if hash, ok := status["hash"].(string); ok && hash != "" {
+		m.lastHash = hash
+		log.Printf("[INFO] Restored lastHash from status: %s", hash[:8]+"...")
+	}
+	if preview, ok := status["preview"].(string); ok {
+		m.lastContent = preview
+	}
+	if typ, ok := status["last_type"].(string); ok {
+		m.lastType = typ
+	}
 }
 
 func (m *Monitor) isDuplicate(hash string) bool {
@@ -246,17 +268,6 @@ func (m *Monitor) enhanceAndSend(content string, hash string) {
 
 	select {
 	case m.itemChan <- item:
-		// 发送成功后异步记录历史
-		if m.historyStore != nil {
-			preview := content
-			if len(preview) > 200 {
-				preview = preview[:200] + "..."
-			}
-			go m.historyStore.Append(history.Entry{
-				Content: preview,
-				Type:    "text",
-			})
-		}
 	default:
 		log.Printf("[WARN] Item channel full, dropping item")
 	}
@@ -264,18 +275,9 @@ func (m *Monitor) enhanceAndSend(content string, hash string) {
 
 func (m *Monitor) archiveImage(img ImagePayload) {
 	log.Printf("[INFO] Image detected (%d bytes), sending to sync", len(img.Data))
-	
-	// 发送到 Channel 供主程序消费
+
 	select {
 	case m.itemChan <- img:
-		// 发送成功后异步记录历史
-		if m.historyStore != nil {
-			go m.historyStore.Append(history.Entry{
-				Content:   fmt.Sprintf("[IMAGE] %d bytes", len(img.Data)),
-				Type:      "image",
-				Timestamp: img.Timestamp,
-			})
-		}
 	default:
 		log.Printf("[WARN] Image channel full, dropping")
 	}

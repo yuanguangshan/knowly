@@ -2,6 +2,8 @@ package ssh
 
 import (
 	"bytes"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
@@ -203,12 +205,46 @@ func (c *Client) WriteFile(path string, content string) error {
 	return nil
 }
 
+// contentHash 返回内容的 MD5 哈希十六进制串
+func contentHash(data []byte) string {
+	h := md5.Sum(data)
+	return hex.EncodeToString(h[:])
+}
+
+// ExistsByHash 检查远程当天目录中是否已存在包含指定哈希的文件
+func (c *Client) ExistsByHash(relPath, hash string) bool {
+	session, err := c.sshClient.NewSession()
+	if err != nil {
+		return false
+	}
+	defer session.Close()
+
+	dirPath := c.expandPath(filepath.Join(c.config.BasePath, relPath))
+	// 用 grep -rl 在当天目录中搜索包含哈希标记的文件
+	cmd := fmt.Sprintf("grep -rl 'content_hash: %s' %s 2>/dev/null | head -1", hash, shellEscape(dirPath))
+
+	output, err := session.Output(cmd)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(output)) != ""
+}
+
 func (c *Client) SyncItem(content string, timestamp time.Time) (string, error) {
-	// 生成路径：~/knas_archive/YYYY/MM/DD/HHMMSS_前N字符.md
 	year := timestamp.Format("2006")
 	month := timestamp.Format("01")
 	day := timestamp.Format("02")
 	timeStr := timestamp.Format("150405")
+
+	// 计算内容哈希，用于去重
+	hash := contentHash([]byte(content))
+	relPath := filepath.Join(year, month, day)
+
+	// 检查远程当天目录中是否已有相同内容
+	if c.ExistsByHash(relPath, hash) {
+		log.Printf("[INFO] Duplicate content skipped (hash: %s)", hash[:8])
+		return "", nil
+	}
 
 	// 从配置获取前缀长度，默认为 20
 	prefixLength := c.config.FilenamePrefixLength
@@ -219,7 +255,6 @@ func (c *Client) SyncItem(content string, timestamp time.Time) (string, error) {
 	// 提取前 N 个字符作为文件名
 	prefix := extractContentPrefix(content, prefixLength)
 
-	relPath := filepath.Join(year, month, day)
 	fileName := fmt.Sprintf("%s_%s.md", timeStr, prefix)
 	fullPath := filepath.Join(c.config.BasePath, relPath, fileName)
 
@@ -228,8 +263,8 @@ func (c *Client) SyncItem(content string, timestamp time.Time) (string, error) {
 		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// 准备文件内容
-	fileContent := c.formatContent(content, timestamp)
+	// 准备文件内容（包含 content_hash 用于后续去重）
+	fileContent := c.formatContent(content, timestamp, hash)
 
 	// 写入文件
 	if err := c.WriteFile(fullPath, fileContent); err != nil {
@@ -274,14 +309,16 @@ func extractContentPrefix(content string, n int) string {
 	return prefix
 }
 
-func (c *Client) formatContent(content string, timestamp time.Time) string {
+func (c *Client) formatContent(content string, timestamp time.Time, hash string) string {
 	return fmt.Sprintf(`---
 sync_time: %s
 source: clipboard
+content_hash: %s
 ---
 
 %s`,
 		timestamp.Format("2006-01-02 15:04:05"),
+		hash,
 		content)
 }
 
@@ -310,14 +347,23 @@ func (c *Client) TestConnection() error {
 
 // SyncImage 同步图片到远程服务器
 func (c *Client) SyncImage(data []byte, timestamp time.Time) (string, error) {
-	// 生成路径：~/knas_archive/YYYY/MM/DD/HHMMSS_image.png
 	year := timestamp.Format("2006")
 	month := timestamp.Format("01")
 	day := timestamp.Format("02")
 	timeStr := timestamp.Format("150405")
 
+	// 计算图片哈希用于去重
+	hash := contentHash(data)
 	relPath := filepath.Join(year, month, day)
-	fileName := fmt.Sprintf("%s_image.png", timeStr)
+
+	// 检查远程当天目录中是否已有相同图片（通过文件名中的哈希前缀判断）
+	if c.imageExistsByHash(relPath, hash[:8]) {
+		log.Printf("[INFO] Duplicate image skipped (hash: %s)", hash[:8])
+		return "", nil
+	}
+
+	// 图片文件名中包含哈希前8位，用于后续去重判断
+	fileName := fmt.Sprintf("%s_%s_image.png", timeStr, hash[:8])
 	fullPath := filepath.Join(c.config.BasePath, relPath, fileName)
 
 	// 创建目录
@@ -332,6 +378,24 @@ func (c *Client) SyncImage(data []byte, timestamp time.Time) (string, error) {
 
 	log.Printf("[INFO] Synced image to remote: %s", fullPath)
 	return fullPath, nil
+}
+
+// imageExistsByHash 检查远程当天目录中是否存在包含指定哈希前缀的图片文件
+func (c *Client) imageExistsByHash(relPath, hashPrefix string) bool {
+	session, err := c.sshClient.NewSession()
+	if err != nil {
+		return false
+	}
+	defer session.Close()
+
+	dirPath := c.expandPath(filepath.Join(c.config.BasePath, relPath))
+	cmd := fmt.Sprintf("ls %s/*_%s_image.png 2>/dev/null | head -1", shellEscape(dirPath), hashPrefix)
+
+	output, err := session.Output(cmd)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(output)) != ""
 }
 
 // WriteBinary 二进制安全写入

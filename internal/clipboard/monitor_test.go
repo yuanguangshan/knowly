@@ -38,7 +38,7 @@ func TestHashImage(t *testing.T) {
 }
 
 func TestNewMonitorDefaults(t *testing.T) {
-	m := NewMonitor(MonitorConfig{}, "", nil)
+	m := NewMonitor(MonitorConfig{}, "")
 	if m.minLength != 100 {
 		t.Errorf("expected default minLength 100, got %d", m.minLength)
 	}

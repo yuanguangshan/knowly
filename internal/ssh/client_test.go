@@ -205,7 +205,7 @@ func TestFormatContent(t *testing.T) {
 	client := &Client{config: &Config{}}
 	ts := time.Date(2026, 4, 18, 13, 45, 30, 0, time.Local)
 
-	result := client.formatContent("hello world", ts)
+	result := client.formatContent("hello world", ts, "abc123def")
 
 	if !strings.Contains(result, "sync_time: 2026-04-18 13:45:30") {
 		t.Errorf("formatContent missing sync_time: %q", result)
@@ -215,6 +215,25 @@ func TestFormatContent(t *testing.T) {
 	}
 	if !strings.Contains(result, "hello world") {
 		t.Errorf("formatContent missing content: %q", result)
+	}
+	if !strings.Contains(result, "content_hash: abc123def") {
+		t.Errorf("formatContent missing content_hash: %q", result)
+	}
+}
+
+func TestContentHash(t *testing.T) {
+	h1 := contentHash([]byte("hello"))
+	h2 := contentHash([]byte("hello"))
+	h3 := contentHash([]byte("world"))
+
+	if h1 != h2 {
+		t.Error("same content should produce same hash")
+	}
+	if h1 == h3 {
+		t.Error("different content should produce different hash")
+	}
+	if len(h1) != 32 {
+		t.Errorf("expected 32-char hex hash, got %d chars", len(h1))
 	}
 }
 
@@ -232,18 +251,20 @@ func TestSyncImagePathGeneration(t *testing.T) {
 	month := ts.Format("01")
 	day := ts.Format("02")
 
-	fileName := timeStr + "_image.png"
-	if fileName != "093015_image.png" {
-		t.Errorf("image filename = %q, want 093015_image.png", fileName)
-	}
-
 	relPath := year + "/" + month + "/" + day
 	if relPath != "2026/04/18" {
 		t.Errorf("relPath = %q, want 2026/04/18", relPath)
 	}
 
+	// 验证图片路径包含哈希前缀（新增去重逻辑后文件名格式变了）
+	testHash := contentHash([]byte("test image data"))
+	fileName := timeStr + "_" + testHash[:8] + "_image.png"
+	if !strings.Contains(fileName, testHash[:8]) {
+		t.Errorf("image filename should contain hash prefix, got %q", fileName)
+	}
+
 	expanded := client.expandPath("~/knas_archive/" + relPath + "/" + fileName)
-	if expanded != "/home/root/knas_archive/2026/04/18/093015_image.png" {
-		t.Errorf("expanded path = %q", expanded)
+	if !strings.Contains(expanded, testHash[:8]) {
+		t.Errorf("expanded path should contain hash prefix, got %q", expanded)
 	}
 }

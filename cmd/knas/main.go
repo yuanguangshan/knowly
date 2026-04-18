@@ -26,15 +26,22 @@ func main() {
 	}
 
 	// 2. 初始化组件
-	client := ssh.NewClient(&cfg.SSH)
+	client := ssh.NewClient(&ssh.Config{
+		Host:                 cfg.SSH.Host,
+		Port:                 cfg.SSH.Port,
+		User:                 cfg.SSH.User,
+		KeyPath:              cfg.SSH.KeyPath,
+		BasePath:             cfg.SSH.BasePath,
+		FilenamePrefixLength: cfg.SSH.FilenamePrefixLength,
+	})
 	histStore := history.NewStore(config.GetConfigDir())
-	
+
 	mon := clipboard.NewMonitor(clipboard.MonitorConfig{
 		MinLength:    cfg.Clipboard.MinLength,
 		MaxLength:    cfg.Clipboard.MaxLength,
 		PollInterval: time.Duration(cfg.Clipboard.PollInterval) * time.Millisecond,
 		ExcludeWords: cfg.Clipboard.ExcludeWords,
-	}, config.GetConfigDir()+"/status.json", histStore)
+	}, config.GetConfigDir()+"/status.json")
 
 	// 3. 处理 CLI 命令
 	if len(os.Args) > 1 {
@@ -124,6 +131,12 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 		return
 	}
 
+	// nasPath 为空表示内容被去重跳过，不记录历史
+	if nasPath == "" {
+		log.Printf("[INFO] Duplicate skipped, no history entry")
+		return
+	}
+
 	// 同步成功 -> 记录历史（含 NASPath）
 	histStore.Append(history.Entry{
 		Content: entryContent,
@@ -152,6 +165,11 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 
 	if err != nil {
 		log.Printf("[ERROR] Relay sync failed: %v", err)
+		return
+	}
+
+	if nasPath == "" {
+		log.Printf("[INFO] Relay duplicate skipped")
 		return
 	}
 
