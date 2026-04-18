@@ -14,6 +14,7 @@ import (
 
 	xclip "golang.design/x/clipboard"
 	"github.com/yuanguangshan/knas/internal/fetcher"
+	"github.com/yuanguangshan/knas/internal/history"
 )
 
 // 统一载荷接口
@@ -68,6 +69,7 @@ type Monitor struct {
 	itemChan     chan Payload
 	pollInterval time.Duration
 	excludeWords []string
+	historyStore *history.Store
 }
 
 type MonitorConfig struct {
@@ -78,7 +80,7 @@ type MonitorConfig struct {
 	BufferSize   int
 }
 
-func NewMonitor(config MonitorConfig, statusPath string) *Monitor {
+func NewMonitor(config MonitorConfig, statusPath string, histStore *history.Store) *Monitor {
 	if config.MinLength == 0 {
 		config.MinLength = 100
 	}
@@ -100,6 +102,7 @@ func NewMonitor(config MonitorConfig, statusPath string) *Monitor {
 		statusPath:   statusPath,
 		stopChan:     make(chan struct{}),
 		itemChan:     make(chan Payload, config.BufferSize),
+		historyStore: histStore,
 	}
 
 	// 关键：x/clipboard 必须在程序启动时 Init 一次
@@ -243,6 +246,17 @@ func (m *Monitor) enhanceAndSend(content string, hash string) {
 
 	select {
 	case m.itemChan <- item:
+		// 发送成功后异步记录历史
+		if m.historyStore != nil {
+			preview := content
+			if len(preview) > 200 {
+				preview = preview[:200] + "..."
+			}
+			go m.historyStore.Append(history.Entry{
+				Content: preview,
+				Type:    "text",
+			})
+		}
 	default:
 		log.Printf("[WARN] Item channel full, dropping item")
 	}
@@ -254,6 +268,14 @@ func (m *Monitor) archiveImage(img ImagePayload) {
 	// 发送到 Channel 供主程序消费
 	select {
 	case m.itemChan <- img:
+		// 发送成功后异步记录历史
+		if m.historyStore != nil {
+			go m.historyStore.Append(history.Entry{
+				Content:   fmt.Sprintf("[IMAGE] %d bytes", len(img.Data)),
+				Type:      "image",
+				Timestamp: img.Timestamp,
+			})
+		}
 	default:
 		log.Printf("[WARN] Image channel full, dropping")
 	}
