@@ -1,6 +1,7 @@
 package clipboard
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -20,6 +21,7 @@ type ClipboardItem struct {
 }
 
 type Monitor struct {
+	mu            sync.RWMutex // v1.3.0: 并发安全锁
 	lastHash      string
 	lastContent   string
 	minLength     int
@@ -70,31 +72,24 @@ func (m *Monitor) hashContent(content string) string {
 
 func (m *Monitor) shouldSync(content string) bool {
 	// 检查长度
-	if len(content) < m.minLength {
-		return false
-	}
-
-	// 检查最大长度
-	if len(content) > m.maxLength {
-		log.Printf("[DEBUG] Content too large: %d bytes (max: %d)", len(content), m.maxLength)
+	if len(content) < m.minLength || len(content) > m.maxLength {
 		return false
 	}
 
 	// 检查是否包含排除词
 	for _, word := range m.excludeWords {
 		if strings.Contains(content, word) {
-			log.Printf("[DEBUG] Content excluded due to keyword: %s", word)
 			return false
 		}
 	}
 
-	// 检查是否是重复内容
+	// 检查是否是重复内容 (v1.3.0: 加锁保护)
+	m.mu.RLock()
 	currentHash := m.hashContent(content)
-	if currentHash == m.lastHash {
-		return false
-	}
+	isDup := currentHash == m.lastHash
+	m.mu.RUnlock()
 
-	return true
+	return !isDup
 }
 
 func (m *Monitor) readClipboard() (string, error) {
@@ -122,42 +117,67 @@ func (m *Monitor) Start() {
 			case <-ticker.C:
 				content, err := m.readClipboard()
 				if err != nil {
-					log.Printf("[ERROR] Failed to read clipboard: %v", err)
 					continue
 				}
 
 				if m.shouldSync(content) {
-					m.lastHash = m.hashContent(content)
+					hash := m.hashContent(content)
+
+					// v1.3.0: 立即更新状态，不阻塞主循环
+					m.mu.Lock()
+					m.lastHash = hash
 					m.lastContent = content
+					m.mu.Unlock()
 
-					// 如果是 URL，尝试抓取标题
-					enhancedContent := content
-					if fetcher.IsURL(content) {
-						title, err := fetcher.FetchTitle(content)
-						if err == nil && title != "" {
-							enhancedContent = fmt.Sprintf("%s\n\n%s", content, title)
-							log.Printf("[INFO] Fetched title for URL: %s", title)
-						} else {
-							log.Printf("[DEBUG] Failed to fetch title: %v", err)
-						}
-					}
+					log.Printf("[INFO] New clipboard item detected: %s (length: %d)", hash[:8], len(content))
 
-					item := ClipboardItem{
-						Content:   enhancedContent,
-						Timestamp: time.Now(),
-						Hash:      m.lastHash,
-					}
-
-					select {
-					case m.itemChan <- item:
-						log.Printf("[INFO] New clipboard item detected: %s (length: %d)", m.lastHash[:8], len(content))
-					default:
-						log.Printf("[WARN] Item channel full, dropping item")
-					}
+					// v1.3.0: 异步增强，主循环瞬间回归监听
+					go m.enhanceAndSend(content, hash)
 				}
 			}
 		}
 	}()
+}
+
+// v1.3.0: 独立的增强逻辑，包含超时控制
+func (m *Monitor) enhanceAndSend(content string, hash string) {
+	enhanced := content
+	if fetcher.IsURL(content) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		done := make(chan string, 1)
+		go func() {
+			title, err := fetcher.FetchTitle(content)
+			if err == nil && title != "" {
+				done <- fmt.Sprintf("%s\n\n%s", content, title)
+			} else {
+				done <- ""
+			}
+		}()
+
+		select {
+		case res := <-done:
+			if res != "" {
+				enhanced = res
+				log.Printf("[INFO] Fetched title for URL")
+			}
+		case <-ctx.Done():
+			log.Printf("[WARN] Title fetch timed out")
+		}
+	}
+
+	item := ClipboardItem{
+		Content:   enhanced,
+		Timestamp: time.Now(),
+		Hash:      hash,
+	}
+
+	select {
+	case m.itemChan <- item:
+	default:
+		log.Printf("[WARN] Item channel full, dropping item")
+	}
 }
 
 func (m *Monitor) Stop() {
@@ -170,6 +190,9 @@ func (m *Monitor) Items() <-chan ClipboardItem {
 	return m.itemChan
 }
 
+// v1.3.0: 线程安全的读取
 func (m *Monitor) GetLastContent() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.lastContent
 }

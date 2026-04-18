@@ -3,7 +3,6 @@ package ssh
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -48,7 +47,7 @@ func NewClient(config *Config) *Client {
 func (c *Client) Connect() error {
 	log.Printf("[INFO] Connecting to %s@%s:%s", c.config.User, c.config.Host, c.config.Port)
 
-	key, err := ioutil.ReadFile(c.config.KeyPath)
+	key, err := os.ReadFile(c.config.KeyPath)
 	if err != nil {
 		return fmt.Errorf("unable to read private key: %w", err)
 	}
@@ -136,6 +135,11 @@ func (c *Client) expandPath(path string) string {
 	return path
 }
 
+// shellEscape 安全转义路径，防止空格断裂或 Shell 注入
+func shellEscape(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 func (c *Client) MkdirAll(path string) error {
 	session, err := c.sshClient.NewSession()
 	if err != nil {
@@ -144,7 +148,7 @@ func (c *Client) MkdirAll(path string) error {
 	defer session.Close()
 
 	fullPath := c.expandPath(path)
-	cmd := fmt.Sprintf("mkdir -p %s", fullPath)
+	cmd := fmt.Sprintf("mkdir -p %s", shellEscape(fullPath))
 
 	var stdout, stderr bytes.Buffer
 	session.Stdout = &stdout
@@ -167,7 +171,7 @@ func (c *Client) WriteFile(path string, content string) error {
 
 	fullPath := c.expandPath(path)
 	// 使用 cat 命令写入文件，避免特殊字符问题
-	cmd := fmt.Sprintf("cat > %s", fullPath)
+	cmd := fmt.Sprintf("cat > %s", shellEscape(fullPath))
 
 	stdin, err := session.StdinPipe()
 	if err != nil {
