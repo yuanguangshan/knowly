@@ -268,6 +268,15 @@ func showStatus(cfg *config.Config) {
 		count := strings.Count(string(data), "\n")
 		fmt.Printf("  Total syncs: %d\n", count)
 	}
+	if entries, err := history.NewStore(config.GetConfigDir()).Recent(1); err == nil && len(entries) > 0 {
+		last := entries[0]
+		preview := strings.ReplaceAll(last.Content, "\n", " ")
+		preview = strings.ReplaceAll(preview, "\r", "")
+		if runes := []rune(preview); len(runes) > 50 {
+			preview = string(runes[:47]) + "..."
+		}
+		fmt.Printf("  Last sync: [%s] (%s) %s\n", last.Timestamp.Format("01-02 15:04"), last.Type, preview)
+	}
 }
 
 // handleCLI 处理命令行指令
