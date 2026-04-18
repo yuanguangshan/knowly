@@ -45,7 +45,7 @@ func main() {
 
 	// 3. 处理 CLI 命令
 	if len(os.Args) > 1 {
-		handleCLI(os.Args[1:], histStore)
+		handleCLI(os.Args[1:], cfg, histStore)
 		return
 	}
 
@@ -187,7 +187,7 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 }
 
 // handleCLI 处理命令行指令
-func handleCLI(args []string, histStore *history.Store) {
+func handleCLI(args []string, cfg *config.Config, histStore *history.Store) {
 	cmd := args[0]
 	switch cmd {
 	case "history":
@@ -219,11 +219,39 @@ func handleCLI(args []string, histStore *history.Store) {
 		if err != nil || entry == nil {
 			log.Fatal("Entry not found")
 		}
-		if entry.Type != "text" {
-			log.Fatal("目前仅支持恢复文本内容")
-		}
-		if err := xclip.Write(xclip.FmtText, []byte(entry.Content)); err != nil {
-			log.Fatal(err)
+
+		switch entry.Type {
+		case "text":
+			if err := xclip.Write(xclip.FmtText, []byte(entry.Content)); err != nil {
+				log.Fatal(err)
+			}
+		case "image":
+			if entry.NASPath == "" {
+				log.Fatal("图片记录中缺少远程路径，无法恢复")
+			}
+			// 临时建立 SSH 连接读取远程图片
+			client := ssh.NewClient(&ssh.Config{
+				Host:                 cfg.SSH.Host,
+				Port:                 cfg.SSH.Port,
+				User:                 cfg.SSH.User,
+				KeyPath:              cfg.SSH.KeyPath,
+				BasePath:             cfg.SSH.BasePath,
+				FilenamePrefixLength: cfg.SSH.FilenamePrefixLength,
+			})
+			if err := client.Connect(); err != nil {
+				log.Fatalf("SSH 连接失败: %v", err)
+			}
+			defer client.Disconnect()
+
+			imgData, err := client.ReadFile(entry.NASPath)
+			if err != nil {
+				log.Fatalf("读取远程图片失败: %v", err)
+			}
+			if err := xclip.Write(xclip.FmtImage, imgData); err != nil {
+				log.Fatal(err)
+			}
+		default:
+			log.Fatalf("不支持的类型: %s", entry.Type)
 		}
 		fmt.Printf("✓ 已将记录 %s 恢复到剪贴板\n", id[:14])
 	default:

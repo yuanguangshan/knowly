@@ -398,6 +398,27 @@ func (c *Client) imageExistsByHash(relPath, hashPrefix string) bool {
 	return strings.TrimSpace(string(output)) != ""
 }
 
+// ReadFile 从远程服务器读取文件的二进制内容
+func (c *Client) ReadFile(path string) ([]byte, error) {
+	session, err := c.sshClient.NewSession()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+	defer session.Close()
+
+	fullPath := c.expandPath(path)
+	cmd := fmt.Sprintf("cat %s", shellEscape(fullPath))
+
+	var stderr bytes.Buffer
+	session.Stderr = &stderr
+
+	output, err := session.Output(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %s, stderr: %s", err, stderr.String())
+	}
+	return output, nil
+}
+
 // WriteBinary 二进制安全写入
 func (c *Client) WriteBinary(path string, data []byte) error {
 	session, err := c.sshClient.NewSession()
