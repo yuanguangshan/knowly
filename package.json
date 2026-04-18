@@ -4,14 +4,14 @@
   "description": "Knowledge Async - Clipboard monitor and sync to remote server via SSH",
   "main": "index.js",
   "bin": {
-    "knas": "./bin/cli.js"
+    "knas": "./bin/knas.js"
   },
   "scripts": {
     "install": "node scripts/install.js",
     "postinstall": "node scripts/postinstall.js",
     "preuninstall": "node scripts/preuninstall.js",
     "build": "node scripts/build.js",
-    "start": "node bin/cli.js start",
+    "start": "node bin/knas.js start",
     "prepublishOnly": "npm run build"
   },
   "files": [
