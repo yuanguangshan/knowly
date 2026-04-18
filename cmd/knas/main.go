@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -261,6 +262,11 @@ func showStatus(cfg *config.Config) {
 	if cfg != nil {
 		fmt.Printf("  SSH: %s@%s:%s\n", cfg.SSH.User, cfg.SSH.Host, cfg.SSH.Port)
 		fmt.Printf("  Base Path: %s\n", cfg.SSH.BasePath)
+	}
+	histFile := filepath.Join(config.GetConfigDir(), "history.jsonl")
+	if data, err := os.ReadFile(histFile); err == nil {
+		count := strings.Count(string(data), "\n")
+		fmt.Printf("  Total syncs: %d\n", count)
 	}
 }
 
