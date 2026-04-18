@@ -5,11 +5,9 @@ import (
 )
 
 func TestHashContent(t *testing.T) {
-	m := &Monitor{}
-
-	hash1 := m.hashContent("hello")
-	hash2 := m.hashContent("hello")
-	hash3 := m.hashContent("world")
+	hash1 := hashStr("hello")
+	hash2 := hashStr("hello")
+	hash3 := hashStr("world")
 
 	if hash1 != hash2 {
 		t.Error("same content should produce same hash")
@@ -23,15 +21,13 @@ func TestHashContent(t *testing.T) {
 }
 
 func TestHashImage(t *testing.T) {
-	m := &Monitor{}
-
 	data1 := []byte{1, 2, 3}
 	data2 := []byte{1, 2, 3}
 	data3 := []byte{4, 5, 6}
 
-	hash1 := m.hashImage(data1)
-	hash2 := m.hashImage(data2)
-	hash3 := m.hashImage(data3)
+	hash1 := hashBytes(data1)
+	hash2 := hashBytes(data2)
+	hash3 := hashBytes(data3)
 
 	if hash1 != hash2 {
 		t.Error("same data should produce same hash")
@@ -42,7 +38,7 @@ func TestHashImage(t *testing.T) {
 }
 
 func TestNewMonitorDefaults(t *testing.T) {
-	m := NewMonitor(MonitorConfig{})
+	m := NewMonitor(MonitorConfig{}, "", nil)
 	if m.minLength != 100 {
 		t.Errorf("expected default minLength 100, got %d", m.minLength)
 	}

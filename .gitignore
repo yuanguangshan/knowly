@@ -43,3 +43,6 @@ yarn-error.log*
 
 # User config
 .knas/
+
+# Generated snapshots
+project_snapshot.md
