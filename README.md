@@ -79,17 +79,21 @@ knas log -f       # 实时跟踪日志
 
 ## macOS 系统服务
 
-安装为 LaunchAgent 后，knas 会在登录时自动启动：
+安装为 LaunchAgent 后，knas 会在登录时自动启动，崩溃自动重启：
 
 ```bash
-# 安装服务
-knas service install
+# 停止服务
+launchctl unload ~/Library/LaunchAgents/com.knas.daemon.plist
 
-# 加载服务
+# 启动服务
 launchctl load ~/Library/LaunchAgents/com.knas.daemon.plist
 
-# 卸载服务
+# 查看状态
+launchctl list | grep knas
+
+# 卸载服务（不再开机自启）
 launchctl unload ~/Library/LaunchAgents/com.knas.daemon.plist
+rm ~/Library/LaunchAgents/com.knas.daemon.plist
 ```
 
 ## 配置文件

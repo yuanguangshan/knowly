@@ -83,14 +83,18 @@ knas config --edit
 ### 系统服务
 
 ```bash
-# 安装为 macOS 系统服务
-knas service install
+# 停止服务
+launchctl unload ~/Library/LaunchAgents/com.knas.daemon.plist
 
-# 加载服务
+# 启动服务
 launchctl load ~/Library/LaunchAgents/com.knas.daemon.plist
 
-# 卸载服务
+# 查看状态
+launchctl list | grep knas
+
+# 卸载服务（不再开机自启）
 launchctl unload ~/Library/LaunchAgents/com.knas.daemon.plist
+rm ~/Library/LaunchAgents/com.knas.daemon.plist
 ```
 
 ## 工作流程
