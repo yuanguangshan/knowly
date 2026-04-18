@@ -4,51 +4,86 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
+	xclip "golang.design/x/clipboard"
 	"github.com/yuanguangshan/knas/internal/fetcher"
-	"golang.design/x/clipboard"
 )
 
-type ClipboardItem struct {
+// 统一载荷接口
+type Payload interface {
+	isPayload()
+	Hash() string
+	Type() string
+	Preview() string
+}
+
+type TextPayload struct {
 	Content   string
 	Timestamp time.Time
 	Hash      string
-	IsImage   bool
-	ImageData []byte
+}
+
+type ImagePayload struct {
+	Data      []byte
+	Timestamp time.Time
+	Hash      string
+}
+
+func (TextPayload) isPayload()  {}
+func (ImagePayload) isPayload() {}
+func (t TextPayload) Hash() string { return t.Hash }
+func (i ImagePayload) Hash() string { return i.Hash }
+func (TextPayload) Type() string  { return "text" }
+func (ImagePayload) Type() string { return "image" }
+func (t TextPayload) Preview() string { return t.Content }
+func (i ImagePayload) Preview() string { return "[IMAGE]" }
+
+// hash 辅助函数
+func hashBytes(b []byte) string {
+	h := md5.Sum(b)
+	return hex.EncodeToString(h[:])
+}
+
+func hashStr(s string) string {
+	return hashBytes([]byte(s))
 }
 
 type Monitor struct {
-	mu            sync.RWMutex // v1.3.0: 并发安全锁
-	lastHash      string
-	lastContent   string
-	minLength     int
-	maxLength     int
-	stopChan      chan struct{}
-	wg            sync.WaitGroup
-	itemChan      chan ClipboardItem
-	pollInterval  time.Duration
-	excludeWords  []string
+	mu           sync.RWMutex
+	lastHash     string
+	lastContent  string
+	lastType     string
+	statusPath   string
+	minLength    int
+	maxLength    int
+	stopChan     chan struct{}
+	wg           sync.WaitGroup
+	itemChan     chan Payload
+	pollInterval time.Duration
+	excludeWords []string
 }
 
 type MonitorConfig struct {
-	MinLength     int
-	MaxLength     int
-	PollInterval  time.Duration
-	ExcludeWords  []string
-	BufferSize    int
+	MinLength    int
+	MaxLength    int
+	PollInterval time.Duration
+	ExcludeWords []string
+	BufferSize   int
 }
 
-func NewMonitor(config MonitorConfig) *Monitor {
+func NewMonitor(config MonitorConfig, statusPath string) *Monitor {
 	if config.MinLength == 0 {
 		config.MinLength = 100
 	}
 	if config.MaxLength == 0 {
-		config.MaxLength = 1024 * 1024 // 1MB 默认值
+		config.MaxLength = 1024 * 1024
 	}
 	if config.PollInterval == 0 {
 		config.PollInterval = 500 * time.Millisecond
@@ -57,75 +92,51 @@ func NewMonitor(config MonitorConfig) *Monitor {
 		config.BufferSize = 10
 	}
 
-	if err := clipboard.Init(); err != nil {
-		log.Printf("[ERROR] Failed to init clipboard: %v", err)
-	}
-
-	return &Monitor{
+	m := &Monitor{
 		minLength:    config.MinLength,
 		maxLength:    config.MaxLength,
 		pollInterval: config.PollInterval,
 		excludeWords: config.ExcludeWords,
+		statusPath:   statusPath,
 		stopChan:     make(chan struct{}),
-		itemChan:     make(chan ClipboardItem, config.BufferSize),
-	}
-}
-
-func (m *Monitor) hashContent(content string) string {
-	hash := md5.Sum([]byte(content))
-	return hex.EncodeToString(hash[:])
-}
-
-func (m *Monitor) hashImage(data []byte) string {
-	hash := md5.Sum(data)
-	return hex.EncodeToString(hash[:])
-}
-
-func (m *Monitor) shouldSync(content string) (bool, string) {
-	// 检查长度
-	if len(content) < m.minLength || len(content) > m.maxLength {
-		return false, ""
+		itemChan:     make(chan Payload, config.BufferSize),
 	}
 
-	// 检查是否包含排除词
-	for _, word := range m.excludeWords {
-		if strings.Contains(content, word) {
-			return false, ""
-		}
+	// 关键：x/clipboard 必须在程序启动时 Init 一次
+	if err := xclip.Init(); err != nil {
+		log.Printf("[WARN] x/clipboard init failed: %v", err)
 	}
 
-	// 检查是否是重复内容 (v1.3.0: 加锁保护)
-	hash := m.hashContent(content)
+	return m
+}
+
+func (m *Monitor) isDuplicate(hash string) bool {
 	m.mu.RLock()
-	isDup := hash == m.lastHash
-	m.mu.RUnlock()
-
-	return !isDup, hash
+	defer m.mu.RUnlock()
+	return hash == m.lastHash
 }
 
-func (m *Monitor) readClipboard() (*ClipboardItem, error) {
-	// 1. 优先尝试读取图片
-	imgData := clipboard.Read(clipboard.FmtImage)
-	if len(imgData) > 0 {
-		return &ClipboardItem{
-			IsImage:   true,
-			ImageData: imgData,
+func (m *Monitor) readPayload() (Payload, error) {
+	// 1. 优先图片
+	img := xclip.Read(xclip.FmtImage)
+	if len(img) > 0 {
+		return ImagePayload{
+			Data:      img,
 			Timestamp: time.Now(),
-			Hash:      m.hashImage(imgData),
+			Hash:      hashBytes(img),
 		}, nil
 	}
 
-	// 2. 回退读取文本
-	txtData := clipboard.Read(clipboard.FmtText)
-	if len(txtData) == 0 {
-		return nil, fmt.Errorf("clipboard empty")
+	// 2. 回退文本
+	txt := xclip.Read(xclip.FmtText)
+	content := string(txt)
+	if content == "" {
+		return nil, fmt.Errorf("empty clipboard")
 	}
-
-	content := string(txtData)
-	return &ClipboardItem{
+	return TextPayload{
 		Content:   content,
 		Timestamp: time.Now(),
-		Hash:      m.hashContent(content),
+		Hash:      hashStr(content),
 	}, nil
 }
 
@@ -144,79 +155,87 @@ func (m *Monitor) Start() {
 				log.Println("[INFO] Clipboard monitor stopped")
 				return
 			case <-ticker.C:
-				item, err := m.readClipboard()
+				payload, err := m.readPayload()
 				if err != nil {
 					continue
 				}
 
-				// 检查重复
-				m.mu.RLock()
-				isDup := item.Hash == m.lastHash
-				m.mu.RUnlock()
+				switch v := payload.(type) {
+				case TextPayload:
+					// Inline check: length, exclude words, duplicate
+					if len(v.Content) < m.minLength || len(v.Content) > m.maxLength {
+						continue
+					}
+					skip := false
+					for _, word := range m.excludeWords {
+						if strings.Contains(v.Content, word) {
+							skip = true
+							break
+						}
+					}
+					if skip || m.isDuplicate(v.Hash) {
+						continue
+					}
 
-				if isDup {
-					continue
-				}
+					m.updateState(v.Hash, v.Preview(), v.Type())
+					go m.enhanceAndSend(v.Content, v.Hash)
 
-				// 更新状态
-				m.mu.Lock()
-				m.lastHash = item.Hash
-				if !item.IsImage {
-					m.lastContent = item.Content
-				}
-				m.mu.Unlock()
-
-				log.Printf("[INFO] New item detected: %s (type: %v)", item.Hash[:8], item.IsImage)
-
-				// 分发处理
-				if item.IsImage {
-					go m.emitItem(*item)
-				} else {
-					// 文本需要增强（抓标题）
-					go m.enhanceAndSend(item.Content, item.Hash)
+				case ImagePayload:
+					if !m.isDuplicate(v.Hash) {
+						m.updateState(v.Hash, v.Preview(), v.Type())
+						go m.archiveImage(v)
+					}
 				}
 			}
 		}
 	}()
 }
 
-func (m *Monitor) emitItem(item ClipboardItem) {
-	select {
-	case m.itemChan <- item:
-	default:
-		log.Printf("[WARN] Item channel full, dropping item")
-	}
+func (m *Monitor) updateState(hash, preview, typ string) {
+	m.mu.Lock()
+	m.lastHash = hash
+	m.lastContent = preview
+	m.lastType = typ
+	m.mu.Unlock()
+	m.saveStatus()
 }
 
-// v1.3.0: 独立的增强逻辑，包含超时控制
+func (m *Monitor) saveStatus() {
+	m.mu.RLock()
+	preview := m.lastContent
+	if len(preview) > 50 {
+		preview = preview[:50] + "..."
+	}
+	status := map[string]any{
+		"last_sync": time.Now().Format("2006-01-02 15:04:05"),
+		"last_type": m.lastType,
+		"preview":   preview,
+		"hash":      m.lastHash,
+	}
+	m.mu.RUnlock()
+
+	data, _ := json.MarshalIndent(status, "", "  ")
+	os.WriteFile(m.statusPath, data, 0644)
+}
+
+// 独立的增强逻辑，包含超时控制
 func (m *Monitor) enhanceAndSend(content string, hash string) {
 	enhanced := content
 	if fetcher.IsURL(content) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
-		done := make(chan string, 1)
-		go func() {
-			title, err := fetcher.FetchTitle(ctx, content)
-			if err == nil && title != "" {
-				done <- fmt.Sprintf("%s\n\n%s", content, title)
-			} else {
-				done <- ""
-			}
-		}()
-
-		select {
-		case res := <-done:
-			if res != "" {
-				enhanced = res
-				log.Printf("[INFO] Fetched title for URL")
-			}
-		case <-ctx.Done():
-			log.Printf("[WARN] Title fetch timed out")
+		// 直接调用，FetchTitle 已支持 context
+		title, err := fetcher.FetchTitle(ctx, content)
+		if err == nil && title != "" {
+			enhanced = fmt.Sprintf("%s\n\n%s", content, title)
+			log.Printf("[INFO] Fetched title for URL")
+		} else {
+			log.Printf("[DEBUG] Failed to fetch title: %v", err)
 		}
 	}
 
-	item := ClipboardItem{
+	item := TextPayload{
 		Content:   enhanced,
 		Timestamp: time.Now(),
 		Hash:      hash,
@@ -229,17 +248,29 @@ func (m *Monitor) enhanceAndSend(content string, hash string) {
 	}
 }
 
+func (m *Monitor) archiveImage(img ImagePayload) {
+	// TODO: 调用 sshClient.SyncImage(img.Data, img.Timestamp)
+	log.Printf("[INFO] Image archived (%d bytes), ready to sync", len(img.Data))
+	
+	// 发送到 Channel 供主程序消费
+	select {
+	case m.itemChan <- img:
+	default:
+		log.Printf("[WARN] Image channel full, dropping")
+	}
+}
+
 func (m *Monitor) Stop() {
 	close(m.stopChan)
 	m.wg.Wait()
 	close(m.itemChan)
 }
 
-func (m *Monitor) Items() <-chan ClipboardItem {
+func (m *Monitor) Items() <-chan Payload {
 	return m.itemChan
 }
 
-// v1.3.0: 线程安全的读取
+// 线程安全的读取
 func (m *Monitor) GetLastContent() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

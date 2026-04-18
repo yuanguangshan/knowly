@@ -141,6 +141,9 @@ func shellEscape(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
+// 包级别正则，避免重复编译
+var whitespaceRegex = regexp.MustCompile(`\s+`)
+
 func (c *Client) MkdirAll(path string) error {
 	session, err := c.sshClient.NewSession()
 	if err != nil {
@@ -242,7 +245,7 @@ func (c *Client) SyncItem(content string, timestamp time.Time) error {
 func extractContentPrefix(content string, n int) string {
 	// 清理内容：移除空白字符、换行等
 	content = strings.TrimSpace(content)
-	content = regexp.MustCompile(`\s+`).ReplaceAllString(content, " ")
+	content = whitespaceRegex.ReplaceAllString(content, " ")
 
 	// 提取前 n 个字符
 	runes := []rune(content)
@@ -332,7 +335,7 @@ func (c *Client) SyncImage(data []byte, timestamp time.Time) error {
 	return nil
 }
 
-// WriteBinary 写入二进制文件
+// WriteBinary 二进制安全写入
 func (c *Client) WriteBinary(path string, data []byte) error {
 	session, err := c.sshClient.NewSession()
 	if err != nil {
@@ -356,9 +359,8 @@ func (c *Client) WriteBinary(path string, data []byte) error {
 	}
 
 	if _, err := stdin.Write(data); err != nil {
-		return fmt.Errorf("failed to write binary to stdin: %w", err)
+		return fmt.Errorf("failed to write binary data: %w", err)
 	}
-
 	if err := stdin.Close(); err != nil {
 		return fmt.Errorf("failed to close stdin: %w", err)
 	}
@@ -368,40 +370,4 @@ func (c *Client) WriteBinary(path string, data []byte) error {
 	}
 
 	return nil
-}
-
-// retryWithBackoff 执行带指数退避的函数
-func (c *Client) retryWithBackoff(maxRetries int, baseDelay time.Duration, fn func() error) error {
-	var err error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			// 指数退避 + Jitter
-			delay := baseDelay * time.Duration(1<<uint(attempt-1))
-			jitter := time.Duration(rand.Int63n(int64(delay / 2)))
-			total := delay + jitter
-			log.Printf("[RETRY] Waiting %v before retry %d/%d...", total, attempt, maxRetries)
-			time.Sleep(total)
-		}
-
-		err = fn()
-		if err == nil {
-			return nil
-		}
-		log.Printf("[RETRY] Attempt %d failed: %v", attempt+1, err)
-	}
-	return fmt.Errorf("failed after %d retries: %w", maxRetries, err)
-}
-
-// SyncItemWithRetry 带重试的文本同步
-func (c *Client) SyncItemWithRetry(content string, timestamp time.Time, maxRetries int, baseDelay time.Duration) error {
-	return c.retryWithBackoff(maxRetries, baseDelay, func() error {
-		return c.SyncItem(content, timestamp)
-	})
-}
-
-// SyncImageWithRetry 带重试的图片同步
-func (c *Client) SyncImageWithRetry(data []byte, timestamp time.Time, maxRetries int, baseDelay time.Duration) error {
-	return c.retryWithBackoff(maxRetries, baseDelay, func() error {
-		return c.SyncImage(data, timestamp)
-	})
 }
