@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"log"
-	"math/rand"
 	"net"
 	"os"
 	"path/filepath"
@@ -16,6 +15,9 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
+
+// whitespaceRegex 预编译的正则表达式
+var whitespaceRegex = regexp.MustCompile(`\s+`)
 
 type Config struct {
 	Host                 string

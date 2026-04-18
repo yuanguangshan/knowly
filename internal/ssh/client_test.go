@@ -1,7 +1,9 @@
 package ssh
 
 import (
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestExtractContentPrefix(t *testing.T) {
@@ -172,5 +174,76 @@ func TestNewClient(t *testing.T) {
 				t.Errorf("BasePath = %v, want %v", client.config.BasePath, tt.expected.BasePath)
 			}
 		})
+	}
+}
+
+func TestShellEscape(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "simple path", input: "/home/user/test.md"},
+		{name: "path with spaces", input: "/home/user/my file.md"},
+		{name: "path with single quote", input: "/home/user/it's.md"},
+		{name: "path with semicolon", input: "/tmp/test; rm -rf /"},
+		{name: "path with backtick", input: "/tmp/`whoami`"},
+		{name: "path with dollar", input: "/tmp/$HOME"},
+		{name: "path with pipe", input: "/tmp/a | b"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			escaped := shellEscape(tt.input)
+			if !strings.HasPrefix(escaped, "'") || !strings.HasSuffix(escaped, "'") {
+				t.Errorf("shellEscape(%q) = %q, not quoted", tt.input, escaped)
+			}
+		})
+	}
+}
+
+func TestFormatContent(t *testing.T) {
+	client := &Client{config: &Config{}}
+	ts := time.Date(2026, 4, 18, 13, 45, 30, 0, time.Local)
+
+	result := client.formatContent("hello world", ts)
+
+	if !strings.Contains(result, "sync_time: 2026-04-18 13:45:30") {
+		t.Errorf("formatContent missing sync_time: %q", result)
+	}
+	if !strings.Contains(result, "source: clipboard") {
+		t.Errorf("formatContent missing source: %q", result)
+	}
+	if !strings.Contains(result, "hello world") {
+		t.Errorf("formatContent missing content: %q", result)
+	}
+}
+
+func TestSyncImagePathGeneration(t *testing.T) {
+	client := &Client{
+		config: &Config{
+			User:     "root",
+			BasePath: "~/knas_archive",
+		},
+	}
+	ts := time.Date(2026, 4, 18, 9, 30, 15, 0, time.UTC)
+
+	timeStr := ts.Format("150405")
+	year := ts.Format("2006")
+	month := ts.Format("01")
+	day := ts.Format("02")
+
+	fileName := timeStr + "_image.png"
+	if fileName != "093015_image.png" {
+		t.Errorf("image filename = %q, want 093015_image.png", fileName)
+	}
+
+	relPath := year + "/" + month + "/" + day
+	if relPath != "2026/04/18" {
+		t.Errorf("relPath = %q, want 2026/04/18", relPath)
+	}
+
+	expanded := client.expandPath("~/knas_archive/" + relPath + "/" + fileName)
+	if expanded != "/home/root/knas_archive/2026/04/18/093015_image.png" {
+		t.Errorf("expanded path = %q", expanded)
 	}
 }

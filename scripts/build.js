@@ -28,7 +28,7 @@ targets.forEach(target => {
     ...process.env,
     GOOS: target.goos,
     GOARCH: target.goarch,
-    CGO_ENABLED: '0'
+    CGO_ENABLED: target.goos === 'darwin' ? '1' : '0'
   };
 
   const outputPath = path.join(binDir, target.output);

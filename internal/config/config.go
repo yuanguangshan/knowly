@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 )
@@ -65,7 +64,7 @@ func GetConfigPath() string {
 }
 
 func SetConfigPath(path string) {
-	configPath = path
+	configPath = expandPath(path)
 }
 
 func GetLogPath() string {
@@ -91,14 +90,12 @@ func expandPath(path string) string {
 }
 
 func Load() (*Config, error) {
-	configPath = expandPath(configPath)
-
 	// 检查配置文件是否存在
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("config file not found: %s", configPath)
 	}
 
-	data, err := ioutil.ReadFile(configPath)
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
@@ -116,8 +113,6 @@ func Load() (*Config, error) {
 }
 
 func Save(config *Config) error {
-	configPath = expandPath(configPath)
-
 	// 确保配置目录存在
 	configDir := filepath.Dir(configPath)
 	if err := os.MkdirAll(configDir, 0755); err != nil {
@@ -129,7 +124,7 @@ func Save(config *Config) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := ioutil.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
@@ -161,7 +156,6 @@ func DefaultConfig() *Config {
 }
 
 func IsConfigured() bool {
-	configPath = expandPath(configPath)
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return false
 	}
