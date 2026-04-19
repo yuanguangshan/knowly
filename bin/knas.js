@@ -276,6 +276,13 @@ program
     <string>${LOG_FILE}</string>
     <key>WorkingDirectory</key>
     <string>${CONFIG_DIR}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>GODEBUG</key>
+        <string>netdns=cgo</string>
+    </dict>
+    <key>SessionCreate</key>
+    <true/>
 </dict>
 </plist>`;
 

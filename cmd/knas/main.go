@@ -73,8 +73,19 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := client.Connect(); err != nil {
-		log.Fatalf("SSH connect failed: %v", err)
+	// daemon 模式下无限重试连接，避免 launchd 启动时网络未就绪导致退出
+	for {
+		if err := client.Connect(); err != nil {
+			log.Printf("[WARN] SSH connect failed: %v, retrying in 10s...", err)
+			select {
+			case <-ctx.Done():
+				log.Println("[INFO] knas daemon stopped (during connect retry)")
+				return
+			case <-time.After(10 * time.Second):
+				continue
+			}
+		}
+		break
 	}
 	defer client.Disconnect()
 
