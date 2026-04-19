@@ -25,12 +25,14 @@ function getBinaryPath() {
   const binDir = path.join(__dirname, '..', 'bin');
 
   let binaryName;
-  if (platform === 'darwin') {
+  if (platform === 'darwin' && arch === 'arm64') {
+    binaryName = 'knas-darwin-arm64';
+  } else if (platform === 'darwin') {
     binaryName = 'knas-darwin';
   } else if (platform === 'linux') {
     binaryName = 'knas-linux';
   } else {
-    throw new Error(`Unsupported platform: ${platform}`);
+    throw new Error(`Unsupported platform: ${platform}-${arch}`);
   }
 
   return path.join(binDir, binaryName);
