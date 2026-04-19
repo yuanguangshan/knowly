@@ -86,6 +86,8 @@ function execBinary(args = [], detached = false) {
 
   const options = { stdio: 'inherit' };
   if (detached) {
+    const logFd = fs.openSync(LOG_FILE, 'a');
+    options.stdio = ['ignore', logFd, logFd];
     options.detached = true;
     options.windowsHide = true;
   }

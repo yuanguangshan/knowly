@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -235,7 +236,7 @@ func (s *Store) Find(id string) (*Entry, error) {
 	scanner.Buffer(buf, 2*1024*1024)
 	for scanner.Scan() {
 		var e Entry
-		if json.Unmarshal(scanner.Bytes(), &e) == nil && e.ID == id {
+		if json.Unmarshal(scanner.Bytes(), &e) == nil && (e.ID == id || strings.HasPrefix(e.ID, id)) {
 			return &e, nil
 		}
 	}
