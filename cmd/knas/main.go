@@ -15,6 +15,7 @@ import (
 	"github.com/yuanguangshan/knas/internal/clipboard"
 	"github.com/yuanguangshan/knas/internal/config"
 	"github.com/yuanguangshan/knas/internal/history"
+	"github.com/yuanguangshan/knas/internal/publisher"
 	"github.com/yuanguangshan/knas/internal/relay"
 	"github.com/yuanguangshan/knas/internal/retry"
 	"github.com/yuanguangshan/knas/internal/ssh"
@@ -184,6 +185,11 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 		NASPath: nasPath,
 	})
 	log.Printf("[INFO] Synced & Archived (%s): %s", entryType, nasPath)
+
+	// 文本内容同步成功后，异步推送到已启用的外部渠道（Blog/Podcast/IMA）
+	if entryType == "text" {
+		publisher.PublishIfNeeded(cfg, entryContent)
+	}
 }
 
 // syncAndArchiveText 处理来自 Relay 的文本同步

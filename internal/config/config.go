@@ -12,6 +12,9 @@ type Config struct {
 	Clipboard    ClipboardConfig    `json:"clipboard"`
 	Sync         SyncConfig         `json:"sync"`
 	Relay        RelayConfig        `json:"relay"`
+	Blog         BlogConfig         `json:"blog"`
+	Podcast      PodcastConfig      `json:"podcast"`
+	IMA          IMAConfig          `json:"ima"`
 }
 
 type SSHConfig struct {
@@ -41,6 +44,26 @@ type RelayConfig struct {
 	Endpoint string `json:"endpoint"`
 	Secret   string `json:"secret"`
 	Interval int    `json:"pull_interval_sec"`
+}
+
+type BlogConfig struct {
+	Enabled bool   `json:"enabled"`
+	APIURL  string `json:"api_url"`
+	Tags    string `json:"tags"`
+}
+
+type PodcastConfig struct {
+	Enabled bool   `json:"enabled"`
+	APIURL  string `json:"api_url"`
+	AppID   string `json:"app_id"`
+}
+
+type IMAConfig struct {
+	Enabled  bool   `json:"enabled"`
+	APIURL   string `json:"api_url"`
+	ClientID string `json:"client_id"`
+	APIKey   string `json:"api_key"`
+	FolderID string `json:"folder_id"`
 }
 
 const (
@@ -117,6 +140,20 @@ func Load() (*Config, error) {
 	config.SSH.KeyPath = expandPath(config.SSH.KeyPath)
 	config.SSH.BasePath = expandPath(config.SSH.BasePath)
 
+	// 补全默认 API URL
+	if config.Blog.APIURL == "" {
+		config.Blog.APIURL = "https://api.yuangs.cc"
+	}
+	if config.Podcast.APIURL == "" {
+		config.Podcast.APIURL = "https://api.yuangs.cc"
+	}
+	if config.Podcast.AppID == "" {
+		config.Podcast.AppID = "nanobot-podcast-publisher"
+	}
+	if config.IMA.APIURL == "" {
+		config.IMA.APIURL = "https://ima.qq.com/openapi/note/v1"
+	}
+
 	return &config, nil
 }
 
@@ -165,6 +202,23 @@ func DefaultConfig() *Config {
 			Endpoint: "",
 			Secret:   "",
 			Interval: 5,
+		},
+		Blog: BlogConfig{
+			Enabled: false,
+			APIURL:  "https://api.yuangs.cc",
+			Tags:    "",
+		},
+		Podcast: PodcastConfig{
+			Enabled: false,
+			APIURL:  "https://api.yuangs.cc",
+			AppID:   "nanobot-podcast-publisher",
+		},
+		IMA: IMAConfig{
+			Enabled:  false,
+			APIURL:   "https://ima.qq.com/openapi/note/v1",
+			ClientID: "",
+			APIKey:   "",
+			FolderID: "",
 		},
 	}
 }
