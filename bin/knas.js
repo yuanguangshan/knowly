@@ -5,7 +5,7 @@ const inquirer = require('inquirer');
 const chalk = require('chalk');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const os = require('os');
 
 program
@@ -116,6 +116,7 @@ program
       },
       clipboard: {
         min_length: 100,
+        max_length: 1048576,
         poll_interval_ms: 500,
         exclude_words: ['password', '密码', 'token']
       },
@@ -249,7 +250,7 @@ program
 // 服务安装命令
 program
   .command('service install')
-  .description('Install knas as macOS LaunchAgent')
+  .description('Install knas as macOS Login Item (auto-start on login)')
   .action(() => {
     if (!isConfigured()) {
       console.error(chalk.red('Error: knas is not configured'));
@@ -257,48 +258,74 @@ program
       process.exit(1);
     }
 
-    const plistContent = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.knas.daemon</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>${getBinaryPath()}</string>
-        <string>--daemon</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>${LOG_FILE}</string>
-    <key>StandardErrorPath</key>
-    <string>${LOG_FILE}</string>
-    <key>WorkingDirectory</key>
-    <string>${CONFIG_DIR}</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>GODEBUG</key>
-        <string>netdns=cgo</string>
-    </dict>
-    <key>SessionCreate</key>
-    <true/>
-</dict>
-</plist>`;
-
+    // 清理旧的 LaunchAgent（如果存在）
     const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.knas.daemon.plist');
+    if (fs.existsSync(plistPath)) {
+      try {
+        execSync('launchctl unload ~/Library/LaunchAgents/com.knas.daemon.plist 2>/dev/null');
+      } catch (e) { /* ignore */ }
+      fs.unlinkSync(plistPath);
+      console.log(chalk.gray('Removed old LaunchAgent'));
+    }
+
+    // 创建 AppleScript Helper App
+    const helperAppPath = path.join(CONFIG_DIR, 'KnasHelper.app');
+    const scriptContent = `on run\ndo shell script "nohup ${getBinaryPath()} --daemon >> ${LOG_FILE} 2>&1 &"\nend run`;
 
     try {
-      fs.writeFileSync(plistPath, plistContent);
-      console.log(chalk.green('✓ LaunchAgent installed at'), plistPath);
-      console.log(chalk.cyan('\nTo load the service, run:'));
-      console.log(chalk.gray('  launchctl load ~/Library/LaunchAgents/com.knas.daemon.plist'));
-      console.log(chalk.cyan('\nTo unload the service, run:'));
-      console.log(chalk.gray('  launchctl unload ~/Library/LaunchAgents/com.knas.daemon.plist'));
+      // 写入临时 .scpt 文件
+      const tmpScript = path.join(os.tmpdir(), 'knas_helper.scpt');
+      fs.writeFileSync(tmpScript, scriptContent);
+      execSync(`osacompile -o "${helperAppPath}" "${tmpScript}"`, { stdio: 'pipe' });
+      fs.unlinkSync(tmpScript);
+
+      // 添加到登录项
+      try {
+        execSync(`osascript -e 'tell application "System Events" to delete login item "KnasHelper"' 2>/dev/null`, { stdio: 'pipe' });
+      } catch (e) { /* not existing, ignore */ }
+      execSync(`osascript -e 'tell application "System Events" to make login item at end with properties {path:"${helperAppPath}", hidden:true}'`, { stdio: 'pipe' });
+
+      console.log(chalk.green('✓ KnasHelper installed as Login Item'));
+      console.log(chalk.gray(`  App: ${helperAppPath}`));
+      console.log(chalk.cyan('\nKnas will auto-start on login.'));
+      console.log(chalk.gray('Run "knas service uninstall" to remove.'));
     } catch (e) {
-      console.error(chalk.red('Error installing LaunchAgent:'), e.message);
+      console.error(chalk.red('Error installing service:'), e.message);
+      process.exit(1);
+    }
+  });
+
+// 服务卸载命令
+program
+  .command('service uninstall')
+  .description('Uninstall knas auto-start service')
+  .action(() => {
+    const helperAppPath = path.join(CONFIG_DIR, 'KnasHelper.app');
+
+    try {
+      // 从登录项移除
+      try {
+        execSync(`osascript -e 'tell application "System Events" to delete login item "KnasHelper"'`, { stdio: 'pipe' });
+        console.log(chalk.green('✓ Removed from Login Items'));
+      } catch (e) {
+        console.log(chalk.yellow('KnasHelper not found in Login Items'));
+      }
+
+      // 删除 Helper App
+      if (fs.existsSync(helperAppPath)) {
+        fs.rmSync(helperAppPath, { recursive: true });
+        console.log(chalk.green('✓ Removed KnasHelper.app'));
+      }
+
+      // 清理旧的 LaunchAgent（如果存在）
+      const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.knas.daemon.plist');
+      if (fs.existsSync(plistPath)) {
+        try { execSync('launchctl unload ~/Library/LaunchAgents/com.knas.daemon.plist 2>/dev/null'); } catch (e) { /* ignore */ }
+        fs.unlinkSync(plistPath);
+        console.log(chalk.green('✓ Removed old LaunchAgent'));
+      }
+    } catch (e) {
+      console.error(chalk.red('Error uninstalling service:'), e.message);
       process.exit(1);
     }
   });

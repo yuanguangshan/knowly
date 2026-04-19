@@ -34,6 +34,14 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// 补全旧配置缺失的默认值
+	if cfg.Clipboard.MaxLength == 0 {
+		cfg.Clipboard.MaxLength = 1024 * 1024 // 1MB
+	}
+	if cfg.Clipboard.MinLength == 0 {
+		cfg.Clipboard.MinLength = 100
+	}
+
 	// 处理 --status
 	if len(os.Args) > 1 && os.Args[1] == "--status" {
 		showStatus(cfg)
