@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -33,7 +34,8 @@ type Config struct {
 type Client struct {
 	config     *Config
 	sshClient  *ssh.Client
-	connected  bool
+	connMu     sync.Mutex // 保护重连逻辑
+	homeDir    string     // 缓存的远程家目录
 }
 
 func NewClient(config *Config) *Client {
@@ -50,6 +52,13 @@ func NewClient(config *Config) *Client {
 }
 
 func (c *Client) Connect() error {
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+	return c.connectLocked()
+}
+
+// connectLocked 建立 SSH 连接（调用方需持有 connMu）
+func (c *Client) connectLocked() error {
 	log.Printf("[INFO] Connecting to %s@%s:%s", c.config.User, c.config.Host, c.config.Port)
 
 	key, err := os.ReadFile(c.config.KeyPath)
@@ -114,7 +123,11 @@ func (c *Client) Connect() error {
 	}
 
 	c.sshClient = client
-	c.connected = true
+
+	// 解析远程家目录（用于 expandPath）
+	if err := c.resolveRemoteHome(); err != nil {
+		log.Printf("[WARN] Failed to resolve remote home: %v", err)
+	}
 
 	log.Println("[INFO] SSH connection established")
 	return nil
@@ -123,19 +136,65 @@ func (c *Client) Connect() error {
 func (c *Client) Disconnect() error {
 	if c.sshClient != nil {
 		err := c.sshClient.Close()
-		c.connected = false
+		c.sshClient = nil
 		return err
 	}
 	return nil
 }
 
-func (c *Client) IsConnected() bool {
-	return c.connected
+// ensureConnected 检查连接存活性，断线时自动重连
+func (c *Client) ensureConnected() error {
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+
+	if c.sshClient != nil {
+		// 用 SendRequest 轻量探活（比 NewSession 开销小一个数量级）
+		_, _, err := c.sshClient.SendRequest("keepalive@openssh.com", true, nil)
+		if err == nil {
+			return nil
+		}
+		// 连接已死，清理后重连
+		c.sshClient.Close()
+		c.sshClient = nil
+		log.Println("[WARN] SSH connection lost, reconnecting...")
+	}
+
+	return c.connectLocked()
+}
+
+// resolveRemoteHome 通过 SSH 获取远程真实家目录并缓存
+func (c *Client) resolveRemoteHome() error {
+	if c.homeDir != "" {
+		return nil
+	}
+	session, err := c.sshClient.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+
+	output, err := session.Output("echo ~")
+	if err != nil {
+		return err
+	}
+	c.homeDir = strings.TrimSpace(string(output))
+	log.Printf("[INFO] Remote home directory: %s", c.homeDir)
+	return nil
 }
 
 func (c *Client) expandPath(path string) string {
 	if strings.HasPrefix(path, "~/") {
+		if c.homeDir != "" {
+			return c.homeDir + path[1:]
+		}
+		// 回退：无法解析远程家目录时使用默认路径
 		return "/home/" + c.config.User + path[1:]
+	}
+	if path == "~" {
+		if c.homeDir != "" {
+			return c.homeDir
+		}
+		return "/home/" + c.config.User
 	}
 	return path
 }
@@ -146,6 +205,10 @@ func shellEscape(s string) string {
 }
 
 func (c *Client) MkdirAll(path string) error {
+	if err := c.ensureConnected(); err != nil {
+		return fmt.Errorf("reconnect failed: %w", err)
+	}
+
 	session, err := c.sshClient.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
@@ -168,6 +231,10 @@ func (c *Client) MkdirAll(path string) error {
 }
 
 func (c *Client) WriteFile(path string, content string) error {
+	if err := c.ensureConnected(); err != nil {
+		return fmt.Errorf("reconnect failed: %w", err)
+	}
+
 	session, err := c.sshClient.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
@@ -213,6 +280,10 @@ func contentHash(data []byte) string {
 
 // ExistsByHash 检查远程当天目录中是否已存在包含指定哈希的文件
 func (c *Client) ExistsByHash(relPath, hash string) bool {
+	if err := c.ensureConnected(); err != nil {
+		return false
+	}
+
 	session, err := c.sshClient.NewSession()
 	if err != nil {
 		return false
@@ -231,6 +302,10 @@ func (c *Client) ExistsByHash(relPath, hash string) bool {
 }
 
 func (c *Client) SyncItem(content string, timestamp time.Time) (string, error) {
+	if err := c.ensureConnected(); err != nil {
+		return "", fmt.Errorf("reconnect failed: %w", err)
+	}
+
 	year := timestamp.Format("2006")
 	month := timestamp.Format("01")
 	day := timestamp.Format("02")
@@ -323,8 +398,8 @@ content_hash: %s
 }
 
 func (c *Client) TestConnection() error {
-	if !c.connected {
-		return fmt.Errorf("not connected")
+	if err := c.ensureConnected(); err != nil {
+		return fmt.Errorf("reconnect failed: %w", err)
 	}
 
 	session, err := c.sshClient.NewSession()
@@ -347,6 +422,10 @@ func (c *Client) TestConnection() error {
 
 // SyncImage 同步图片到远程服务器
 func (c *Client) SyncImage(data []byte, timestamp time.Time) (string, error) {
+	if err := c.ensureConnected(); err != nil {
+		return "", fmt.Errorf("reconnect failed: %w", err)
+	}
+
 	year := timestamp.Format("2006")
 	month := timestamp.Format("01")
 	day := timestamp.Format("02")
@@ -382,6 +461,10 @@ func (c *Client) SyncImage(data []byte, timestamp time.Time) (string, error) {
 
 // imageExistsByHash 检查远程当天目录中是否存在包含指定哈希前缀的图片文件
 func (c *Client) imageExistsByHash(relPath, hashPrefix string) bool {
+	if err := c.ensureConnected(); err != nil {
+		return false
+	}
+
 	session, err := c.sshClient.NewSession()
 	if err != nil {
 		return false
@@ -400,6 +483,10 @@ func (c *Client) imageExistsByHash(relPath, hashPrefix string) bool {
 
 // ReadFile 从远程服务器读取文件的二进制内容
 func (c *Client) ReadFile(path string) ([]byte, error) {
+	if err := c.ensureConnected(); err != nil {
+		return nil, fmt.Errorf("reconnect failed: %w", err)
+	}
+
 	session, err := c.sshClient.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
@@ -409,18 +496,19 @@ func (c *Client) ReadFile(path string) ([]byte, error) {
 	fullPath := c.expandPath(path)
 	cmd := fmt.Sprintf("cat %s", shellEscape(fullPath))
 
-	var stderr bytes.Buffer
-	session.Stderr = &stderr
-
 	output, err := session.Output(cmd)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %s, stderr: %s", err, stderr.String())
+		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 	return output, nil
 }
 
 // WriteBinary 二进制安全写入
 func (c *Client) WriteBinary(path string, data []byte) error {
+	if err := c.ensureConnected(); err != nil {
+		return fmt.Errorf("reconnect failed: %w", err)
+	}
+
 	session, err := c.sshClient.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)

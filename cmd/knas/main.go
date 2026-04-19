@@ -169,6 +169,12 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 
 // syncAndArchiveText 处理来自 Relay 的文本同步
 func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source string, histStore *history.Store) {
+	// Relay 内容同样需要经过过滤检查
+	if clipboard.ShouldFilter(content, cfg.Clipboard.MinLength, cfg.Clipboard.MaxLength, cfg.Clipboard.ExcludeWords) {
+		log.Printf("[INFO] Relay content filtered (length/exclude rules)")
+		return
+	}
+
 	retryCfg := retry.Config{
 		MaxRetries: cfg.Sync.MaxRetries,
 		BaseDelay:  time.Duration(cfg.Sync.RetryDelay) * time.Millisecond,
@@ -210,7 +216,9 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 // writePidFile 将当前进程 PID 写入文件
 func writePidFile() {
 	pidPath := config.GetPidPath()
-	os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644)
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		log.Fatalf("Failed to write PID file %s: %v", pidPath, err)
+	}
 }
 
 // removePidFile 删除 PID 文件

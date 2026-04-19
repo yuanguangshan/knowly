@@ -55,6 +55,20 @@ func hashStr(s string) string {
 	return hashBytes([]byte(s))
 }
 
+// ShouldFilter 检查内容是否应被过滤（长度不足、超出上限、包含敏感词）
+// 导出此函数以便 Relay 等外部路径复用同一过滤逻辑
+func ShouldFilter(content string, minLength, maxLength int, excludeWords []string) bool {
+	if len(content) < minLength || len(content) > maxLength {
+		return true
+	}
+	for _, word := range excludeWords {
+		if strings.Contains(content, word) {
+			return true
+		}
+	}
+	return false
+}
+
 type Monitor struct {
 	mu           sync.RWMutex
 	lastHash     string
@@ -187,18 +201,8 @@ func (m *Monitor) Start() {
 
 				switch v := payload.(type) {
 				case TextPayload:
-					// Inline check: length, exclude words, duplicate
-					if len(v.Content) < m.minLength || len(v.Content) > m.maxLength {
-						continue
-					}
-					skip := false
-					for _, word := range m.excludeWords {
-						if strings.Contains(v.Content, word) {
-							skip = true
-							break
-						}
-					}
-					if skip || m.isDuplicate(v.Hash()) {
+					// 使用统一的过滤函数
+					if ShouldFilter(v.Content, m.minLength, m.maxLength, m.excludeWords) || m.isDuplicate(v.Hash()) {
 						continue
 					}
 
@@ -239,8 +243,14 @@ func (m *Monitor) saveStatus() {
 	}
 	m.mu.RUnlock()
 
-	data, _ := json.MarshalIndent(status, "", "  ")
-	os.WriteFile(m.statusPath, data, 0644)
+	data, err := json.MarshalIndent(status, "", "  ")
+	if err != nil {
+		log.Printf("[WARN] Failed to marshal status: %v", err)
+		return
+	}
+	if err := os.WriteFile(m.statusPath, data, 0644); err != nil {
+		log.Printf("[WARN] Failed to write status file: %v", err)
+	}
 }
 
 // 独立的增强逻辑，包含超时控制

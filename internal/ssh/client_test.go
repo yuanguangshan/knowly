@@ -68,37 +68,69 @@ func TestExtractContentPrefix(t *testing.T) {
 }
 
 func TestExpandPath(t *testing.T) {
-	client := &Client{
-		config: &Config{
-			User: "testuser",
-		},
-	}
-
 	tests := []struct {
 		name     string
+		client   *Client
 		input    string
 		expected string
 	}{
 		{
-			name:     "path with tilde",
+			name: "path with tilde and cached homeDir",
+			client: &Client{
+				config:  &Config{User: "testuser"},
+				homeDir: "/Users/testuser",
+			},
+			input:    "~/test/path",
+			expected: "/Users/testuser/test/path",
+		},
+		{
+			name: "path with tilde fallback to /home",
+			client: &Client{
+				config:  &Config{User: "testuser"},
+				homeDir: "",
+			},
 			input:    "~/test/path",
 			expected: "/home/testuser/test/path",
 		},
 		{
-			name:     "absolute path",
+			name: "root user with cached homeDir",
+			client: &Client{
+				config:  &Config{User: "root"},
+				homeDir: "/root",
+			},
+			input:    "~/knas_archive",
+			expected: "/root/knas_archive",
+		},
+		{
+			name: "absolute path",
+			client: &Client{
+				config: &Config{User: "testuser"},
+			},
 			input:    "/absolute/path",
 			expected: "/absolute/path",
 		},
 		{
-			name:     "relative path",
+			name: "relative path",
+			client: &Client{
+				config: &Config{User: "testuser"},
+			},
 			input:    "relative/path",
 			expected: "relative/path",
+		},
+		{
+			name: "bare tilde",
+			client: &Client{
+				config:  &Config{User: "root"},
+				homeDir: "/root",
+			},
+			input:    "~",
+			expected: "/root",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := client.expandPath(tt.input)
+			result := tt.client.expandPath(tt.input)
 			if result != tt.expected {
 				t.Errorf("expandPath() = %v, want %v", result, tt.expected)
 			}
@@ -237,12 +269,28 @@ func TestContentHash(t *testing.T) {
 	}
 }
 
+func TestEnsureConnected_NoServer(t *testing.T) {
+	client := &Client{
+		config: &Config{
+			Host:    "127.0.0.1",
+			Port:    "1", // 不存在的端口，确保连接失败
+			User:    "test",
+			KeyPath: "/nonexistent/key",
+		},
+	}
+	err := client.ensureConnected()
+	if err == nil {
+		t.Error("expected error when no SSH server available")
+	}
+}
+
 func TestSyncImagePathGeneration(t *testing.T) {
 	client := &Client{
 		config: &Config{
 			User:     "root",
 			BasePath: "~/knas_archive",
 		},
+		homeDir: "/root",
 	}
 	ts := time.Date(2026, 4, 18, 9, 30, 15, 0, time.UTC)
 
@@ -256,15 +304,16 @@ func TestSyncImagePathGeneration(t *testing.T) {
 		t.Errorf("relPath = %q, want 2026/04/18", relPath)
 	}
 
-	// 验证图片路径包含哈希前缀（新增去重逻辑后文件名格式变了）
+	// 验证图片路径包含哈希前缀
 	testHash := contentHash([]byte("test image data"))
 	fileName := timeStr + "_" + testHash[:8] + "_image.png"
 	if !strings.Contains(fileName, testHash[:8]) {
 		t.Errorf("image filename should contain hash prefix, got %q", fileName)
 	}
 
+	// 验证 expandPath 使用缓存的家目录
 	expanded := client.expandPath("~/knas_archive/" + relPath + "/" + fileName)
-	if !strings.Contains(expanded, testHash[:8]) {
-		t.Errorf("expanded path should contain hash prefix, got %q", expanded)
+	if !strings.HasPrefix(expanded, "/root/") {
+		t.Errorf("expanded path should use cached homeDir, got %q", expanded)
 	}
 }

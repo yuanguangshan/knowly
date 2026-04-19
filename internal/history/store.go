@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/google/uuid"
 )
+
+const defaultMaxEntries = 1000
 
 // Entry 历史条目
 type Entry struct {
@@ -23,19 +26,58 @@ type Entry struct {
 
 // Store 历史存储
 type Store struct {
-	path string
-	mu   sync.Mutex
+	path       string
+	mu         sync.Mutex
+	maxEntries int
+	count      int  // 已追踪的条目数
+	counted    bool // 是否已统计过
 }
 
 // NewStore 创建历史存储实例
 func NewStore(dir string) *Store {
-	return &Store{path: filepath.Join(dir, "history.jsonl")}
+	return &Store{
+		path:       filepath.Join(dir, "history.jsonl"),
+		maxEntries: defaultMaxEntries,
+	}
+}
+
+// NewStoreWithLimit 创建带自定义最大条目数的存储实例
+func NewStoreWithLimit(dir string, maxEntries int) *Store {
+	return &Store{
+		path:       filepath.Join(dir, "history.jsonl"),
+		maxEntries: maxEntries,
+	}
+}
+
+// ensureCount 在首次需要时统计文件行数
+// 注意：调用方必须持有 s.mu
+func (s *Store) ensureCount() {
+	if s.counted {
+		return
+	}
+	s.counted = true
+
+	f, err := os.Open(s.path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 2*1024*1024)
+	for scanner.Scan() {
+		s.count++
+	}
 }
 
 // Append 线程安全地追加一条记录
 func (s *Store) Append(entry Entry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// 在写入前统计已有条目数（避免与刚写入的条目重复计数）
+	s.ensureCount()
 
 	f, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -56,12 +98,77 @@ func (s *Store) Append(entry Entry) error {
 		return err
 	}
 
-	_, err = f.Write(append(data, '\n'))
-	return err
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		return err
+	}
+
+	// 跟踪条目数，超过阈值时压缩
+	s.count++
+	if s.count > s.maxEntries*2 {
+		if err := s.compact(); err != nil {
+			log.Printf("[WARN] History compaction failed: %v", err)
+		}
+	}
+
+	return nil
 }
 
-// Recent 返回最近的 n 条记录（倒序：最近的在前面）
-func (s *Store) Recent(n int) ([]Entry, error) {
+// compact 保留最近 maxEntries 条记录，原子写回
+func (s *Store) compact() error {
+	entries, err := s.readAll()
+	if err != nil {
+		return err
+	}
+
+	if len(entries) <= s.maxEntries {
+		return nil
+	}
+
+	// 保留最近 maxEntries 条
+	keep := entries[len(entries)-s.maxEntries:]
+
+	// 写入临时文件
+	tmpPath := s.path + ".tmp"
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+
+	writer := bufio.NewWriter(f)
+	for _, e := range keep {
+		data, err := json.Marshal(e)
+		if err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+		if _, err := writer.Write(append(data, '\n')); err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+	}
+
+	if err := writer.Flush(); err != nil {
+		f.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	f.Close()
+
+	// 原子替换
+	if err := os.Rename(tmpPath, s.path); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+
+	s.count = len(keep)
+	log.Printf("[INFO] History compacted: %d entries remaining", len(keep))
+	return nil
+}
+
+// readAll 读取所有条目（不加锁，调用方需持有锁）
+func (s *Store) readAll() ([]Entry, error) {
 	f, err := os.Open(s.path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -74,7 +181,7 @@ func (s *Store) Recent(n int) ([]Entry, error) {
 	var entries []Entry
 	scanner := bufio.NewScanner(f)
 	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 2*1024*1024) // 允许最大 2MB 单行
+	scanner.Buffer(buf, 2*1024*1024)
 	for scanner.Scan() {
 		var e Entry
 		if err := json.Unmarshal(scanner.Bytes(), &e); err == nil {
@@ -83,6 +190,21 @@ func (s *Store) Recent(n int) ([]Entry, error) {
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("read history error: %w", err)
+	}
+	return entries, nil
+}
+
+// Recent 返回最近的 n 条记录（倒序：最近的在前面）
+func (s *Store) Recent(n int) ([]Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := s.readAll()
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		return nil, nil
 	}
 
 	// 取最后 n 条
@@ -99,6 +221,9 @@ func (s *Store) Recent(n int) ([]Entry, error) {
 
 // Find 根据 ID 精确查找
 func (s *Store) Find(id string) (*Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	f, err := os.Open(s.path)
 	if err != nil {
 		return nil, err
@@ -107,7 +232,7 @@ func (s *Store) Find(id string) (*Entry, error) {
 
 	scanner := bufio.NewScanner(f)
 	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 2*1024*1024) // 允许最大 2MB 单行
+	scanner.Buffer(buf, 2*1024*1024)
 	for scanner.Scan() {
 		var e Entry
 		if json.Unmarshal(scanner.Bytes(), &e) == nil && e.ID == id {
