@@ -169,6 +169,8 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 
 	if err != nil {
 		log.Printf("[ERROR] Sync failed (%s): %v", entryType, err)
+		// 强制断开僵死连接，确保下次操作触发全新重连
+		client.ForceReset()
 		return
 	}
 
@@ -217,6 +219,8 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 
 	if err != nil {
 		log.Printf("[ERROR] Relay sync failed: %v", err)
+		// 强制断开僵死连接，确保下次操作触发全新重连
+		client.ForceReset()
 		return
 	}
 

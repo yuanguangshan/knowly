@@ -34,6 +34,7 @@ type Config struct {
 type Client struct {
 	config     *Config
 	sshClient  *ssh.Client
+	netConn    net.Conn     // 底层 TCP 连接，用于强制关闭
 	connMu     sync.Mutex // 保护重连逻辑
 	homeDir    string     // 缓存的远程家目录
 }
@@ -117,12 +118,22 @@ func (c *Client) connectLocked() error {
 		Timeout:         10 * time.Second,
 	}
 
-	client, err := ssh.Dial("tcp", fmt.Sprintf("%s:%s", c.config.Host, c.config.Port), config)
+	addr := fmt.Sprintf("%s:%s", c.config.Host, c.config.Port)
+
+	// 先建立 TCP 连接，保存引用以便强制关闭底层 socket
+	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to dial: %w", err)
 	}
 
-	c.sshClient = client
+	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to create SSH connection: %w", err)
+	}
+
+	c.sshClient = ssh.NewClient(sshConn, chans, reqs)
+	c.netConn = conn
 
 	// 解析远程家目录（用于 expandPath）
 	if err := c.resolveRemoteHome(); err != nil {
@@ -137,9 +148,28 @@ func (c *Client) Disconnect() error {
 	if c.sshClient != nil {
 		err := c.sshClient.Close()
 		c.sshClient = nil
+		if c.netConn != nil {
+			c.netConn.Close()
+			c.netConn = nil
+		}
 		return err
 	}
 	return nil
+}
+
+// ForceReset 强制断开所有连接，确保下次操作触发全新重连
+func (c *Client) ForceReset() {
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+
+	if c.netConn != nil {
+		c.netConn.Close()
+		c.netConn = nil
+	}
+	if c.sshClient != nil {
+		c.sshClient.Close()
+		c.sshClient = nil
+	}
 }
 
 // ensureConnected 检查连接存活性，断线时自动重连
@@ -148,12 +178,22 @@ func (c *Client) ensureConnected() error {
 	defer c.connMu.Unlock()
 
 	if c.sshClient != nil {
-		// 用 SendRequest 轻量探活（比 NewSession 开销小一个数量级）
+		// 给 keepalive 探活设置超时，避免在僵死连接上无限等待
+		if c.netConn != nil {
+			c.netConn.SetDeadline(time.Now().Add(5 * time.Second))
+		}
 		_, _, err := c.sshClient.SendRequest("keepalive@openssh.com", true, nil)
+		if c.netConn != nil {
+			c.netConn.SetDeadline(time.Time{}) // 清除 deadline
+		}
 		if err == nil {
 			return nil
 		}
-		// 连接已死，清理后重连
+		// 连接已死，强制关闭底层 TCP 连接
+		if c.netConn != nil {
+			c.netConn.Close()
+			c.netConn = nil
+		}
 		c.sshClient.Close()
 		c.sshClient = nil
 		log.Println("[WARN] SSH connection lost, reconnecting...")
