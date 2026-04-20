@@ -372,6 +372,17 @@ program
     execBinary(['restore', id]);
   });
 
+// Web UI 命令
+program
+  .command('web [port]')
+  .description('启动 Web 管理界面 (默认端口: 8090)')
+  .action((port) => {
+    const args = ['web'];
+    if (port) args.push(port.startsWith(':') ? port : ':' + port);
+    const child = execBinary(args);
+    child.on('exit', (code) => process.exit(code));
+  });
+
 // 版本命令
 program
   .command('version')

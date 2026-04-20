@@ -19,6 +19,14 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
+// DirEntry 目录条目
+type DirEntry struct {
+	Name    string `json:"name"`
+	IsDir   bool   `json:"is_dir"`
+	Size    int64  `json:"size"`
+	ModTime string `json:"mod_time"`
+}
+
 // whitespaceRegex 预编译的正则表达式
 var whitespaceRegex = regexp.MustCompile(`\s+`)
 
@@ -582,4 +590,61 @@ func (c *Client) WriteBinary(path string, data []byte) error {
 	}
 
 	return nil
+}
+
+// ListDir 列出远程目录内容
+func (c *Client) ListDir(remotePath string) ([]DirEntry, error) {
+	if err := c.ensureConnected(); err != nil {
+		return nil, fmt.Errorf("reconnect failed: %w", err)
+	}
+
+	session, err := c.sshClient.NewSession()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+	defer session.Close()
+
+	fullPath := c.expandPath(remotePath)
+	cmd := fmt.Sprintf("ls -la --time-style=long-iso %s", shellEscape(fullPath))
+
+	output, err := session.Output(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list directory: %w", err)
+	}
+
+	var entries []DirEntry
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "total") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 8 {
+			continue
+		}
+
+		name := strings.Join(fields[7:], " ")
+		if name == "." || name == ".." || strings.HasPrefix(name, ".") || name == "@eaDir" {
+			continue
+		}
+
+		perms := fields[0]
+		isDir := len(perms) > 0 && perms[0] == 'd'
+
+		var size int64
+		fmt.Sscanf(fields[4], "%d", &size)
+
+		modTime := fields[5] + " " + fields[6]
+
+		entries = append(entries, DirEntry{
+			Name:    name,
+			IsDir:   isDir,
+			Size:    size,
+			ModTime: modTime,
+		})
+	}
+
+	return entries, nil
 }

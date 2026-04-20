@@ -19,6 +19,7 @@ import (
 	"github.com/yuanguangshan/knas/internal/relay"
 	"github.com/yuanguangshan/knas/internal/retry"
 	"github.com/yuanguangshan/knas/internal/ssh"
+	"github.com/yuanguangshan/knas/internal/web"
 	xclip "golang.design/x/clipboard"
 )
 
@@ -389,6 +390,13 @@ func handleCLI(args []string, cfg *config.Config, histStore *history.Store) {
 			log.Fatalf("不支持的类型: %s", entry.Type)
 		}
 		fmt.Printf("✓ 已将记录 %s 恢复到剪贴板\n", id[:14])
+	case "web":
+		addr := ":8090"
+		if len(args) > 1 {
+			addr = args[1]
+		}
+		webSrv := web.NewServer(cfg, addr)
+		log.Fatal(webSrv.Start())
 	default:
 		fmt.Println("Unknown command:", cmd)
 	}

@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Knas Web</title>
+<style>
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-card: #1f2b47;
+  --bg-hover: #253354;
+  --text-primary: #e6e6e6;
+  --text-secondary: #8892a4;
+  --accent: #4fc3f7;
+  --accent-dim: #2196f3;
+  --border: #2a2a4a;
+  --info: #4fc3f7;
+  --warn: #ffd54f;
+  --error: #ef5350;
+  --debug: #78909c;
+  --success: #66bb6a;
+  --radius: 8px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.header .status-info {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  gap: 16px;
+}
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 4px;
+}
+.status-dot.on { background: var(--success); }
+.status-dot.off { background: var(--error); }
+/* Layout */
+.main-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+/* Sidebar */
+.sidebar {
+  width: 180px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+.sidebar-item {
+  padding: 14px 20px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-secondary);
+  border-left: 3px solid transparent;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sidebar-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.sidebar-item.active {
+  color: var(--accent);
+  background: var(--bg-card);
+  border-left-color: var(--accent);
+}
+/* Content */
+.content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.tab-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+.tab-panel.active { display: flex; }
+/* Toolbar */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.btn {
+  padding: 5px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn.active { background: var(--accent-dim); color: #fff; border-color: var(--accent-dim); }
+.btn-accent {
+  background: var(--accent-dim);
+  color: #fff;
+  border-color: var(--accent-dim);
+}
+.btn-accent:hover { background: var(--accent); }
+/* Log styles */
+.log-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.log-line {
+  padding: 2px 8px;
+  border-left: 3px solid transparent;
+  display: flex;
+  gap: 8px;
+  position: relative;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.log-line:hover { background: var(--bg-hover); }
+.log-line .log-time { color: var(--text-secondary); white-space: nowrap; flex-shrink: 0; }
+.log-line .log-level {
+  font-weight: 600; white-space: nowrap; flex-shrink: 0; min-width: 44px;
+}
+.log-line .log-msg { flex: 1; }
+.log-line .copy-btn {
+  opacity: 0; cursor: pointer; color: var(--text-secondary);
+  flex-shrink: 0; font-size: 11px; padding: 0 4px;
+}
+.log-line:hover .copy-btn { opacity: 1; }
+.log-line .copy-btn:hover { color: var(--accent); }
+.log-line.level-INFO { border-left-color: var(--info); }
+.log-line.level-INFO .log-level { color: var(--info); }
+.log-line.level-WARN { border-left-color: var(--warn); }
+.log-line.level-WARN .log-level { color: var(--warn); }
+.log-line.level-ERROR { border-left-color: var(--error); }
+.log-line.level-ERROR .log-level { color: var(--error); }
+.log-line.level-DEBUG { border-left-color: var(--debug); }
+.log-line.level-DEBUG .log-level { color: var(--debug); }
+/* Archive styles */
+.archive-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+.archive-sidebar {
+  width: 280px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.archive-breadcrumb {
+  padding: 12px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.archive-breadcrumb select {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.archive-breadcrumb span { color: var(--text-secondary); }
+.file-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.file-item:hover { background: var(--bg-hover); }
+.file-item.selected { background: var(--bg-card); outline: 1px solid var(--accent-dim); }
+.file-icon { font-size: 18px; flex-shrink: 0; }
+.file-info { flex: 1; min-width: 0; }
+.file-name {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-meta { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+/* Preview */
+.preview-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.preview-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+.preview-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.preview-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+.preview-content img {
+  max-width: 100%;
+  border-radius: var(--radius);
+}
+.preview-content .md-body {
+  line-height: 1.8;
+  font-size: 14px;
+}
+.md-body h1, .md-body h2, .md-body h3 { margin: 16px 0 8px; color: var(--accent); }
+.md-body h1 { font-size: 20px; }
+.md-body h2 { font-size: 17px; }
+.md-body h3 { font-size: 15px; }
+.md-body p { margin: 8px 0; }
+.md-body code {
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 13px;
+}
+.md-body pre {
+  background: var(--bg-secondary);
+  padding: 12px;
+  border-radius: var(--radius);
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.md-body pre code { background: none; padding: 0; }
+.md-body a { color: var(--accent); text-decoration: none; }
+.md-body a:hover { text-decoration: underline; }
+.md-body blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+  color: var(--text-secondary);
+  margin: 8px 0;
+}
+.md-body ul, .md-body ol { padding-left: 20px; margin: 8px 0; }
+.md-body li { margin: 4px 0; }
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+/* History */
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+.history-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.history-item:hover { background: var(--bg-hover); }
+.history-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.history-time { font-size: 12px; color: var(--text-secondary); font-family: monospace; }
+.history-type {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+.history-type.text { background: #1a3a5c; color: var(--info); }
+.history-type.image { background: #1a3c1a; color: var(--success); }
+.history-preview {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.history-detail {
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
+  position: relative;
+}
+.history-detail .copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 11px;
+}
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  padding: 8px 20px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  border: 1px solid var(--border);
+  transition: transform 0.3s;
+  z-index: 100;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+/* Checkbox toggle */
+.toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+.toggle-wrap input[type="checkbox"] { accent-color: var(--accent-dim); }
+/* === Mobile responsive === */
+@media (max-width: 768px) {
+  .header { padding: 10px 14px; }
+  .header h1 { font-size: 16px; }
+  .header .status-info { gap: 10px; font-size: 11px; }
+  /* Sidebar → Top tab bar */
+  .main-layout { flex-direction: column; }
+  .sidebar {
+    width: 100%;
+    flex-direction: row;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    order: 0;
+    flex-shrink: 0;
+  }
+  .sidebar-item {
+    flex: 1;
+    justify-content: center;
+    padding: 10px 8px;
+    font-size: 12px;
+    border-left: none;
+    border-bottom: 3px solid transparent;
+  }
+  .sidebar-item.active {
+    border-left: none;
+    border-bottom-color: var(--accent);
+  }
+  .content { order: 1; }
+  /* Log */
+  .log-line { flex-wrap: wrap; gap: 2px 6px; }
+  .log-line .log-time { font-size: 11px; }
+  .log-line .log-msg { width: 100%; padding-left: 0; }
+  .log-line .copy-btn { opacity: 0.6; }
+  /* Archive: stack vertically */
+  .archive-layout { flex-direction: column; }
+  .archive-sidebar {
+    width: 100%;
+    max-height: 45%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .archive-breadcrumb { padding: 8px; gap: 4px; }
+  .archive-breadcrumb select { font-size: 12px; padding: 3px 6px; }
+  /* Preview */
+  .preview-toolbar { padding: 8px 12px; }
+  .preview-content { padding: 12px; }
+  /* Toolbar */
+  .toolbar { padding: 8px 10px; gap: 6px; }
+  /* History */
+  .history-header { flex-wrap: wrap; }
+  .history-preview { width: 100%; margin-top: 2px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Knas Web</h1>
+  <div class="status-info" id="headerStatus"></div>
+</div>
+
+<div class="main-layout">
+  <div class="sidebar">
+    <div class="sidebar-item active" onclick="switchTab('logs')" id="tab-logs">📋 日志</div>
+    <div class="sidebar-item" onclick="switchTab('archive')" id="tab-archive">📁 归档</div>
+    <div class="sidebar-item" onclick="switchTab('history')" id="tab-history">📜 历史</div>
+  </div>
+
+  <div class="content">
+    <!-- 日志面板 -->
+    <div class="tab-panel active" id="panel-logs">
+      <div class="toolbar">
+        <button class="btn active" onclick="filterLogs('all')">全部</button>
+        <button class="btn" onclick="filterLogs('INFO')">INFO</button>
+        <button class="btn" onclick="filterLogs('WARN')">WARN</button>
+        <button class="btn" onclick="filterLogs('ERROR')">ERROR</button>
+        <button class="btn" onclick="filterLogs('DEBUG')">DEBUG</button>
+      </div>
+      <div class="log-container" id="logContainer"></div>
+    </div>
+
+    <!-- 归档面板 -->
+    <div class="tab-panel" id="panel-archive">
+      <div class="archive-layout">
+        <div class="archive-sidebar">
+          <div class="archive-breadcrumb">
+            <select id="selYear" onchange="loadMonths()"><option value="">年份</option></select>
+            <span>/</span>
+            <select id="selMonth" onchange="loadDays()" disabled><option value="">月份</option></select>
+            <span>/</span>
+            <select id="selDay" onchange="loadFiles()" disabled><option value="">日期</option></select>
+          </div>
+          <div class="file-list" id="fileList">
+            <div class="empty-state">请选择日期查看文件</div>
+          </div>
+        </div>
+        <div class="preview-panel">
+          <div class="preview-toolbar" id="previewToolbar" style="display:none">
+            <span class="preview-title" id="previewTitle"></span>
+            <button class="btn" onclick="copyPreviewContent()">复制内容</button>
+            <button class="btn btn-accent" onclick="downloadFile()">下载</button>
+          </div>
+          <div class="preview-content" id="previewContent">
+            <div class="empty-state">选择文件预览</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 历史面板 -->
+    <div class="tab-panel" id="panel-history">
+      <div class="toolbar">
+        <button class="btn active" onclick="filterHistory('all')">全部</button>
+        <button class="btn" onclick="filterHistory('text')">文本</button>
+        <button class="btn" onclick="filterHistory('image')">图片</button>
+      </div>
+      <div class="history-list" id="historyList">
+        <div class="empty-state">加载中...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// === State ===
+let currentTab = 'logs';
+let currentLevel = 'all';
+let currentHistoryType = 'all';
+let currentFilePath = '';
+let currentFileContent = '';
+let selectedFileItem = null;
+let eventSource = null;
+
+// === Tab ===
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.getElementById('panel-' + tab).classList.add('active');
+
+  if (tab === 'logs') connectLogStream();
+  else if (eventSource) { eventSource.close(); eventSource = null; }
+  if (tab === 'archive' && document.getElementById('selYear').options.length <= 1) loadYears();
+  if (tab === 'history') loadHistory();
+}
+
+// === API Helper ===
+async function api(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+
+// === Toast ===
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+// === Clipboard ===
+function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => showToast('已复制')).catch(() => fallbackCopy(text));
+  } else {
+    fallbackCopy(text);
+  }
+}
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;left:-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  showToast('已复制');
+}
+
+// === Logs ===
+async function loadLogs() {
+  try {
+    const lines = await api('/api/logs?level=' + currentLevel + '&limit=200');
+    const container = document.getElementById('logContainer');
+    container.innerHTML = '';
+    lines.reverse().forEach(l => appendLogLine(l));
+  } catch (e) { console.error(e); }
+}
+
+function appendLogLine(line) {
+  const container = document.getElementById('logContainer');
+  const div = document.createElement('div');
+  div.className = 'log-line level-' + (line.level || '');
+  div.innerHTML =
+    '<span class="log-time">' + escHtml(line.time || '') + '</span>' +
+    '<span class="log-level">' + escHtml(line.level || '') + '</span>' +
+    '<span class="log-msg">' + escHtml(line.message || line.raw || '') + '</span>' +
+    '<span class="copy-btn" onclick="copyText(' + escAttr(line.raw || '') + ')">复制</span>';
+  container.insertBefore(div, container.firstChild);
+}
+
+function filterLogs(level) {
+  currentLevel = level;
+  document.querySelectorAll('#panel-logs .toolbar .btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  loadLogs();
+}
+
+function connectLogStream() {
+  if (eventSource) { eventSource.close(); }
+  eventSource = new EventSource('/api/logs/stream');
+  eventSource.onmessage = function(e) {
+    const line = JSON.parse(e.data);
+    appendLogLine(line);
+  };
+  eventSource.onerror = function() { eventSource.close(); eventSource = null; };
+}
+
+// === Archive ===
+async function loadYears() {
+  try {
+    const entries = await api('/api/archive/list?path=');
+    const sel = document.getElementById('selYear');
+    sel.innerHTML = '<option value="">年份</option>';
+    const now = new Date();
+    const curYear = String(now.getFullYear());
+    entries.filter(e => e.is_dir).sort((a, b) => b.name.localeCompare(a.name)).forEach(e => {
+      sel.innerHTML += '<option value="' + e.name + '">' + e.name + ' 年</option>';
+    });
+    // 默认选中当前年份
+    if (sel.querySelector('option[value="' + curYear + '"]')) {
+      sel.value = curYear;
+      await loadMonths(true);
+    }
+  } catch (e) {
+    document.getElementById('fileList').innerHTML = '<div class="empty-state">无法连接到远程服务器</div>';
+  }
+}
+
+async function loadMonths(autoSelect) {
+  const year = document.getElementById('selYear').value;
+  const sel = document.getElementById('selMonth');
+  const selDay = document.getElementById('selDay');
+  sel.innerHTML = '<option value="">月份</option>';
+  selDay.innerHTML = '<option value="">日期</option>';
+  sel.disabled = true;
+  selDay.disabled = true;
+  document.getElementById('fileList').innerHTML = '<div class="empty-state">请选择月份</div>';
+  clearPreview();
+
+  if (!year) return;
+  try {
+    const entries = await api('/api/archive/list?path=' + year);
+    entries.filter(e => e.is_dir).sort((a, b) => b.name.localeCompare(a.name)).forEach(e => {
+      sel.innerHTML += '<option value="' + e.name + '">' + e.name + ' 月</option>';
+    });
+    sel.disabled = false;
+    // 自动选中当前月份
+    if (autoSelect) {
+      const curMonth = String(new Date().getMonth() + 1).padStart(2, '0');
+      if (sel.querySelector('option[value="' + curMonth + '"]')) {
+        sel.value = curMonth;
+        await loadDays(true);
+      }
+    }
+  } catch (e) { showToast('加载月份失败'); }
+}
+
+async function loadDays(autoSelect) {
+  const year = document.getElementById('selYear').value;
+  const month = document.getElementById('selMonth').value;
+  const sel = document.getElementById('selDay');
+  sel.innerHTML = '<option value="">日期</option>';
+  sel.disabled = true;
+  document.getElementById('fileList').innerHTML = '<div class="empty-state">请选择日期</div>';
+  clearPreview();
+
+  if (!month) return;
+  try {
+    const entries = await api('/api/archive/list?path=' + year + '/' + month);
+    entries.filter(e => e.is_dir).sort((a, b) => b.name.localeCompare(a.name)).forEach(e => {
+      sel.innerHTML += '<option value="' + e.name + '">' + e.name + ' 日</option>';
+    });
+    sel.disabled = false;
+    // 自动选中当前日期
+    if (autoSelect) {
+      const curDay = String(new Date().getDate()).padStart(2, '0');
+      if (sel.querySelector('option[value="' + curDay + '"]')) {
+        sel.value = curDay;
+        loadFiles();
+      }
+    }
+  } catch (e) { showToast('加载日期失败'); }
+}
+
+async function loadFiles() {
+  const year = document.getElementById('selYear').value;
+  const month = document.getElementById('selMonth').value;
+  const day = document.getElementById('selDay').value;
+  const list = document.getElementById('fileList');
+  clearPreview();
+
+  if (!day) { list.innerHTML = '<div class="empty-state">请选择日期</div>'; return; }
+
+  try {
+    const path = year + '/' + month + '/' + day;
+    const entries = await api('/api/archive/list?path=' + path);
+    const files = entries.filter(e => !e.is_dir).sort((a, b) => b.name.localeCompare(a.name));
+
+    if (files.length === 0) {
+      list.innerHTML = '<div class="empty-state">当日无文件</div>';
+      return;
+    }
+
+    list.innerHTML = '';
+    files.forEach(f => {
+      const div = document.createElement('div');
+      div.className = 'file-item';
+      const isImg = f.name.endsWith('.png') || f.name.endsWith('.jpg');
+      const icon = isImg ? '🖼' : '📄';
+      const sizeStr = f.size > 1024 ? (f.size / 1024).toFixed(1) + ' KB' : f.size + ' B';
+      div.innerHTML =
+        '<span class="file-icon">' + icon + '</span>' +
+        '<div class="file-info">' +
+          '<div class="file-name">' + escHtml(f.name) + '</div>' +
+          '<div class="file-meta">' + escHtml(f.mod_time) + ' · ' + sizeStr + '</div>' +
+        '</div>';
+      div.onclick = function() { previewFile(path + '/' + f.name, f.name, div); };
+      list.appendChild(div);
+    });
+  } catch (e) { list.innerHTML = '<div class="empty-state">加载失败</div>'; }
+}
+
+async function previewFile(path, name, itemEl) {
+  if (selectedFileItem) selectedFileItem.classList.remove('selected');
+  itemEl.classList.add('selected');
+  selectedFileItem = itemEl;
+  currentFilePath = path;
+
+  const preview = document.getElementById('previewContent');
+  const toolbar = document.getElementById('previewToolbar');
+  const title = document.getElementById('previewTitle');
+  toolbar.style.display = 'flex';
+  title.textContent = name;
+
+  const isImg = name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg');
+
+  if (isImg) {
+    preview.innerHTML = '<img src="/api/archive/file?path=' + encodeURIComponent(path) + '" style="max-width:100%">';
+    currentFileContent = '';
+  } else {
+    try {
+      const res = await fetch('/api/archive/file?path=' + encodeURIComponent(path));
+      const text = await res.text();
+      currentFileContent = text;
+      // Strip YAML frontmatter
+      let content = text;
+      if (content.startsWith('---')) {
+        const end = content.indexOf('---', 3);
+        if (end > 0) content = content.substring(end + 3).trim();
+      }
+      preview.innerHTML = '<div class="md-body">' + renderMarkdown(content) + '</div>';
+    } catch (e) {
+      preview.innerHTML = '<div class="empty-state">加载失败</div>';
+    }
+  }
+}
+
+function clearPreview() {
+  document.getElementById('previewToolbar').style.display = 'none';
+  document.getElementById('previewContent').innerHTML = '<div class="empty-state">选择文件预览</div>';
+  currentFilePath = '';
+  currentFileContent = '';
+  if (selectedFileItem) { selectedFileItem.classList.remove('selected'); selectedFileItem = null; }
+}
+
+function copyPreviewContent() {
+  if (currentFileContent) copyText(currentFileContent);
+  else showToast('无文本内容');
+}
+
+function downloadFile() {
+  if (!currentFilePath) return;
+  const a = document.createElement('a');
+  a.href = '/api/archive/download?path=' + encodeURIComponent(currentFilePath);
+  a.click();
+}
+
+// === Markdown Renderer ===
+function renderMarkdown(text) {
+  // Code blocks
+  text = text.replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code) {
+    return '<pre><code>' + escHtml(code.trim()) + '</code></pre>';
+  });
+  // Inline code
+  text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Headings
+  text = text.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  text = text.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  text = text.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Bold
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Links
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+  // Blockquote
+  text = text.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+  // Unordered list
+  text = text.replace(/^[*-] (.+)$/gm, '<li>$1</li>');
+  text = text.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  // Paragraphs: double newline
+  text = text.replace(/\n\n+/g, '\n</p><p>\n');
+  // Single newline within paragraph -> <br>
+  text = text.replace(/\n/g, '<br>\n');
+  // Wrap in paragraph
+  text = '<p>' + text + '</p>';
+  // Clean up empty paragraphs
+  text = text.replace(/<p>\s*<\/p>/g, '');
+  text = text.replace(/<p>\s*(<h[123]>)/g, '$1');
+  text = text.replace(/(<\/h[123]>)\s*<\/p>/g, '$1');
+  text = text.replace(/<p>\s*(<pre>)/g, '$1');
+  text = text.replace(/(<\/pre>)\s*<\/p>/g, '$1');
+  text = text.replace(/<p>\s*(<ul>)/g, '$1');
+  text = text.replace(/(<\/ul>)\s*<\/p>/g, '$1');
+  text = text.replace(/<p>\s*(<blockquote>)/g, '$1');
+  text = text.replace(/(<\/blockquote>)\s*<\/p>/g, '$1');
+  return text;
+}
+
+// === History ===
+async function loadHistory() {
+  const list = document.getElementById('historyList');
+  list.innerHTML = '<div class="empty-state">加载中...</div>';
+  try {
+    const entries = await api('/api/history?limit=100&type=' + currentHistoryType);
+    if (entries.length === 0) {
+      list.innerHTML = '<div class="empty-state">暂无历史记录</div>';
+      return;
+    }
+    list.innerHTML = '';
+    entries.forEach(e => {
+      const div = document.createElement('div');
+      div.className = 'history-item';
+      const typeLabel = e.type === 'text' ? '文本' : '图片';
+      const preview = (e.content || '').replace(/\n/g, ' ').substring(0, 120);
+      div.innerHTML =
+        '<div class="history-header">' +
+          '<span class="history-time">' + escHtml(e.timestamp || '') + '</span>' +
+          '<span class="history-type ' + e.type + '">' + typeLabel + '</span>' +
+          '<span class="history-preview">' + escHtml(preview) + '</span>' +
+        '</div>';
+      div.onclick = function() { toggleHistoryDetail(div, e); };
+      list.appendChild(div);
+    });
+  } catch (e) { list.innerHTML = '<div class="empty-state">加载失败</div>'; }
+}
+
+function toggleHistoryDetail(el, entry) {
+  const existing = el.querySelector('.history-detail');
+  if (existing) { existing.remove(); return; }
+
+  const detail = document.createElement('div');
+  detail.className = 'history-detail';
+  detail.innerHTML = escHtml(entry.content || '') +
+    '<span class="copy-btn btn" onclick="event.stopPropagation(); copyText(' + escAttr(entry.content || '') + ')">复制</span>';
+  el.appendChild(detail);
+}
+
+function filterHistory(type) {
+  currentHistoryType = type;
+  document.querySelectorAll('#panel-history .toolbar .btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  loadHistory();
+}
+
+// === Status ===
+async function loadStatus() {
+  try {
+    const s = await api('/api/status');
+    const el = document.getElementById('headerStatus');
+    const sshDot = s.ssh_connected ? '<span class="status-dot on"></span>' : '<span class="status-dot off"></span>';
+    const daemonDot = s.daemon_running ? '<span class="status-dot on"></span>' : '<span class="status-dot off"></span>';
+    el.innerHTML =
+      '<span>' + daemonDot + '守护进程</span>' +
+      '<span>' + sshDot + 'SSH</span>' +
+      '<span>同步: ' + (s.total_syncs || 0) + '</span>';
+  } catch (e) {}
+}
+
+// === Util ===
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+function escAttr(s) {
+  return JSON.stringify(s).replace(/'/g, "\\'");
+}
+
+// === Init ===
+document.addEventListener('DOMContentLoaded', function() {
+  loadLogs();
+  connectLogStream();
+  loadStatus();
+  setInterval(loadStatus, 30000);
+});
+</script>
+</body>
+</html>
