@@ -72,6 +72,7 @@ func main() {
 	if len(os.Args) > 1 {
 		if os.Args[1] == "--daemon" {
 			writePidFile()
+			redirectLogsToFile()
 			// 继续执行守护逻辑
 		} else {
 			handleCLI(os.Args[1:], cfg, histStore)
@@ -249,6 +250,18 @@ func writePidFile() {
 	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 		log.Fatalf("Failed to write PID file %s: %v", pidPath, err)
 	}
+}
+
+// redirectLogsToFile 将 stdout/stderr 重定向到日志文件
+func redirectLogsToFile() {
+	logPath := config.GetLogPath()
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatalf("Failed to open log file %s: %v", logPath, err)
+	}
+	os.Stdout = f
+	os.Stderr = f
+	log.SetOutput(f)
 }
 
 // removePidFile 删除 PID 文件

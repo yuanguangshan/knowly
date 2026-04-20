@@ -15,6 +15,7 @@ import (
 
 	"github.com/yuanguangshan/knas/internal/config"
 	"github.com/yuanguangshan/knas/internal/publisher"
+	"github.com/yuanguangshan/knas/internal/ssh"
 )
 
 // serveIndex 返回前端页面
@@ -391,22 +392,10 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 		var err error
 		switch target {
 		case "blog":
-			if !s.cfg.Blog.Enabled {
-				results = append(results, publishResult{Target: "blog", Error: "未启用"})
-				continue
-			}
 			err = publisher.PublishBlog(s.cfg.Blog, req.Content)
 		case "podcast":
-			if !s.cfg.Podcast.Enabled {
-				results = append(results, publishResult{Target: "podcast", Error: "未启用"})
-				continue
-			}
 			err = publisher.PublishPodcast(s.cfg.Podcast, req.Content)
 		case "ima":
-			if !s.cfg.IMA.Enabled || s.cfg.IMA.ClientID == "" || s.cfg.IMA.APIKey == "" {
-				results = append(results, publishResult{Target: "ima", Error: "未启用"})
-				continue
-			}
 			err = publisher.PublishIMA(s.cfg.IMA, req.Content)
 		default:
 			results = append(results, publishResult{Target: target, Error: "未知目标"})
@@ -430,4 +419,27 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResp(w, stats)
+}
+// handleSearch 全文搜索归档内容
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	keyword := r.URL.Query().Get("q")
+	if keyword == "" {
+		jsonError(w, "缺少搜索关键词", http.StatusBadRequest)
+		return
+	}
+	limitStr := r.URL.Query().Get("limit")
+	limit := 50
+	if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
+		limit = n
+	}
+
+	results, err := s.sshClient.Search(keyword, limit)
+	if err != nil {
+		jsonError(w, fmt.Sprintf("搜索失败: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	if results == nil {
+		results = []ssh.SearchResult{}
+	}
+	jsonResp(w, results)
 }

@@ -77,6 +77,9 @@ func (s *Server) Start() error {
 	// 统计 API
 	mux.HandleFunc("/api/stats", s.handleStats)
 
+	// 搜索 API
+	mux.HandleFunc("/api/search", s.handleSearch)
+
 	fmt.Printf("Knas Web UI 启动: http://localhost%s\n", s.addr)
 	return http.ListenAndServe(s.addr, mux)
 }

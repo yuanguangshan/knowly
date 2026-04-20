@@ -648,3 +648,80 @@ func (c *Client) ListDir(remotePath string) ([]DirEntry, error) {
 
 	return entries, nil
 }
+
+// SearchResult 搜索结果条目
+type SearchResult struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Line    int    `json:"line"`
+}
+
+// Search 在远程归档目录中全文搜索
+func (c *Client) Search(keyword string, limit int) ([]SearchResult, error) {
+	if err := c.ensureConnected(); err != nil {
+		return nil, fmt.Errorf("reconnect failed: %w", err)
+	}
+
+	session, err := c.sshClient.NewSession()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+	defer session.Close()
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	basePath := c.expandPath(c.config.BasePath)
+	// grep -rn: 递归搜索，显示行号，匹配结果限制条数
+	cmd := fmt.Sprintf(
+		"grep -rn --include='*.md' --include='*.txt' --max-count=%d %s %s 2>/dev/null",
+		limit, shellEscape(keyword), shellEscape(basePath),
+	)
+
+	output, err := session.Output(cmd)
+	if err != nil {
+		// grep 返回非零表示没匹配到，不算错误
+		if strings.Contains(err.Error(), "exit status 1") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("search failed: %w", err)
+	}
+
+	var results []SearchResult
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		// 格式: /path/to/file:lineno:matched content
+		idx1 := strings.Index(line, ":")
+		if idx1 < 0 {
+			continue
+		}
+		idx2 := strings.Index(line[idx1+1:], ":")
+		if idx2 < 0 {
+			continue
+		}
+		filePath := line[:idx1]
+		lineNumStr := line[idx1+1 : idx1+1+idx2]
+		content := line[idx1+1+idx2+1:]
+
+		// 转为相对路径
+		relPath := strings.TrimPrefix(filePath, basePath+"/")
+
+		var lineNum int
+		fmt.Sscanf(lineNumStr, "%d", &lineNum)
+
+		results = append(results, SearchResult{
+			Path:    relPath,
+			Content: content,
+			Line:    lineNum,
+		})
+		if len(results) >= limit {
+			break
+		}
+	}
+
+	return results, nil
+}
