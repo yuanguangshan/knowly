@@ -4,6 +4,12 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// CI 环境中跳过编译，由 prepublishOnly 负责构建
+if (process.env.CI === 'true') {
+  console.log('CI environment detected, skipping binary compilation');
+  process.exit(0);
+}
+
 console.log('Installing knas...\n');
 
 // 检查二进制文件是否已存在

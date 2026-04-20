@@ -31,6 +31,12 @@ targets.forEach(target => {
     CGO_ENABLED: target.goos === 'darwin' ? '1' : '0'
   };
 
+  if (target.goos === 'darwin') {
+    try {
+      env.SDKROOT = execSync('xcrun --sdk macosx --show-sdk-path', { encoding: 'utf8' }).trim();
+    } catch (_) {}
+  }
+
   const outputPath = path.join(binDir, target.output);
 
   try {
