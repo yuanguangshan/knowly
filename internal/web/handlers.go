@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/yuanguangshan/knas/internal/config"
@@ -319,6 +320,34 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status["ssh_connected"] = s.sshClient != nil
+	status["start_time"] = s.startTime.Format("2006-01-02 15:04:05")
+	status["uptime"] = int64(time.Since(s.startTime).Seconds())
+	status["pid"] = os.Getpid()
 
 	jsonResp(w, status)
+}
+
+// handleRestart 重启 knas 进程
+func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	exePath, err := os.Executable()
+	if err != nil {
+		jsonError(w, "无法获取可执行文件路径", http.StatusInternalServerError)
+		return
+	}
+
+	jsonResp(w, map[string]string{"status": "restarting"})
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		syscall.Exec(exePath, os.Args, os.Environ())
+	}()
 }

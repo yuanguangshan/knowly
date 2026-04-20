@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/yuanguangshan/knas/internal/config"
 	"github.com/yuanguangshan/knas/internal/history"
@@ -16,6 +17,7 @@ type Server struct {
 	sshClient *ssh.Client
 	histStore *history.Store
 	addr      string
+	startTime time.Time
 }
 
 // NewServer 创建 Web 服务器实例
@@ -35,6 +37,7 @@ func NewServer(cfg *config.Config, addr string) *Server {
 		sshClient: sshClient,
 		histStore: histStore,
 		addr:      addr,
+		startTime: time.Now(),
 	}
 }
 
@@ -64,6 +67,9 @@ func (s *Server) Start() error {
 
 	// 状态 API
 	mux.HandleFunc("/api/status", s.handleStatus)
+
+	// 管理 API
+	mux.HandleFunc("/api/admin/restart", s.handleRestart)
 
 	fmt.Printf("Knas Web UI 启动: http://localhost%s\n", s.addr)
 	return http.ListenAndServe(s.addr, mux)
