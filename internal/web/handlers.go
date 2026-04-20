@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/yuanguangshan/knas/internal/config"
+	"github.com/yuanguangshan/knas/internal/publisher"
 )
 
 // serveIndex 返回前端页面
@@ -324,6 +325,13 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	status["uptime"] = int64(time.Since(s.startTime).Seconds())
 	status["pid"] = os.Getpid()
 
+	// 发布渠道配置状态
+	status["publishers"] = map[string]map[string]bool{
+		"blog":    {"enabled": s.cfg.Blog.Enabled},
+		"podcast": {"enabled": s.cfg.Podcast.Enabled},
+		"ima":     {"enabled": s.cfg.IMA.Enabled && s.cfg.IMA.ClientID != "" && s.cfg.IMA.APIKey != ""},
+	}
+
 	jsonResp(w, status)
 }
 
@@ -350,4 +358,76 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(500 * time.Millisecond)
 		syscall.Exec(exePath, os.Args, os.Environ())
 	}()
+}
+
+// handlePublish 发布内容到 Blog/Podcast/IMA
+func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Content string   `json:"content"`
+		Targets []string `json:"targets"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "无效的请求体", http.StatusBadRequest)
+		return
+	}
+	if req.Content == "" {
+		jsonError(w, "内容不能为空", http.StatusBadRequest)
+		return
+	}
+
+	type publishResult struct {
+		Target string `json:"target"`
+		OK     bool   `json:"ok"`
+		Error  string `json:"error,omitempty"`
+	}
+	var results []publishResult
+
+	for _, target := range req.Targets {
+		var err error
+		switch target {
+		case "blog":
+			if !s.cfg.Blog.Enabled {
+				results = append(results, publishResult{Target: "blog", Error: "未启用"})
+				continue
+			}
+			err = publisher.PublishBlog(s.cfg.Blog, req.Content)
+		case "podcast":
+			if !s.cfg.Podcast.Enabled {
+				results = append(results, publishResult{Target: "podcast", Error: "未启用"})
+				continue
+			}
+			err = publisher.PublishPodcast(s.cfg.Podcast, req.Content)
+		case "ima":
+			if !s.cfg.IMA.Enabled || s.cfg.IMA.ClientID == "" || s.cfg.IMA.APIKey == "" {
+				results = append(results, publishResult{Target: "ima", Error: "未启用"})
+				continue
+			}
+			err = publisher.PublishIMA(s.cfg.IMA, req.Content)
+		default:
+			results = append(results, publishResult{Target: target, Error: "未知目标"})
+			continue
+		}
+		if err != nil {
+			results = append(results, publishResult{Target: target, OK: false, Error: err.Error()})
+		} else {
+			results = append(results, publishResult{Target: target, OK: true})
+		}
+	}
+
+	jsonResp(w, results)
+}
+
+// handleStats 返回统计数据
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.histStore.Stats()
+	if err != nil {
+		jsonError(w, fmt.Sprintf("获取统计失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+	jsonResp(w, stats)
 }

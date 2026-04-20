@@ -220,6 +220,112 @@ func (s *Store) Recent(n int) ([]Entry, error) {
 	return entries, nil
 }
 
+// WeekCount 每周统计
+type WeekCount struct {
+	Label      string `json:"label"`
+	Count      int    `json:"count"`
+	TextCount  int    `json:"text_count"`
+	ImageCount int    `json:"image_count"`
+}
+
+// DayCount 每日统计
+type DayCount struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
+
+// Stats 统计数据
+type Stats struct {
+	TotalSyncs  int         `json:"total_syncs"`
+	TextCount   int         `json:"text_count"`
+	ImageCount  int         `json:"image_count"`
+	WeeklyTrend []WeekCount `json:"weekly_trend"`
+	DailyTrend  []DayCount  `json:"daily_trend"`
+}
+
+// Stats 聚合统计历史数据
+func (s *Store) Stats() (*Stats, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := s.readAll()
+	if err != nil {
+		return nil, err
+	}
+
+	stats := &Stats{
+		TotalSyncs:  len(entries),
+		WeeklyTrend: make([]WeekCount, 0, 8),
+		DailyTrend:  make([]DayCount, 0, 30),
+	}
+
+	// 计算类型计数
+	textCount := 0
+	imageCount := 0
+	for _, e := range entries {
+		if e.Type == "text" {
+			textCount++
+		} else {
+			imageCount++
+		}
+	}
+	stats.TextCount = textCount
+	stats.ImageCount = imageCount
+
+	// 按天聚合
+	dayMap := make(map[string]int)
+	for _, e := range entries {
+		day := e.Timestamp.Format("2006-01-02")
+		dayMap[day]++
+	}
+
+	// 最近 30 天趋势
+	now := time.Now()
+	for i := 29; i >= 0; i-- {
+		d := now.AddDate(0, 0, -i).Format("2006-01-02")
+		stats.DailyTrend = append(stats.DailyTrend, DayCount{
+			Date:  d,
+			Count: dayMap[d],
+		})
+	}
+
+	// 按周聚合（ISO 周）
+	type weekKey struct {
+		year, week int
+	}
+	weekMap := make(map[weekKey]struct {
+		text, image int
+	})
+	for _, e := range entries {
+		y, w := e.Timestamp.ISOWeek()
+		k := weekKey{y, w}
+		s := weekMap[k]
+		if e.Type == "text" {
+			s.text++
+		} else {
+			s.image++
+		}
+		weekMap[k] = s
+	}
+
+	// 最近 8 周
+	for i := 7; i >= 0; i-- {
+		t := now.AddDate(0, 0, -7*i)
+		y, w := t.ISOWeek()
+		k := weekKey{y, w}
+		s := weekMap[k]
+		label := fmt.Sprintf("%d-W%02d", y, w)
+		stats.WeeklyTrend = append(stats.WeeklyTrend, WeekCount{
+			Label:      label,
+			Count:      s.text + s.image,
+			TextCount:  s.text,
+			ImageCount: s.image,
+		})
+	}
+
+	return stats, nil
+}
+
 // Find 根据 ID 精确查找
 func (s *Store) Find(id string) (*Entry, error) {
 	s.mu.Lock()

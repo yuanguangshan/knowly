@@ -383,6 +383,88 @@ body {
   margin-left: auto;
 }
 .toggle-wrap input[type="checkbox"] { accent-color: var(--accent-dim); }
+/* Stats */
+.stats-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+.stats-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.stats-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+}
+.stats-card-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.stats-card-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.chart-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.chart-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+.chart-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+canvas {
+  width: 100%;
+  display: block;
+}
+/* Publish dropdown */
+.publish-dropdown {
+  position: relative;
+  display: inline-block;
+}
+.publish-menu {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 140px;
+  z-index: 50;
+  overflow: hidden;
+}
+.publish-menu.open { display: block; }
+.publish-menu-item {
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: background 0.15s;
+}
+.publish-menu-item:hover { background: var(--bg-hover); }
+.publish-menu-item.disabled {
+  color: var(--text-secondary);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 /* Admin */
 .admin-container {
   flex: 1;
@@ -483,6 +565,10 @@ body {
   /* History */
   .history-header { flex-wrap: wrap; }
   .history-preview { width: 100%; margin-top: 2px; }
+  /* Stats */
+  .stats-summary { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stats-card-value { font-size: 20px; }
+  .chart-row { grid-template-columns: 1fr; }
 }
 </style>
 </head>
@@ -498,6 +584,7 @@ body {
     <div class="sidebar-item active" onclick="switchTab('logs')" id="tab-logs">📋 日志</div>
     <div class="sidebar-item" onclick="switchTab('archive')" id="tab-archive">📁 归档</div>
     <div class="sidebar-item" onclick="switchTab('history')" id="tab-history">📜 历史</div>
+    <div class="sidebar-item" onclick="switchTab('stats')" id="tab-stats">📊 统计</div>
     <div class="sidebar-item" onclick="switchTab('admin')" id="tab-admin">🔧 管理</div>
   </div>
 
@@ -532,6 +619,14 @@ body {
         <div class="preview-panel">
           <div class="preview-toolbar" id="previewToolbar" style="display:none">
             <span class="preview-title" id="previewTitle"></span>
+            <div class="publish-dropdown" id="publishDropdown" style="display:none">
+              <button class="btn btn-accent" onclick="togglePublishMenu()">发布到</button>
+              <div class="publish-menu" id="publishMenu">
+                <div class="publish-menu-item" data-target="blog" onclick="publishContent('blog')">Blog</div>
+                <div class="publish-menu-item" data-target="podcast" onclick="publishContent('podcast')">Podcast</div>
+                <div class="publish-menu-item" data-target="ima" onclick="publishContent('ima')">IMA 笔记</div>
+              </div>
+            </div>
             <button class="btn" onclick="copyPreviewContent()">复制内容</button>
             <button class="btn btn-accent" onclick="downloadFile()">下载</button>
           </div>
@@ -551,6 +646,40 @@ body {
       </div>
       <div class="history-list" id="historyList">
         <div class="empty-state">加载中...</div>
+      </div>
+    </div>
+
+    <!-- 统计面板 -->
+    <div class="tab-panel" id="panel-stats">
+      <div class="stats-container">
+        <div class="stats-summary">
+          <div class="stats-card">
+            <div class="stats-card-value" id="statsTotalSyncs">-</div>
+            <div class="stats-card-label">总同步数</div>
+          </div>
+          <div class="stats-card">
+            <div class="stats-card-value" id="statsTextCount">-</div>
+            <div class="stats-card-label">文本</div>
+          </div>
+          <div class="stats-card">
+            <div class="stats-card-value" id="statsImageCount">-</div>
+            <div class="stats-card-label">图片</div>
+          </div>
+        </div>
+        <div class="chart-section">
+          <div class="chart-title">每周同步趋势</div>
+          <canvas id="weeklyChart" height="200"></canvas>
+        </div>
+        <div class="chart-row">
+          <div class="chart-section">
+            <div class="chart-title">内容类型分布</div>
+            <canvas id="typeChart" height="200"></canvas>
+          </div>
+          <div class="chart-section">
+            <div class="chart-title">最近 30 天趋势</div>
+            <canvas id="dailyChart" height="200"></canvas>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -609,6 +738,7 @@ function switchTab(tab) {
   else if (eventSource) { eventSource.close(); eventSource = null; }
   if (tab === 'archive' && document.getElementById('selYear').options.length <= 1) loadYears();
   if (tab === 'history') loadHistory();
+  if (tab === 'stats') loadStats();
   if (tab === 'admin') loadAdminStatus();
 }
 
@@ -817,6 +947,7 @@ async function previewFile(path, name, itemEl) {
   if (isImg) {
     preview.innerHTML = '<img src="/api/archive/file?path=' + encodeURIComponent(path) + '" style="max-width:100%">';
     currentFileContent = '';
+    document.getElementById('publishDropdown').style.display = 'none';
   } else {
     try {
       const res = await fetch('/api/archive/file?path=' + encodeURIComponent(path));
@@ -829,14 +960,16 @@ async function previewFile(path, name, itemEl) {
         if (end > 0) content = content.substring(end + 3).trim();
       }
       preview.innerHTML = '<div class="md-body">' + renderMarkdown(content) + '</div>';
+      document.getElementById('publishDropdown').style.display = 'inline-block';
     } catch (e) {
-      preview.innerHTML = '<div class="empty-state">加载失败</div>';
-    }
+      preview.innerHTML = '<div class="empty-state">加载失败</div></div>';
+      document.getElementById('publishDropdown').style.display = 'none';    }
   }
 }
 
 function clearPreview() {
   document.getElementById('previewToolbar').style.display = 'none';
+  document.getElementById('publishDropdown').style.display = 'none';
   document.getElementById('previewContent').innerHTML = '<div class="empty-state">选择文件预览</div>';
   currentFilePath = '';
   currentFileContent = '';
@@ -943,6 +1076,260 @@ function filterHistory(type) {
   loadHistory();
 }
 
+// === Stats ===
+let publishersConfig = {};
+
+async function loadStats() {
+  try {
+    const s = await api('/api/stats');
+    document.getElementById('statsTotalSyncs').textContent = s.total_syncs;
+    document.getElementById('statsTextCount').textContent = s.text_count;
+    document.getElementById('statsImageCount').textContent = s.image_count;
+    drawWeeklyChart(s.weekly_trend || []);
+    drawTypeChart(s.text_count, s.image_count);
+    drawDailyChart(s.daily_trend || []);
+  } catch (e) { console.error(e); }
+}
+
+function drawWeeklyChart(data) {
+  const canvas = document.getElementById('weeklyChart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = 200 * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = 200;
+  ctx.clearRect(0, 0, W, H);
+
+  if (!data.length) { ctx.fillStyle = '#8892a4'; ctx.font = '13px sans-serif'; ctx.fillText('暂无数据', W/2-30, H/2); return; }
+
+  const pad = {top:20, right:20, bottom:30, left:40};
+  const cw = W - pad.left - pad.right;
+  const ch = H - pad.top - pad.bottom;
+  const maxVal = Math.max(...data.map(d => d.count), 1);
+  const barW = Math.max(cw / data.length * 0.6, 4);
+  const gap = cw / data.length;
+
+  // Y axis
+  ctx.strokeStyle = '#2a2a4a'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + ch * (1 - i/4);
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    ctx.fillStyle = '#8892a4'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText(Math.round(maxVal * i/4), pad.left - 6, y + 4);
+  }
+
+  data.forEach((d, i) => {
+    const x = pad.left + gap * i + gap/2 - barW/2;
+    const totalH = (d.count / maxVal) * ch;
+    const textH = (d.text_count / maxVal) * ch;
+    const imgH = (d.image_count / maxVal) * ch;
+    const y = pad.top + ch - totalH;
+    // Text bar (bottom)
+    ctx.fillStyle = '#4fc3f7';
+    ctx.fillRect(x, y + imgH, barW, textH);
+    // Image bar (top)
+    ctx.fillStyle = '#66bb6a';
+    ctx.fillRect(x, y, barW, imgH);
+    // Label
+    ctx.fillStyle = '#8892a4'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+    const label = d.label.split('-W')[1] || d.label;
+    ctx.fillText('W' + label, pad.left + gap * i + gap/2, H - 8);
+  });
+
+  // Legend
+  ctx.fillStyle = '#4fc3f7'; ctx.fillRect(W - 120, 6, 10, 10);
+  ctx.fillStyle = '#8892a4'; ctx.font = '11px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('文本', W - 106, 15);
+  ctx.fillStyle = '#66bb6a'; ctx.fillRect(W - 60, 6, 10, 10);
+  ctx.fillStyle = '#8892a4'; ctx.fillText('图片', W - 46, 15);
+}
+
+function drawTypeChart(textCount, imageCount) {
+  const canvas = document.getElementById('typeChart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = 200 * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = 200;
+  ctx.clearRect(0, 0, W, H);
+
+  const total = textCount + imageCount;
+  if (total === 0) { ctx.fillStyle = '#8892a4'; ctx.font = '13px sans-serif'; ctx.fillText('暂无数据', W/2-30, H/2); return; }
+
+  const cx = W / 2, cy = H / 2 - 5;
+  const r = Math.min(cx, cy) - 30;
+  const textAngle = (textCount / total) * Math.PI * 2;
+
+  // Text slice
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + textAngle);
+  ctx.closePath();
+  ctx.fillStyle = '#4fc3f7';
+  ctx.fill();
+
+  // Image slice
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.arc(cx, cy, r, -Math.PI/2 + textAngle, -Math.PI/2 + Math.PI*2);
+  ctx.closePath();
+  ctx.fillStyle = '#66bb6a';
+  ctx.fill();
+
+  // Center hole (donut)
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#1f2b47';
+  ctx.fill();
+
+  // Labels
+  ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+  if (textCount > 0) {
+    const tAngle = -Math.PI/2 + textAngle/2;
+    const lx = cx + (r*0.75) * Math.cos(tAngle);
+    const ly = cy + (r*0.75) * Math.sin(tAngle);
+    ctx.fillStyle = '#fff'; ctx.fillText(Math.round(textCount/total*100)+'%', lx, ly+4);
+  }
+  if (imageCount > 0) {
+    const iAngle = -Math.PI/2 + textAngle + (Math.PI*2 - textAngle)/2;
+    const lx = cx + (r*0.75) * Math.cos(iAngle);
+    const ly = cy + (r*0.75) * Math.sin(iAngle);
+    ctx.fillStyle = '#fff'; ctx.fillText(Math.round(imageCount/total*100)+'%', lx, ly+4);
+  }
+
+  // Legend
+  ctx.font = '12px sans-serif';
+  ctx.fillStyle = '#4fc3f7'; ctx.fillRect(10, H-24, 10, 10);
+  ctx.fillStyle = '#e6e6e6'; ctx.textAlign = 'left'; ctx.fillText('文本 ' + textCount, 24, H-15);
+  ctx.fillStyle = '#66bb6a'; ctx.fillRect(W/2, H-24, 10, 10);
+  ctx.fillStyle = '#e6e6e6'; ctx.fillText('图片 ' + imageCount, W/2+14, H-15);
+}
+
+function drawDailyChart(data) {
+  const canvas = document.getElementById('dailyChart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = 200 * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = 200;
+  ctx.clearRect(0, 0, W, H);
+
+  if (!data.length) { ctx.fillStyle = '#8892a4'; ctx.font = '13px sans-serif'; ctx.fillText('暂无数据', W/2-30, H/2); return; }
+
+  const pad = {top:20, right:20, bottom:30, left:40};
+  const cw = W - pad.left - pad.right;
+  const ch = H - pad.top - pad.bottom;
+  const maxVal = Math.max(...data.map(d => d.count), 1);
+
+  // Y axis
+  ctx.strokeStyle = '#2a2a4a'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + ch * (1 - i/4);
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    ctx.fillStyle = '#8892a4'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText(Math.round(maxVal * i/4), pad.left - 6, y + 4);
+  }
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = '#4fc3f7';
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  const step = cw / (data.length - 1 || 1);
+  data.forEach((d, i) => {
+    const x = pad.left + step * i;
+    const y = pad.top + ch - (d.count / maxVal) * ch;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Fill area
+  ctx.lineTo(pad.left + step * (data.length - 1), pad.top + ch);
+  ctx.lineTo(pad.left, pad.top + ch);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(79, 195, 247, 0.1)';
+  ctx.fill();
+
+  // Dots
+  data.forEach((d, i) => {
+    const x = pad.left + step * i;
+    const y = pad.top + ch - (d.count / maxVal) * ch;
+    if (d.count > 0) {
+      ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI*2);
+      ctx.fillStyle = '#4fc3f7'; ctx.fill();
+    }
+  });
+
+  // X labels (every 5 days)
+  ctx.fillStyle = '#8892a4'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+  data.forEach((d, i) => {
+    if (i % 5 === 0 || i === data.length - 1) {
+      const x = pad.left + step * i;
+      ctx.fillText(d.date.substring(5), x, H - 8);
+    }
+  });
+}
+
+// === Publish ===
+function togglePublishMenu() {
+  const menu = document.getElementById('publishMenu');
+  menu.classList.toggle('open');
+  // Update enabled/disabled state
+  menu.querySelectorAll('.publish-menu-item').forEach(item => {
+    const t = item.getAttribute('data-target');
+    const enabled = publishersConfig[t] && publishersConfig[t].enabled;
+    item.classList.toggle('disabled', !enabled);
+  });
+}
+
+async function publishContent(target) {
+  const menu = document.getElementById('publishMenu');
+  const item = menu.querySelector('[data-target="'+target+'"]');
+  if (item.classList.contains('disabled')) { showToast('该渠道未启用'); return; }
+  menu.classList.remove('open');
+
+  // Strip YAML frontmatter for publish
+  let content = currentFileContent || '';
+  if (content.startsWith('---')) {
+    const end = content.indexOf('---', 3);
+    if (end > 0) content = content.substring(end + 3).trim();
+  }
+  if (!content) { showToast('无内容可发布'); return; }
+
+  showToast('正在发布到 ' + target + '...');
+
+  try {
+    const res = await fetch('/api/publish', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content: content, targets: [target]})
+    });
+    const results = await res.json();
+    const r = results[0];
+    if (r && r.ok) {
+      showToast('已发布到 ' + target);
+    } else {
+      showToast('发布失败: ' + (r ? r.error : '未知错误'));
+    }
+  } catch (e) {
+    showToast('发布请求失败');
+  }
+}
+
+// Close publish menu on outside click
+document.addEventListener('click', function(e) {
+  const dropdown = document.getElementById('publishDropdown');
+  if (dropdown && !dropdown.contains(e.target)) {
+    document.getElementById('publishMenu').classList.remove('open');
+  }
+});
+
 // === Status ===
 let adminStatus = null;
 let adminTimer = null;
@@ -958,6 +1345,7 @@ async function loadStatus() {
       '<span>' + daemonDot + '守护进程</span>' +
       '<span>' + sshDot + 'SSH</span>' +
       '<span>同步: ' + (s.total_syncs || 0) + '</span>';
+    if (s.publishers) publishersConfig = s.publishers;
   } catch (e) {}
 }
 
@@ -977,7 +1365,7 @@ async function loadAdminStatus() {
 }
 
 function updateUptime() {
-  if (!adminStatus) return;
+  if (!adminStatus || adminStatus._fetchedAt === undefined) return;
   const sec = adminStatus.uptime + Math.floor((Date.now() - adminStatus._fetchedAt) / 1000);
   const d = Math.floor(sec / 86400);
   const h = Math.floor((sec % 86400) / 3600);
