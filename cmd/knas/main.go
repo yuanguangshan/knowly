@@ -125,10 +125,23 @@ func main() {
 		log.Println("[INFO] Relay puller started")
 	}
 
-	// 6. 消费 Payload 循环
+	// 6. 启动 Web 管理界面（如果启用）
+	var webSrv *web.Server
+	if cfg.Web.IsEnabled() {
+		webAddr := fmt.Sprintf(":%d", cfg.Web.Port)
+		webSrv = web.NewServerWithDeps(cfg, webAddr, client, histStore)
+		webSrv.StartAsync()
+	}
+
+	// 7. 消费 Payload 循环
 	for {
 		select {
 		case <-ctx.Done():
+			if webSrv != nil {
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				webSrv.Shutdown(shutdownCtx)
+				cancel()
+			}
 			mon.Stop()
 			removePidFile()
 			log.Println("[INFO] knas daemon stopped")

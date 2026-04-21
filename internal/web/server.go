@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"log"
@@ -20,9 +21,10 @@ type Server struct {
 	histStore *history.Store
 	addr      string
 	startTime time.Time
+	httpServer *http.Server
 }
 
-// NewServer 创建 Web 服务器实例
+// NewServer 创建 Web 服务器实例（创建新的 SSH 和 History 依赖）
 func NewServer(cfg *config.Config, addr string) *Server {
 	sshClient := ssh.NewClient(&ssh.Config{
 		Host:                 cfg.SSH.Host,
@@ -43,13 +45,19 @@ func NewServer(cfg *config.Config, addr string) *Server {
 	}
 }
 
-// Start 启动 Web 服务器
-func (s *Server) Start() error {
-	// 连接 SSH
-	if err := s.sshClient.Connect(); err != nil {
-		log.Printf("[WARN] SSH connect failed: %v (archive browsing will be unavailable)", err)
+// NewServerWithDeps 创建 Web 服务器实例（使用已有的 SSH 和 History 依赖）
+func NewServerWithDeps(cfg *config.Config, addr string, sshClient *ssh.Client, histStore *history.Store) *Server {
+	return &Server{
+		cfg:       cfg,
+		sshClient: sshClient,
+		histStore: histStore,
+		addr:      addr,
+		startTime: time.Now(),
 	}
+}
 
+// buildHandler 构建路由和中间件
+func (s *Server) buildHandler() http.Handler {
 	mux := http.NewServeMux()
 
 	// 静态文件
@@ -89,8 +97,42 @@ func (s *Server) Start() error {
 		handler = s.basicAuth(mux)
 	}
 
+	return handler
+}
+
+// Start 启动 Web 服务器（阻塞）
+func (s *Server) Start() error {
+	// 连接 SSH
+	if err := s.sshClient.Connect(); err != nil {
+		log.Printf("[WARN] SSH connect failed: %v (archive browsing will be unavailable)", err)
+	}
+
+	handler := s.buildHandler()
+	s.httpServer = &http.Server{Addr: s.addr, Handler: handler}
+
 	fmt.Printf("Knas Web UI 启动: http://localhost%s\n", s.addr)
-	return http.ListenAndServe(s.addr, handler)
+	return s.httpServer.ListenAndServe()
+}
+
+// StartAsync 启动 Web 服务器（非阻塞）
+func (s *Server) StartAsync() {
+	handler := s.buildHandler()
+	s.httpServer = &http.Server{Addr: s.addr, Handler: handler}
+
+	go func() {
+		fmt.Printf("Knas Web UI 启动: http://localhost%s\n", s.addr)
+		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("[ERROR] Web server error: %v", err)
+		}
+	}()
+}
+
+// Shutdown 优雅关闭 Web 服务器
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.httpServer != nil {
+		return s.httpServer.Shutdown(ctx)
+	}
+	return nil
 }
 
 // basicAuth 返回一个 HTTP Basic Auth 中间件

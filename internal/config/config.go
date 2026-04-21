@@ -42,7 +42,13 @@ type SyncConfig struct {
 }
 
 type WebConfig struct {
-	Auth string `json:"auth"` // HTTP Basic Auth 凭证，格式 "user:password"，留空则不启用认证
+	Enabled *bool  `json:"enabled"` // 是否启用 Web 管理界面，nil 或 true 表示启用
+	Port    int    `json:"port"`    // 监听端口，默认 8090
+	Auth    string `json:"auth"`    // HTTP Basic Auth 凭证，格式 "user:password"，留空则不启用认证
+}
+
+func (w *WebConfig) IsEnabled() bool {
+	return w.Enabled == nil || *w.Enabled
 }
 
 type RelayConfig struct {
@@ -187,6 +193,11 @@ func Load() (*Config, error) {
 		config.AI.Timeout = 60
 	}
 
+	// 补全 Web 默认值
+	if config.Web.Port == 0 {
+		config.Web.Port = 8090
+	}
+
 	return &config, nil
 }
 
@@ -260,6 +271,9 @@ func DefaultConfig() *Config {
 			MinContentLen: 100,
 			MaxContentLen: 10000,
 			Timeout:       60,
+		},
+		Web: WebConfig{
+			Port: 8090,
 		},
 	}
 }

@@ -335,7 +335,6 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			if proc, err := os.FindProcess(pid); err == nil && proc != nil {
 				status["daemon_running"] = true
-				status["pid"] = pid
 			}
 		}
 	}
