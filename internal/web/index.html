@@ -321,7 +321,7 @@ body {
   gap: 6px;
   border-bottom: 1px solid var(--border);
   min-height: 0;
-  max-height: 60vh;
+  max-height: 50vh;
   overflow-y: auto;
 }
 .tag-item {
@@ -614,6 +614,44 @@ canvas {
   font-size: 13px;
 }
 .btn-danger:hover { background: #e53935; }
+.admin-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.admin-actions .btn {
+  flex: 1;
+  min-width: 100px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 6px;
+}
+.btn-restart {
+  background: #c62828;
+  color: #fff;
+  border-color: #c62828;
+}
+.btn-restart:hover { background: #e53935; color: #fff; }
+.btn-update {
+  background: linear-gradient(135deg, #1a73e8, #4fc3f7);
+  color: #fff;
+  border-color: transparent;
+}
+.btn-update:hover { opacity: 0.9; color: #fff; }
+.btn-update:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-release {
+  background: linear-gradient(135deg, #2e7d32, #66bb6a);
+  color: #fff;
+  border-color: transparent;
+}
+.btn-release:hover { opacity: 0.9; color: #fff; }
+.btn-release:disabled { opacity: 0.5; cursor: not-allowed; }
 /* === Mobile responsive === */
 @media (max-width: 768px) {
   .header { padding: 10px 14px; }
@@ -814,7 +852,11 @@ canvas {
         </div>
         <div class="admin-card">
           <div class="admin-card-title">系统操作</div>
-          <button class="btn btn-danger" onclick="restartKnowly()">重启 Knowly</button>
+          <div class="admin-actions">
+            <button class="btn btn-restart" onclick="restartKnowly()">&#x21bb; 重启</button>
+            <button class="btn btn-update" id="updateBtn" onclick="updateKnowly()">&#x2b06; 更新</button>
+            <button class="btn btn-release" id="releaseBtn" onclick="releaseKnowly()">&#x1f680; 发布</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1619,6 +1661,88 @@ async function restartKnowly() {
   } catch (e) {
     showToast('重启请求已发送，页面将自动刷新');
     setTimeout(() => { location.reload(); }, 3000);
+  }
+}
+
+async function updateKnowly() {
+  if (!confirm('确定要从源码编译并更新吗？')) return;
+  const btn = document.getElementById('updateBtn');
+  btn.disabled = true;
+  btn.textContent = '更新中...';
+  try {
+    const resp = await fetch('/api/admin/update', { method: 'POST' });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let done = false;
+    while (!done) {
+      const { value, done: d } = await reader.read();
+      done = d;
+      if (value) {
+        const text = decoder.decode(value);
+        text.split('\n').forEach(line => {
+          if (line.startsWith('data: ')) {
+            try {
+              const ev = JSON.parse(line.slice(6));
+              btn.textContent = ev.message;
+              if (ev.step === 'error') {
+                showToast(ev.message);
+                btn.disabled = false;
+                btn.textContent = '更新';
+              }
+              if (ev.step === 'done') {
+                showToast('更新完成，页面即将刷新');
+                setTimeout(() => { location.reload(); }, 2000);
+              }
+            } catch(e) {}
+          }
+        });
+      }
+    }
+  } catch (e) {
+    showToast('更新请求已发送，页面将自动刷新');
+    setTimeout(() => { location.reload(); }, 3000);
+  }
+}
+
+async function releaseKnowly() {
+  if (!confirm('确定要发布新版本吗？（git push → npm version minor → git push --tags）')) return;
+  const btn = document.getElementById('releaseBtn');
+  btn.disabled = true;
+  btn.textContent = '发布中...';
+  try {
+    const resp = await fetch('/api/admin/release', { method: 'POST' });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let done = false;
+    while (!done) {
+      const { value, done: d } = await reader.read();
+      done = d;
+      if (value) {
+        const text = decoder.decode(value);
+        text.split('\n').forEach(line => {
+          if (line.startsWith('data: ')) {
+            try {
+              const ev = JSON.parse(line.slice(6));
+              btn.textContent = ev.message;
+              if (ev.step === 'error') {
+                showToast(ev.message);
+                btn.disabled = false;
+                btn.textContent = '发布';
+              }
+              if (ev.step === 'done') {
+                showToast(ev.message);
+                btn.disabled = false;
+                btn.textContent = '发布';
+              }
+            } catch(e) {}
+          }
+        });
+      }
+    }
+  } catch (e) {
+    showToast('发布失败');
+    btn.disabled = false;
+    btn.textContent = '发布';
   }
 }
 

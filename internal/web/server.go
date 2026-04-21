@@ -81,6 +81,8 @@ func (s *Server) buildHandler() http.Handler {
 
 	// 管理 API
 	mux.HandleFunc("/api/admin/restart", s.handleRestart)
+	mux.HandleFunc("/api/admin/update", s.handleUpdate)
+	mux.HandleFunc("/api/admin/release", s.handleRelease)
 
 	// 发布 API
 	mux.HandleFunc("/api/publish", s.handlePublish)

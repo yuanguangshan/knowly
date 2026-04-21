@@ -415,6 +415,182 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
+// handleUpdate 从源码编译并替换二进制文件，然后重启服务
+func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 查找源码目录：从当前工作目录向上查找 go.mod
+	sourceDir := findProjectRoot()
+	if sourceDir == "" {
+		jsonError(w, "找不到项目源码目录（未检测到 go.mod）", http.StatusInternalServerError)
+		return
+	}
+
+	binaryName := "knowly-darwin-arm64"
+	installDir := "/opt/homebrew/lib/node_modules/knowly/bin"
+	target := filepath.Join(installDir, binaryName)
+
+	// 设置 SSE
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher := w.(http.Flusher)
+
+	sendEvent := func(step, msg string) {
+		data, _ := json.Marshal(map[string]string{"step": step, "message": msg})
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	sendEvent("building", "编译中...")
+	cmd := exec.Command("go", "build", "-o", binaryName, "./cmd/knowly")
+	cmd.Dir = sourceDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		sendEvent("error", fmt.Sprintf("编译失败: %s\n%s", err, string(output)))
+		return
+	}
+
+	sendEvent("stopping", "停止服务...")
+	pidData, err := os.ReadFile(config.GetPidPath())
+	if err == nil {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(pidData))); err == nil {
+			syscall.Kill(pid, syscall.SIGTERM)
+		}
+	}
+	time.Sleep(1 * time.Second)
+
+	sendEvent("replacing", "替换二进制文件...")
+	built := filepath.Join(sourceDir, binaryName)
+	if err := os.Rename(built, target); err != nil {
+		sendEvent("error", fmt.Sprintf("替换失败: %v", err))
+		return
+	}
+
+	sendEvent("starting", "启动服务...")
+
+	// fork 新进程然后退出当前进程
+	exePath, err := os.Executable()
+	if err != nil {
+		sendEvent("error", fmt.Sprintf("获取路径失败: %v", err))
+		return
+	}
+	newCmd := exec.Command(exePath, "--daemon")
+	newCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	newCmd.Stdin = nil
+	newCmd.Stdout = nil
+	newCmd.Stderr = nil
+	if err := newCmd.Start(); err != nil {
+		sendEvent("error", fmt.Sprintf("启动失败: %v", err))
+		return
+	}
+
+	sendEvent("done", "更新完成，页面即将刷新")
+
+	// 延迟退出当前进程，让 SSE 响应发完
+	go func() {
+		time.Sleep(1 * time.Second)
+		os.Exit(0)
+	}()
+}
+
+// findProjectRoot 从当前目录向上查找包含 go.mod 的目录
+func findProjectRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for i := 0; i < 20; i++ {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
+}
+
+// handleRelease 版本发布：git push → npm version minor → git push --tags
+func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sourceDir := findProjectRoot()
+	if sourceDir == "" {
+		jsonError(w, "找不到项目源码目录", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher := w.(http.Flusher)
+
+	sendEvent := func(step, msg string) {
+		data, _ := json.Marshal(map[string]string{"step": step, "message": msg})
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	run := func(name string, args ...string) (string, error) {
+		cmd := exec.Command(name, args...)
+		cmd.Dir = sourceDir
+		out, err := cmd.CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+
+	// 1. git add & commit
+	sendEvent("commit", "提交代码...")
+	out, err := run("git", "add", "-A")
+	if err != nil {
+		sendEvent("error", "git add 失败: "+out)
+		return
+	}
+	// 检查是否有变更
+	out, _ = run("git", "diff", "--cached", "--quiet")
+	// diff --cached --quiet 返回非0表示有变更
+	out, err = run("git", "commit", "-m", "release")
+	if err != nil && !strings.Contains(err.Error(), "nothing to commit") {
+		// nothing to commit 也算正常
+		sendEvent("commit", "无代码变更")
+	} else {
+		sendEvent("commit", "代码已提交")
+	}
+
+	// 2. git push
+	sendEvent("push", "推送到远程...")
+	if out, err = run("git", "push"); err != nil {
+		sendEvent("error", "git push 失败: "+out)
+		return
+	}
+	sendEvent("push", "推送完成")
+
+	// 3. npm version minor
+	sendEvent("version", "升级版本号...")
+	if out, err = run("npm", "version", "minor"); err != nil {
+		sendEvent("error", "npm version 失败: "+out)
+		return
+	}
+	sendEvent("version", "版本: "+out)
+
+	// 4. git push --tags
+	sendEvent("tags", "推送标签...")
+	if out, err = run("git", "push", "--tags"); err != nil {
+		sendEvent("error", "git push --tags 失败: "+out)
+		return
+	}
+
+	sendEvent("done", "发布完成")
+}
+
 // handlePublish 发布内容到 Blog/Podcast/IMA
 func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
