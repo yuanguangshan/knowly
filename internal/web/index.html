@@ -889,8 +889,13 @@ async function loadLogs() {
 
 function appendLogLine(line) {
   const container = document.getElementById('logContainer');
+  var key = (line.time || '') + '|' + (line.raw || line.message || '');
+  if (container.firstChild && container.firstChild.dataset && container.firstChild.dataset.key === key) return;
+  var next = container.firstChild;
+  while (next && next.dataset && next.dataset.key === key) { next = next.nextElementSibling; }
   const div = document.createElement('div');
   div.className = 'log-line level-' + (line.level || '');
+  div.dataset.key = key;
   div.innerHTML =
     '<span class="log-time">' + escHtml(line.time || '') + '</span>' +
     '<span class="log-level">' + escHtml(line.level || '') + '</span>' +
