@@ -442,9 +442,12 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	binaryName := "knowly-darwin-arm64"
-	installDir := "/opt/homebrew/lib/node_modules/knowly/bin"
-	target := filepath.Join(installDir, binaryName)
+	currentExe, err := os.Executable()
+	if err != nil {
+		jsonError(w, "获取当前可执行文件路径失败", http.StatusInternalServerError)
+		return
+	}
+	tmpBinary := "knowly-update-tmp"
 
 	// 设置 SSE
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -459,7 +462,7 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendEvent("building", "编译中...")
-	cmd := exec.Command("go", "build", "-o", binaryName, "./cmd/knowly")
+	cmd := exec.Command("go", "build", "-o", tmpBinary, "./cmd/knowly")
 	cmd.Dir = sourceDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -477,8 +480,8 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	time.Sleep(1 * time.Second)
 
 	sendEvent("replacing", "替换二进制文件...")
-	built := filepath.Join(sourceDir, binaryName)
-	if err := os.Rename(built, target); err != nil {
+	built := filepath.Join(sourceDir, tmpBinary)
+	if err := os.Rename(built, currentExe); err != nil {
 		sendEvent("error", fmt.Sprintf("替换失败: %v", err))
 		return
 	}
