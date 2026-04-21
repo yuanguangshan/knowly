@@ -356,6 +356,19 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	status["uptime"] = int64(time.Since(s.startTime).Seconds())
 	status["pid"] = os.Getpid()
 
+	// 读取版本号
+	sourceDir := findProjectRoot()
+	if sourceDir != "" {
+		if pkgData, err := os.ReadFile(filepath.Join(sourceDir, "package.json")); err == nil {
+			var pkg struct {
+				Version string `json:"version"`
+			}
+			if json.Unmarshal(pkgData, &pkg) == nil {
+				status["version"] = pkg.Version
+			}
+		}
+	}
+
 	// 发布渠道配置状态
 	status["publishers"] = map[string]map[string]bool{
 		"blog":    {"enabled": s.cfg.Blog.Enabled},
