@@ -327,6 +327,7 @@ func contentHash(data []byte) string {
 }
 
 // ExistsByHash 检查远程当天目录中是否已存在包含指定哈希的文件
+// 使用单日哈希索引文件 .knas_hashes 进行 O(1) 查询，替代 grep -rl 全盘扫描
 func (c *Client) ExistsByHash(relPath, hash string) bool {
 	if err := c.ensureConnected(); err != nil {
 		return false
@@ -339,14 +340,31 @@ func (c *Client) ExistsByHash(relPath, hash string) bool {
 	defer session.Close()
 
 	dirPath := c.expandPath(filepath.Join(c.config.BasePath, relPath))
-	// 用 grep -rl 在当天目录中搜索包含哈希标记的文件
-	cmd := fmt.Sprintf("grep -rl 'content_hash: %s' %s 2>/dev/null | head -1", hash, shellEscape(dirPath))
+	hashFile := filepath.Join(dirPath, ".knas_hashes")
+	// 在索引文件中精确匹配哈希值，grep -qxF: 静默、整行、固定字符串
+	cmd := fmt.Sprintf("grep -qxF %s %s 2>/dev/null", shellEscape(hash), shellEscape(hashFile))
 
-	output, err := session.Output(cmd)
-	if err != nil {
-		return false
+	err = session.Run(cmd)
+	return err == nil
+}
+
+// appendHashIndex 将哈希值追加到远程当天的索引文件中
+func (c *Client) appendHashIndex(relPath, hash string) {
+	if err := c.ensureConnected(); err != nil {
+		return
 	}
-	return strings.TrimSpace(string(output)) != ""
+
+	session, err := c.sshClient.NewSession()
+	if err != nil {
+		return
+	}
+	defer session.Close()
+
+	dirPath := c.expandPath(filepath.Join(c.config.BasePath, relPath))
+	hashFile := filepath.Join(dirPath, ".knas_hashes")
+	// 原子追加哈希值到索引文件
+	cmd := fmt.Sprintf("echo %s >> %s", shellEscape(hash), shellEscape(hashFile))
+	session.Run(cmd)
 }
 
 func (c *Client) SyncItem(content string, timestamp time.Time) (string, error) {
@@ -393,6 +411,9 @@ func (c *Client) SyncItem(content string, timestamp time.Time) (string, error) {
 	if err := c.WriteFile(fullPath, fileContent); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
+
+	// 同步成功后将哈希追加到当天索引文件
+	c.appendHashIndex(relPath, hash)
 
 	log.Printf("[INFO] Synced to remote: %s", fullPath)
 	return fullPath, nil
@@ -502,6 +523,9 @@ func (c *Client) SyncImage(data []byte, timestamp time.Time) (string, error) {
 	if err := c.WriteBinary(fullPath, data); err != nil {
 		return "", fmt.Errorf("failed to write image: %w", err)
 	}
+
+	// 同步成功后将哈希追加到当天索引文件
+	c.appendHashIndex(relPath, hash)
 
 	log.Printf("[INFO] Synced image to remote: %s", fullPath)
 	return fullPath, nil

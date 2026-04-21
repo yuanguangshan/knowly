@@ -11,6 +11,7 @@ type Config struct {
 	SSH          SSHConfig          `json:"ssh"`
 	Clipboard    ClipboardConfig    `json:"clipboard"`
 	Sync         SyncConfig         `json:"sync"`
+	Web          WebConfig          `json:"web"`
 	Relay        RelayConfig        `json:"relay"`
 	Blog         BlogConfig         `json:"blog"`
 	Podcast      PodcastConfig      `json:"podcast"`
@@ -37,6 +38,10 @@ type SyncConfig struct {
 	Enabled     bool `json:"enabled"`
 	MaxRetries  int  `json:"max_retries"`
 	RetryDelay  int  `json:"retry_delay_ms"`
+}
+
+type WebConfig struct {
+	Auth string `json:"auth"` // HTTP Basic Auth 凭证，格式 "user:password"，留空则不启用认证
 }
 
 type RelayConfig struct {

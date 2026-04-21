@@ -196,10 +196,117 @@ func (s *Store) readAll() ([]Entry, error) {
 }
 
 // Recent 返回最近的 n 条记录（倒序：最近的在前面）
+// 使用逆向读取避免加载整个 JSONL 文件
 func (s *Store) Recent(n int) ([]Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	entries, err := s.readRecent(n)
+	if err != nil {
+		// 回退到全量读取
+		return s.recentFallback(n)
+	}
+	return entries, nil
+}
+
+// readRecent 从文件末尾逆向读取最近 n 条记录
+func (s *Store) readRecent(n int) ([]Entry, error) {
+	f, err := os.Open(s.path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fileSize := fi.Size()
+	if fileSize == 0 {
+		return nil, nil
+	}
+
+	// 从文件末尾按块逆向读取，收集完整行
+	const blockSize = 4096
+	var lines []string
+	var buf []byte
+	remaining := fileSize
+	foundNewline := true // 文件末尾可能没有换行，跳过
+
+	for remaining > 0 && len(lines) <= n {
+		readSize := int64(blockSize)
+		if remaining < readSize {
+			readSize = remaining
+		}
+		remaining -= readSize
+
+		chunk := make([]byte, readSize)
+		if _, err := f.Seek(remaining, 0); err != nil {
+			return nil, err
+		}
+		if _, err := f.Read(chunk); err != nil {
+			return nil, err
+		}
+
+		// 将 chunk 和之前未完成的行首拼接
+		chunk = append(chunk, buf...)
+		buf = nil
+
+		// 从后向前拆分行
+		for i := len(chunk) - 1; i >= 0; i-- {
+			if chunk[i] == '\n' {
+				if foundNewline {
+					// 跳过末尾的空行
+					if i < len(chunk)-1 {
+						lines = append(lines, string(chunk[i+1:]))
+					}
+				} else {
+					if i < len(chunk)-1 {
+						lines = append(lines, string(chunk[i+1:]))
+					}
+				}
+				foundNewline = false
+				chunk = chunk[:i]
+
+				if len(lines) >= n {
+					break
+				}
+			}
+		}
+		if len(chunk) > 0 {
+			buf = chunk
+		}
+	}
+
+	// 处理文件最开头没有换行的剩余数据
+	if len(buf) > 0 && len(lines) < n {
+		lines = append(lines, string(buf))
+	}
+
+	// lines 中顺序是从文件末尾到开头，需要反转并截取
+	var entries []Entry
+	for i := 0; i < len(lines) && len(entries) < n; i++ {
+		line := strings.TrimRight(lines[i], "\r")
+		if line == "" {
+			continue
+		}
+		var e Entry
+		if json.Unmarshal([]byte(line), &e) == nil {
+			entries = append(entries, e)
+		}
+	}
+
+	// entries 现在是从旧到新（因为 lines 是从后到前收集的，但我们反转了遍历顺序）
+	// 实际上 lines 是从末尾到开头的，所以 entries[0] 是最新的
+	// 不需要再反转
+	return entries, nil
+}
+
+// recentFallback 回退到全量读取方式
+func (s *Store) recentFallback(n int) ([]Entry, error) {
 	entries, err := s.readAll()
 	if err != nil {
 		return nil, err
@@ -208,12 +315,10 @@ func (s *Store) Recent(n int) ([]Entry, error) {
 		return nil, nil
 	}
 
-	// 取最后 n 条
 	if len(entries) > n {
 		entries = entries[len(entries)-n:]
 	}
 
-	// 反转顺序，最近的在前面
 	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
 		entries[i], entries[j] = entries[j], entries[i]
 	}

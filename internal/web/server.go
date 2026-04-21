@@ -1,9 +1,11 @@
 package web
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/yuanguangshan/knas/internal/config"
@@ -80,6 +82,33 @@ func (s *Server) Start() error {
 	// 搜索 API
 	mux.HandleFunc("/api/search", s.handleSearch)
 
+	// 构建处理链：Basic Auth -> 路由
+	handler := http.Handler(mux)
+	if s.cfg.Web.Auth != "" {
+		handler = s.basicAuth(mux)
+	}
+
 	fmt.Printf("Knas Web UI 启动: http://localhost%s\n", s.addr)
-	return http.ListenAndServe(s.addr, mux)
+	return http.ListenAndServe(s.addr, handler)
+}
+
+// basicAuth 返回一个 HTTP Basic Auth 中间件
+func (s *Server) basicAuth(next http.Handler) http.Handler {
+	// 预计算期望的 Authorization header 值
+	expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(s.cfg.Web.Auth))
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth != expectedAuth {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// basicAuthDisabled 检查是否配置了 Web 认证
+func basicAuthDisabled(auth string) bool {
+	return strings.TrimSpace(auth) == ""
 }

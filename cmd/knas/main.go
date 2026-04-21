@@ -244,12 +244,45 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 	log.Printf("[INFO] Relay synced & archived: %s", nasPath)
 }
 
-// writePidFile 将当前进程 PID 写入文件
+// pidFileLock 全局持有 PID 文件的文件锁，进程退出时自动释放
+var pidFileLock *os.File
+
+// writePidFile 将当前进程 PID 写入文件，并使用排他文件锁防止重复启动
 func writePidFile() {
 	pidPath := config.GetPidPath()
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
-		log.Fatalf("Failed to write PID file %s: %v", pidPath, err)
+
+	// 确保目录存在
+	if err := os.MkdirAll(filepath.Dir(pidPath), 0755); err != nil {
+		log.Fatalf("Failed to create PID directory: %v", err)
 	}
+
+	f, err := os.OpenFile(pidPath, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatalf("Failed to open PID file %s: %v", pidPath, err)
+	}
+
+	// 尝试获取排他锁（非阻塞），如果失败说明已有另一个守护进程在运行
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		log.Fatalf("另一个 Knas 守护进程正在运行 (PID 文件: %s)", pidPath)
+	}
+
+	// 获取锁成功，写入当前 PID
+	if err := f.Truncate(0); err != nil {
+		f.Close()
+		log.Fatalf("Failed to truncate PID file: %v", err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		f.Close()
+		log.Fatalf("Failed to seek PID file: %v", err)
+	}
+	if _, err := f.WriteString(strconv.Itoa(os.Getpid())); err != nil {
+		f.Close()
+		log.Fatalf("Failed to write PID: %v", err)
+	}
+
+	// 保存文件句柄，进程退出时 close 自动释放 flock
+	pidFileLock = f
 }
 
 // redirectLogsToFile 将 stdout/stderr 重定向到日志文件
@@ -264,9 +297,14 @@ func redirectLogsToFile() {
 	log.SetOutput(f)
 }
 
-// removePidFile 删除 PID 文件
+// removePidFile 删除 PID 文件并释放文件锁
 func removePidFile() {
-	os.Remove(config.GetPidPath())
+	pidPath := config.GetPidPath()
+	if pidFileLock != nil {
+		pidFileLock.Close()
+		pidFileLock = nil
+	}
+	os.Remove(pidPath)
 }
 
 // stopDaemon 停止守护进程
