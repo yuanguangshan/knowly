@@ -333,6 +333,15 @@ body {
 .tag-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .tag-item.active { background: var(--info); color: #fff; }
 .tag-item small { margin-left: 3px; opacity: 0.7; }
+.tag-item.tag-toggle {
+  background: var(--bg-hover);
+  color: var(--accent);
+  font-weight: 500;
+}
+.tag-item.tag-toggle:hover {
+  background: var(--accent-dim);
+  color: #fff;
+}
 .history-tags {
   display: inline-flex;
   gap: 4px;
@@ -1123,17 +1132,34 @@ function renderMarkdown(text) {
 }
 
 // === History ===
+let tagsExpanded = false;
 async function loadTags() {
   try {
     const tags = await api('/api/tags');
     const bar = document.getElementById('tagsBar');
     if (!tags.length) { bar.innerHTML = ''; return; }
     let html = '<span class="tag-item' + (currentTagFilter === '' ? ' active' : '') + '" onclick="filterByTag(\'\')">全部</span>';
-    tags.forEach(t => {
+
+    // 如果标签数量大于3，默认折叠
+    const showTags = tagsExpanded ? tags : tags.slice(0, 3);
+    showTags.forEach(t => {
       html += '<span class="tag-item' + (currentTagFilter === t.tag ? ' active' : '') + '" onclick="filterByTag(\'' + escAttr(t.tag) + '\')">' + escHtml(t.tag) + '<small>' + t.count + '</small></span>';
     });
+
+    // 如果标签总数大于3，显示展开/折叠按钮
+    if (tags.length > 3) {
+      const toggleText = tagsExpanded ? '收起' : '展开更多';
+      html += '<span class="tag-item tag-toggle" onclick="toggleTags(event)">' + toggleText + '</span>';
+    }
+
     bar.innerHTML = html;
   } catch (e) { console.error(e); }
+}
+
+function toggleTags(event) {
+  event.stopPropagation();
+  tagsExpanded = !tagsExpanded;
+  loadTags();
 }
 
 function filterByTag(tag) {
