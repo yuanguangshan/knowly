@@ -126,12 +126,11 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 
 	logPath := config.GetLogPath()
 
+	// Start from current end of file, don't send historical logs
+	// (frontend loads history separately via /api/logs)
 	var offset int64
 	if info, err := os.Stat(logPath); err == nil {
-		offset = info.Size() - 5120
-		if offset < 0 {
-			offset = 0
-		}
+		offset = info.Size()
 	}
 
 	ctx := r.Context()
