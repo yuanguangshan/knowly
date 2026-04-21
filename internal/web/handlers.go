@@ -344,6 +344,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	histFile := filepath.Join(config.GetConfigDir(), "history.jsonl")
 	if f, err := os.Open(histFile); err == nil {
 		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024) // 10MB max line
 		count := 0
 		for scanner.Scan() {
 			count++
