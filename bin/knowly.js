@@ -9,14 +9,14 @@ const { spawn, execSync } = require('child_process');
 const os = require('os');
 
 program
-  .name('knas')
+  .name('knowly')
   .description('Knowledge Async - Clipboard to NAS sync tool')
   .version(require('../package.json').version);
 
-const CONFIG_DIR = path.join(os.homedir(), '.knas');
+const CONFIG_DIR = path.join(os.homedir(), '.knowly');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
-const LOG_FILE = path.join(CONFIG_DIR, 'knas.log');
-const PID_FILE = path.join(CONFIG_DIR, 'knas.pid');
+const LOG_FILE = path.join(CONFIG_DIR, 'knowly.log');
+const PID_FILE = path.join(CONFIG_DIR, 'knowly.pid');
 
 // 获取平台对应的二进制文件名
 function getBinaryPath() {
@@ -26,11 +26,11 @@ function getBinaryPath() {
 
   let binaryName;
   if (platform === 'darwin' && arch === 'arm64') {
-    binaryName = 'knas-darwin-arm64';
+    binaryName = 'knowly-darwin-arm64';
   } else if (platform === 'darwin') {
-    binaryName = 'knas-darwin';
+    binaryName = 'knowly-darwin';
   } else if (platform === 'linux') {
-    binaryName = 'knas-linux';
+    binaryName = 'knowly-linux';
   } else {
     throw new Error(`Unsupported platform: ${platform}-${arch}`);
   }
@@ -104,9 +104,9 @@ function execBinary(args = [], detached = false) {
 // 初始化命令
 program
   .command('init')
-  .description('Initialize knas configuration')
+  .description('Initialize knowly configuration')
   .action(async () => {
-    console.log(chalk.cyan('Welcome to knas (Knowledge Async)!\n'));
+    console.log(chalk.cyan('Welcome to knowly (Knowledge Async)!\n'));
 
     const defaultConfig = {
       ssh: {
@@ -114,7 +114,7 @@ program
         port: '22',
         user: 'root',
         key_path: path.join(os.homedir(), '.ssh', 'id_rsa'),
-        base_path: '~/knas_archive'
+        base_path: '~/knowly_archive'
       },
       clipboard: {
         min_length: 100,
@@ -159,7 +159,7 @@ program
         type: 'input',
         name: 'base_path',
         message: 'Remote base path:',
-        default: '~/knas_archive'
+        default: '~/knowly_archive'
       },
       {
         type: 'number',
@@ -179,50 +179,50 @@ program
     saveConfig(defaultConfig);
 
     console.log(chalk.green('\n✓ Configuration saved to'), CONFIG_FILE);
-    console.log(chalk.cyan('\nYou can now start the daemon with: knas start'));
+    console.log(chalk.cyan('\nYou can now start the daemon with: knowly start'));
   });
 
 // 启动命令
 program
   .command('start')
-  .description('Start knas daemon')
+  .description('Start knowly daemon')
   .action(() => {
     if (!isConfigured()) {
-      console.error(chalk.red('Error: knas is not configured'));
-      console.error(chalk.yellow('Run "knas init" to configure'));
+      console.error(chalk.red('Error: knowly is not configured'));
+      console.error(chalk.yellow('Run "knowly init" to configure'));
       process.exit(1);
     }
 
     if (isRunning()) {
-      console.log(chalk.yellow('knas daemon is already running'));
+      console.log(chalk.yellow('knowly daemon is already running'));
       return;
     }
 
-    console.log(chalk.cyan('Starting knas daemon...'));
+    console.log(chalk.cyan('Starting knowly daemon...'));
     execBinary(['--daemon'], true);
-    console.log(chalk.green('✓ knas daemon started'));
+    console.log(chalk.green('✓ knowly daemon started'));
     console.log(chalk.gray(`Log file: ${LOG_FILE}`));
   });
 
 // 停止命令
 program
   .command('stop')
-  .description('Stop knas daemon')
+  .description('Stop knowly daemon')
   .action(() => {
     if (!isRunning()) {
-      console.log(chalk.yellow('knas daemon is not running'));
+      console.log(chalk.yellow('knowly daemon is not running'));
       return;
     }
 
-    console.log(chalk.cyan('Stopping knas daemon...'));
+    console.log(chalk.cyan('Stopping knowly daemon...'));
     execBinary(['--stop']);
-    console.log(chalk.green('✓ knas daemon stopped'));
+    console.log(chalk.green('✓ knowly daemon stopped'));
   });
 
 // 状态命令
 program
   .command('status')
-  .description('Show knas daemon status')
+  .description('Show knowly daemon status')
   .action(() => {
     execBinary(['--status']);
   });
@@ -230,7 +230,7 @@ program
 // 日志命令
 program
   .command('log')
-  .description('Show knas logs')
+  .description('Show knowly logs')
   .option('-f, --follow', 'Follow log output')
   .action((options) => {
     if (!fs.existsSync(LOG_FILE)) {
@@ -252,45 +252,45 @@ program
 // 服务安装命令
 program
   .command('service install')
-  .description('Install knas as macOS Login Item (auto-start on login)')
+  .description('Install knowly as macOS Login Item (auto-start on login)')
   .action(() => {
     if (!isConfigured()) {
-      console.error(chalk.red('Error: knas is not configured'));
-      console.error(chalk.yellow('Run "knas init" to configure'));
+      console.error(chalk.red('Error: knowly is not configured'));
+      console.error(chalk.yellow('Run "knowly init" to configure'));
       process.exit(1);
     }
 
     // 清理旧的 LaunchAgent（如果存在）
-    const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.knas.daemon.plist');
+    const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.knowly.daemon.plist');
     if (fs.existsSync(plistPath)) {
       try {
-        execSync('launchctl unload ~/Library/LaunchAgents/com.knas.daemon.plist 2>/dev/null');
+        execSync('launchctl unload ~/Library/LaunchAgents/com.knowly.daemon.plist 2>/dev/null');
       } catch (e) { /* ignore */ }
       fs.unlinkSync(plistPath);
       console.log(chalk.gray('Removed old LaunchAgent'));
     }
 
     // 创建 AppleScript Helper App
-    const helperAppPath = path.join(CONFIG_DIR, 'KnasHelper.app');
+    const helperAppPath = path.join(CONFIG_DIR, 'KnowlyHelper.app');
     const scriptContent = `on run\ndo shell script "nohup ${getBinaryPath()} --daemon >> ${LOG_FILE} 2>&1 &"\nend run`;
 
     try {
       // 写入临时 .scpt 文件
-      const tmpScript = path.join(os.tmpdir(), 'knas_helper.scpt');
+      const tmpScript = path.join(os.tmpdir(), 'knowly_helper.scpt');
       fs.writeFileSync(tmpScript, scriptContent);
       execSync(`osacompile -o "${helperAppPath}" "${tmpScript}"`, { stdio: 'pipe' });
       fs.unlinkSync(tmpScript);
 
       // 添加到登录项
       try {
-        execSync(`osascript -e 'tell application "System Events" to delete login item "KnasHelper"' 2>/dev/null`, { stdio: 'pipe' });
+        execSync(`osascript -e 'tell application "System Events" to delete login item "KnowlyHelper"' 2>/dev/null`, { stdio: 'pipe' });
       } catch (e) { /* not existing, ignore */ }
       execSync(`osascript -e 'tell application "System Events" to make login item at end with properties {path:"${helperAppPath}", hidden:true}'`, { stdio: 'pipe' });
 
-      console.log(chalk.green('✓ KnasHelper installed as Login Item'));
+      console.log(chalk.green('✓ KnowlyHelper installed as Login Item'));
       console.log(chalk.gray(`  App: ${helperAppPath}`));
-      console.log(chalk.cyan('\nKnas will auto-start on login.'));
-      console.log(chalk.gray('Run "knas service uninstall" to remove.'));
+      console.log(chalk.cyan('\nKnowly will auto-start on login.'));
+      console.log(chalk.gray('Run "knowly service uninstall" to remove.'));
     } catch (e) {
       console.error(chalk.red('Error installing service:'), e.message);
       process.exit(1);
@@ -300,29 +300,29 @@ program
 // 服务卸载命令
 program
   .command('service uninstall')
-  .description('Uninstall knas auto-start service')
+  .description('Uninstall knowly auto-start service')
   .action(() => {
-    const helperAppPath = path.join(CONFIG_DIR, 'KnasHelper.app');
+    const helperAppPath = path.join(CONFIG_DIR, 'KnowlyHelper.app');
 
     try {
       // 从登录项移除
       try {
-        execSync(`osascript -e 'tell application "System Events" to delete login item "KnasHelper"'`, { stdio: 'pipe' });
+        execSync(`osascript -e 'tell application "System Events" to delete login item "KnowlyHelper"'`, { stdio: 'pipe' });
         console.log(chalk.green('✓ Removed from Login Items'));
       } catch (e) {
-        console.log(chalk.yellow('KnasHelper not found in Login Items'));
+        console.log(chalk.yellow('KnowlyHelper not found in Login Items'));
       }
 
       // 删除 Helper App
       if (fs.existsSync(helperAppPath)) {
         fs.rmSync(helperAppPath, { recursive: true });
-        console.log(chalk.green('✓ Removed KnasHelper.app'));
+        console.log(chalk.green('✓ Removed KnowlyHelper.app'));
       }
 
       // 清理旧的 LaunchAgent（如果存在）
-      const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.knas.daemon.plist');
+      const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.knowly.daemon.plist');
       if (fs.existsSync(plistPath)) {
-        try { execSync('launchctl unload ~/Library/LaunchAgents/com.knas.daemon.plist 2>/dev/null'); } catch (e) { /* ignore */ }
+        try { execSync('launchctl unload ~/Library/LaunchAgents/com.knowly.daemon.plist 2>/dev/null'); } catch (e) { /* ignore */ }
         fs.unlinkSync(plistPath);
         console.log(chalk.green('✓ Removed old LaunchAgent'));
       }
@@ -339,8 +339,8 @@ program
   .option('-e, --edit', 'Edit configuration')
   .action((options) => {
     if (!isConfigured()) {
-      console.error(chalk.red('Error: knas is not configured'));
-      console.error(chalk.yellow('Run "knas init" to configure'));
+      console.error(chalk.red('Error: knowly is not configured'));
+      console.error(chalk.yellow('Run "knowly init" to configure'));
       process.exit(1);
     }
 
@@ -389,7 +389,7 @@ program
   .description('Show version information')
   .action(() => {
     const pkg = require('../package.json');
-    console.log(`knas v${pkg.version}`);
+    console.log(`knowly v${pkg.version}`);
   });
 
 // 解析命令行参数

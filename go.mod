@@ -1,4 +1,4 @@
-module github.com/yuanguangshan/knas
+module github.com/yuanguangshan/knowly
 
 go 1.25.0
 

@@ -89,10 +89,10 @@ type AIConfig struct {
 }
 
 const (
-	DefaultConfigDir  = "~/.knas"
+	DefaultConfigDir  = "~/.knowly"
 	ConfigFileName    = "config.json"
-	LogFileName       = "knas.log"
-	PidFileName       = "knas.pid"
+	LogFileName       = "knowly.log"
+	PidFileName       = "knowly.pid"
 )
 
 var (
@@ -107,9 +107,19 @@ func init() {
 		homeDir = "."
 	}
 
-	configPath = filepath.Join(homeDir, ".knas", ConfigFileName)
-	logPath = filepath.Join(homeDir, ".knas", LogFileName)
-	pidPath = filepath.Join(homeDir, ".knas", PidFileName)
+	newDir := filepath.Join(homeDir, ".knowly")
+	oldDir := filepath.Join(homeDir, ".knas")
+
+	// 自动迁移：~/.knas → ~/.knowly
+	if _, err := os.Stat(newDir); os.IsNotExist(err) {
+		if _, err := os.Stat(oldDir); err == nil {
+			os.Rename(oldDir, newDir)
+		}
+	}
+
+	configPath = filepath.Join(newDir, ConfigFileName)
+	logPath = filepath.Join(newDir, LogFileName)
+	pidPath = filepath.Join(newDir, PidFileName)
 }
 
 func GetConfigPath() string {
@@ -227,7 +237,7 @@ func DefaultConfig() *Config {
 			Port:                 "22",
 			User:                 "root",
 			KeyPath:              "~/.ssh/id_rsa",
-			BasePath:             "~/knas_archive",
+			BasePath:             "~/knowly_archive",
 			FilenamePrefixLength: 20, // 默认使用前 20 个字符
 		},
 		Clipboard: ClipboardConfig{

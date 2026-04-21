@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuanguangshan/knas/internal/config"
-	"github.com/yuanguangshan/knas/internal/history"
-	"github.com/yuanguangshan/knas/internal/ssh"
+	"github.com/yuanguangshan/knowly/internal/config"
+	"github.com/yuanguangshan/knowly/internal/history"
+	"github.com/yuanguangshan/knowly/internal/ssh"
 )
 
 // Server Web 管理界面服务器
@@ -110,7 +110,7 @@ func (s *Server) Start() error {
 	handler := s.buildHandler()
 	s.httpServer = &http.Server{Addr: s.addr, Handler: handler}
 
-	fmt.Printf("Knas Web UI 启动: http://localhost%s\n", s.addr)
+	fmt.Printf("Knowly Web UI 启动: http://localhost%s\n", s.addr)
 	return s.httpServer.ListenAndServe()
 }
 
@@ -120,7 +120,7 @@ func (s *Server) StartAsync() {
 	s.httpServer = &http.Server{Addr: s.addr, Handler: handler}
 
 	go func() {
-		fmt.Printf("Knas Web UI 启动: http://localhost%s\n", s.addr)
+		fmt.Printf("Knowly Web UI 启动: http://localhost%s\n", s.addr)
 		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Printf("[ERROR] Web server error: %v", err)
 		}

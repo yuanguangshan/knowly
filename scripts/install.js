@@ -10,18 +10,18 @@ if (process.env.CI === 'true') {
   process.exit(0);
 }
 
-console.log('Installing knas...\n');
+console.log('Installing knowly...\n');
 
 // 检查二进制文件是否已存在
 const binDir = path.join(__dirname, '../bin');
 const platform = process.platform;
 const arch = process.arch;
 const binaryName = platform === 'darwin' && arch === 'arm64'
-  ? 'knas-darwin-arm64'
+  ? 'knowly-darwin-arm64'
   : platform === 'darwin'
-  ? 'knas-darwin'
+  ? 'knowly-darwin'
   : platform === 'linux'
-  ? 'knas-linux'
+  ? 'knowly-linux'
   : null;
 
 const binaryPath = binaryName ? path.join(binDir, binaryName) : null;
@@ -51,4 +51,4 @@ if (binaryExists) {
 }
 
 console.log('\n✓ Installation complete!');
-console.log('\nRun "knas init" to configure.');
+console.log('\nRun "knowly init" to configure.');

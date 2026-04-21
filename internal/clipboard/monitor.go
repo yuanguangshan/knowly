@@ -13,7 +13,7 @@ import (
 	"time"
 
 	xclip "golang.design/x/clipboard"
-	"github.com/yuanguangshan/knas/internal/fetcher"
+	"github.com/yuanguangshan/knowly/internal/fetcher"
 )
 
 // 统一载荷接口

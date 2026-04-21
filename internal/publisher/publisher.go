@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuanguangshan/knas/internal/config"
+	"github.com/yuanguangshan/knowly/internal/config"
 )
 
 // extractTitle 从 Markdown 内容中提取标题（首行 # 标题），若无则用时间戳

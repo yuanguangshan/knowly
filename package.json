@@ -1,17 +1,17 @@
 {
-  "name": "@yuanguangshan/knas",
+  "name": "knowly",
   "version": "6.11.0",
   "description": "Knowledge Async - Clipboard monitor and sync to remote server via SSH",
   "main": "index.js",
   "bin": {
-    "knas": "./bin/knas.js"
+    "knowly": "./bin/knowly.js"
   },
   "scripts": {
     "install": "node scripts/install.js",
     "postinstall": "node scripts/postinstall.js",
     "preuninstall": "node scripts/preuninstall.js",
     "build": "node scripts/build.js",
-    "start": "node bin/knas.js start",
+    "start": "node bin/knowly.js start",
     "prepublishOnly": "npm run build"
   },
   "files": [

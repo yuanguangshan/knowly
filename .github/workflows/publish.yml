@@ -39,9 +39,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            bin/knas-darwin
-            bin/knas-darwin-arm64
-            bin/knas-linux
+            bin/knowly-darwin
+            bin/knowly-darwin-arm64
+            bin/knowly-linux
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

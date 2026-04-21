@@ -119,7 +119,7 @@ func TestConfigPaths(t *testing.T) {
 		t.Fatalf("Failed to get home directory: %v", err)
 	}
 
-	expectedConfigDir := filepath.Join(homeDir, ".knas")
+	expectedConfigDir := filepath.Join(homeDir, ".knowly")
 	if GetConfigDir() != expectedConfigDir {
 		t.Errorf("GetConfigDir() = %v, want %v", GetConfigDir(), expectedConfigDir)
 	}

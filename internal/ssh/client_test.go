@@ -98,8 +98,8 @@ func TestExpandPath(t *testing.T) {
 				config:  &Config{User: "root"},
 				homeDir: "/root",
 			},
-			input:    "~/knas_archive",
-			expected: "/root/knas_archive",
+			input:    "~/knowly_archive",
+			expected: "/root/knowly_archive",
 		},
 		{
 			name: "absolute path",
@@ -185,7 +185,7 @@ func TestNewClient(t *testing.T) {
 				Port:     "22",
 				User:     "root",
 				KeyPath:  "~/.ssh/id_rsa",
-				BasePath: "~/knas_archive",
+				BasePath: "~/knowly_archive",
 			},
 		},
 	}
@@ -288,7 +288,7 @@ func TestSyncImagePathGeneration(t *testing.T) {
 	client := &Client{
 		config: &Config{
 			User:     "root",
-			BasePath: "~/knas_archive",
+			BasePath: "~/knowly_archive",
 		},
 		homeDir: "/root",
 	}
@@ -312,7 +312,7 @@ func TestSyncImagePathGeneration(t *testing.T) {
 	}
 
 	// 验证 expandPath 使用缓存的家目录
-	expanded := client.expandPath("~/knas_archive/" + relPath + "/" + fileName)
+	expanded := client.expandPath("~/knowly_archive/" + relPath + "/" + fileName)
 	if !strings.HasPrefix(expanded, "/root/") {
 		t.Errorf("expanded path should use cached homeDir, got %q", expanded)
 	}

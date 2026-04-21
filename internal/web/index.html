@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Knas Web</title>
+<title>Knowly</title>
 <style>
 :root {
   --bg-primary: #1a1a2e;
@@ -672,7 +672,7 @@ canvas {
 <body>
 
 <div class="header">
-  <h1>Knas Web</h1>
+  <h1>Knowly</h1>
   <div class="status-info" id="headerStatus"></div>
 </div>
 
@@ -810,7 +810,7 @@ canvas {
         </div>
         <div class="admin-card">
           <div class="admin-card-title">系统操作</div>
-          <button class="btn btn-danger" onclick="restartKnas()">重启 Knas</button>
+          <button class="btn btn-danger" onclick="restartKnowly()">重启 Knowly</button>
         </div>
       </div>
     </div>
@@ -1601,8 +1601,8 @@ function updateUptime() {
   document.getElementById('adminUptime').textContent = str;
 }
 
-async function restartKnas() {
-  if (!confirm('确定要重启 Knas 吗？')) return;
+async function restartKnowly() {
+  if (!confirm('确定要重启 Knowly 吗？')) return;
   try {
     await fetch('/api/admin/restart', { method: 'POST' });
     showToast('正在重启...');

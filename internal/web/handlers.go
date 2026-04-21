@@ -15,10 +15,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yuanguangshan/knas/internal/config"
-	"github.com/yuanguangshan/knas/internal/history"
-	"github.com/yuanguangshan/knas/internal/publisher"
-	"github.com/yuanguangshan/knas/internal/ssh"
+	"github.com/yuanguangshan/knowly/internal/config"
+	"github.com/yuanguangshan/knowly/internal/history"
+	"github.com/yuanguangshan/knowly/internal/publisher"
+	"github.com/yuanguangshan/knowly/internal/ssh"
 )
 
 // serveIndex 返回前端页面
@@ -366,7 +366,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, status)
 }
 
-// handleRestart 重启 knas daemon 进程
+// handleRestart 重启 knowly daemon 进程
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)

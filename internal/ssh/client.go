@@ -64,7 +64,7 @@ func NewClient(config *Config) *Client {
 		config.Port = "22"
 	}
 	if config.BasePath == "" {
-		config.BasePath = "~/knas_archive"
+		config.BasePath = "~/knowly_archive"
 	}
 
 	sem := make(chan struct{}, maxConcurrentSessions)
@@ -130,11 +130,11 @@ func (c *Client) connectLocked() error {
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
 	}
-	knownHostsPath := filepath.Join(homeDir, ".knas", "known_hosts")
+	knownHostsPath := filepath.Join(homeDir, ".knowly", "known_hosts")
 
-	// 确保 .knas 目录存在
-	if err := os.MkdirAll(filepath.Join(homeDir, ".knas"), 0755); err != nil {
-		return fmt.Errorf("failed to create .knas directory: %w", err)
+	// 确保 .knowly 目录存在
+	if err := os.MkdirAll(filepath.Join(homeDir, ".knowly"), 0755); err != nil {
+		return fmt.Errorf("failed to create .knowly directory: %w", err)
 	}
 
 	// 创建 known_hosts 回调函数
@@ -390,7 +390,7 @@ func contentHash(data []byte) string {
 }
 
 // ExistsByHash 检查远程当天目录中是否已存在包含指定哈希的文件
-// 使用单日哈希索引文件 .knas_hashes 进行 O(1) 查询，替代 grep -rl 全盘扫描
+// 使用单日哈希索引文件 .knowly_hashes 进行 O(1) 查询，替代 grep -rl 全盘扫描
 func (c *Client) ExistsByHash(relPath, hash string) bool {
 	session, release, err := c.newSession()
 	if err != nil {
@@ -399,7 +399,7 @@ func (c *Client) ExistsByHash(relPath, hash string) bool {
 	defer release()
 
 	dirPath := c.expandPath(filepath.Join(c.config.BasePath, relPath))
-	hashFile := filepath.Join(dirPath, ".knas_hashes")
+	hashFile := filepath.Join(dirPath, ".knowly_hashes")
 	// 在索引文件中精确匹配哈希值，grep -qxF: 静默、整行、固定字符串
 	cmd := fmt.Sprintf("grep -qxF %s %s 2>/dev/null", shellEscape(hash), shellEscape(hashFile))
 
@@ -416,7 +416,7 @@ func (c *Client) appendHashIndex(relPath, hash string) {
 	defer release()
 
 	dirPath := c.expandPath(filepath.Join(c.config.BasePath, relPath))
-	hashFile := filepath.Join(dirPath, ".knas_hashes")
+	hashFile := filepath.Join(dirPath, ".knowly_hashes")
 	// 原子追加哈希值到索引文件
 	cmd := fmt.Sprintf("echo %s >> %s", shellEscape(hash), shellEscape(hashFile))
 	session.Run(cmd)

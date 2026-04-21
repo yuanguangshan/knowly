@@ -1,9 +1,9 @@
 .PHONY: build clean install test run help
 
 # 变量
-BINARY_NAME=knas
+BINARY_NAME=knowly
 BUILD_DIR=bin
-CMD_DIR=cmd/knas
+CMD_DIR=cmd/knowly
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME) -s -w"
@@ -21,24 +21,24 @@ help:
 build:
 	@echo "构建所有平台..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/knas-darwin ./$(CMD_DIR)
-	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/knas-darwin-arm64 ./$(CMD_DIR)
-	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/knas-linux ./$(CMD_DIR)
+	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/knowly-darwin ./$(CMD_DIR)
+	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/knowly-darwin-arm64 ./$(CMD_DIR)
+	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/knowly-linux ./$(CMD_DIR)
 	@chmod +x $(BUILD_DIR)/*
 	@echo "✓ 构建完成"
 
 darwin:
 	@echo "构建 macOS 版本..."
 	@mkdir -p $(BUILD_DIR)
-	go build $(LDFLAGS) -o $(BUILD_DIR)/knas-darwin ./$(CMD_DIR)
-	@chmod +x $(BUILD_DIR)/knas-darwin
+	go build $(LDFLAGS) -o $(BUILD_DIR)/knowly-darwin ./$(CMD_DIR)
+	@chmod +x $(BUILD_DIR)/knowly-darwin
 	@echo "✓ macOS 版本构建完成"
 
 linux:
 	@echo "构建 Linux 版本..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/knas-linux ./$(CMD_DIR)
-	@chmod +x $(BUILD_DIR)/knas-linux
+	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/knowly-linux ./$(CMD_DIR)
+	@chmod +x $(BUILD_DIR)/knowly-linux
 	@echo "✓ Linux 版本构建完成"
 
 clean:

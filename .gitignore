@@ -4,9 +4,9 @@
 *.dll
 *.so
 *.dylib
-bin/knas-*
-/knas
-knas-*
+bin/knowly-*
+/knowly
+knowly-*
 
 # Test binary, built with `go test -c`
 *.test
@@ -42,7 +42,7 @@ yarn-error.log*
 .env.local
 
 # User config
-.knas/
+.knowly/
 
 # Generated snapshots
 project_snapshot.md

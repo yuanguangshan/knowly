@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/yuanguangshan/knas/internal/config"
+	"github.com/yuanguangshan/knowly/internal/config"
 )
 
 // Result AI 处理后的结构化结果

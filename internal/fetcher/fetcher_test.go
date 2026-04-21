@@ -17,8 +17,8 @@ func TestExtractURL(t *testing.T) {
 		},
 		{
 			name:     "URL at start",
-			input:    "https://github.com/yuanguangshan/knas",
-			expected: "https://github.com/yuanguangshan/knas",
+			input:    "https://github.com/yuanguangshan/knowly",
+			expected: "https://github.com/yuanguangshan/knowly",
 		},
 		{
 			name:     "HTTP URL",
@@ -65,7 +65,7 @@ func TestIsURL(t *testing.T) {
 		},
 		{
 			name:     "URL with path",
-			input:    "https://github.com/yuanguangshan/knas",
+			input:    "https://github.com/yuanguangshan/knowly",
 			expected: true,
 		},
 		{

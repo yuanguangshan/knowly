@@ -12,15 +12,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yuanguangshan/knas/internal/ai"
-	"github.com/yuanguangshan/knas/internal/clipboard"
-	"github.com/yuanguangshan/knas/internal/config"
-	"github.com/yuanguangshan/knas/internal/history"
-	"github.com/yuanguangshan/knas/internal/publisher"
-	"github.com/yuanguangshan/knas/internal/relay"
-	"github.com/yuanguangshan/knas/internal/retry"
-	"github.com/yuanguangshan/knas/internal/ssh"
-	"github.com/yuanguangshan/knas/internal/web"
+	"github.com/yuanguangshan/knowly/internal/ai"
+	"github.com/yuanguangshan/knowly/internal/clipboard"
+	"github.com/yuanguangshan/knowly/internal/config"
+	"github.com/yuanguangshan/knowly/internal/history"
+	"github.com/yuanguangshan/knowly/internal/publisher"
+	"github.com/yuanguangshan/knowly/internal/relay"
+	"github.com/yuanguangshan/knowly/internal/retry"
+	"github.com/yuanguangshan/knowly/internal/ssh"
+	"github.com/yuanguangshan/knowly/internal/web"
 	xclip "golang.design/x/clipboard"
 )
 
@@ -96,7 +96,7 @@ func main() {
 			log.Printf("[WARN] SSH connect failed: %v, retrying in 10s...", err)
 			select {
 			case <-ctx.Done():
-				log.Println("[INFO] knas daemon stopped (during connect retry)")
+				log.Println("[INFO] knowly daemon stopped (during connect retry)")
 				return
 			case <-time.After(10 * time.Second):
 				continue
@@ -107,7 +107,7 @@ func main() {
 	defer client.Disconnect()
 
 	mon.Start()
-	log.Println("[INFO] knas daemon started")
+	log.Println("[INFO] knowly daemon started")
 
 	// 5. 启动 Relay 拉取器（如果启用）
 	if cfg.Relay.Enabled && cfg.Relay.Endpoint != "" {
@@ -144,7 +144,7 @@ func main() {
 			}
 			mon.Stop()
 			removePidFile()
-			log.Println("[INFO] knas daemon stopped")
+			log.Println("[INFO] knowly daemon stopped")
 			return
 		case payload := <-mon.Items():
 			go handlePayload(client, cfg, payload, histStore, aiProcessor)
@@ -325,7 +325,7 @@ func writePidFile() {
 	// 尝试获取排他锁（非阻塞），如果失败说明已有另一个守护进程在运行
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
-		log.Fatalf("另一个 Knas 守护进程正在运行 (PID 文件: %s)", pidPath)
+		log.Fatalf("另一个 Knowly 守护进程正在运行 (PID 文件: %s)", pidPath)
 	}
 
 	// 获取锁成功，写入当前 PID
@@ -373,7 +373,7 @@ func stopDaemon() {
 	pidPath := config.GetPidPath()
 	data, err := os.ReadFile(pidPath)
 	if err != nil {
-		fmt.Println("knas daemon is not running (no PID file)")
+		fmt.Println("knowly daemon is not running (no PID file)")
 		return
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
@@ -387,7 +387,7 @@ func stopDaemon() {
 		return
 	}
 	os.Remove(pidPath)
-	fmt.Printf("✓ knas daemon stopped (PID %d)\n", pid)
+	fmt.Printf("✓ knowly daemon stopped (PID %d)\n", pid)
 }
 
 // showStatus 显示守护进程状态
@@ -395,7 +395,7 @@ func showStatus(cfg *config.Config) {
 	pidPath := config.GetPidPath()
 	data, err := os.ReadFile(pidPath)
 	if err != nil {
-		fmt.Println("✗ knas daemon is not running")
+		fmt.Println("✗ knowly daemon is not running")
 		return
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
@@ -404,11 +404,11 @@ func showStatus(cfg *config.Config) {
 		return
 	}
 	if err := syscall.Kill(pid, 0); err != nil {
-		fmt.Println("✗ knas daemon is not running (process dead)")
+		fmt.Println("✗ knowly daemon is not running (process dead)")
 		os.Remove(pidPath)
 		return
 	}
-	fmt.Printf("✓ knas daemon is running (PID: %d)\n", pid)
+	fmt.Printf("✓ knowly daemon is running (PID: %d)\n", pid)
 	if cfg != nil {
 		fmt.Printf("  SSH: %s@%s:%s\n", cfg.SSH.User, cfg.SSH.Host, cfg.SSH.Port)
 		fmt.Printf("  Base Path: %s\n", cfg.SSH.BasePath)
@@ -460,7 +460,7 @@ func handleCLI(args []string, cfg *config.Config, histStore *history.Store) {
 		}
 	case "restore":
 		if len(args) < 2 {
-			log.Fatal("Usage: knas restore <id>")
+			log.Fatal("Usage: knowly restore <id>")
 		}
 		id := args[1]
 		entry, err := histStore.Find(id)

@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-console.log('Building knas...\n');
+console.log('Building knowly...\n');
 
 // 确保 bin 目录存在
 const binDir = path.join(__dirname, '..', 'bin');
@@ -15,9 +15,9 @@ if (!fs.existsSync(binDir)) {
 
 // 定义构建目标
 const targets = [
-  { goos: 'darwin', goarch: 'amd64', output: 'knas-darwin' },
-  { goos: 'darwin', goarch: 'arm64', output: 'knas-darwin-arm64' },
-  { goos: 'linux', goarch: 'amd64', output: 'knas-linux' },
+  { goos: 'darwin', goarch: 'amd64', output: 'knowly-darwin' },
+  { goos: 'darwin', goarch: 'arm64', output: 'knowly-darwin-arm64' },
+  { goos: 'linux', goarch: 'amd64', output: 'knowly-linux' },
 ];
 
 // 构建每个目标
@@ -40,7 +40,7 @@ targets.forEach(target => {
   const outputPath = path.join(binDir, target.output);
 
   try {
-    execSync(`go build -o ${outputPath} -ldflags="-s -w" ./cmd/knas`, {
+    execSync(`go build -o ${outputPath} -ldflags="-s -w" ./cmd/knowly`, {
       env,
       stdio: 'inherit'
     });

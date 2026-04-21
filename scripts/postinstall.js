@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const binDir = path.join(__dirname, '..', 'bin');
-const requiredBinaries = ['knas-darwin', 'knas-darwin-arm64', 'knas-linux'];
+const requiredBinaries = ['knowly-darwin', 'knowly-darwin-arm64', 'knowly-linux'];
 
 let allExist = true;
 requiredBinaries.forEach(bin => {
