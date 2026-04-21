@@ -237,7 +237,7 @@ func TestFormatContent(t *testing.T) {
 	client := &Client{config: &Config{}}
 	ts := time.Date(2026, 4, 18, 13, 45, 30, 0, time.Local)
 
-	result := client.formatContent("hello world", ts, "abc123def")
+	result := client.formatContent("hello world", ts, "abc123def", nil)
 
 	if !strings.Contains(result, "sync_time: 2026-04-18 13:45:30") {
 		t.Errorf("formatContent missing sync_time: %q", result)

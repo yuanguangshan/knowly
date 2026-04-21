@@ -16,6 +16,7 @@ type Config struct {
 	Blog         BlogConfig         `json:"blog"`
 	Podcast      PodcastConfig      `json:"podcast"`
 	IMA          IMAConfig          `json:"ima"`
+	AI           AIConfig           `json:"ai"`
 }
 
 type SSHConfig struct {
@@ -69,6 +70,16 @@ type IMAConfig struct {
 	ClientID string `json:"client_id"`
 	APIKey   string `json:"api_key"`
 	FolderID string `json:"folder_id"`
+}
+
+type AIConfig struct {
+	Enabled       bool   `json:"enabled"`
+	Endpoint      string `json:"endpoint"`        // OpenAI 兼容 API 地址，如 http://localhost:11434/v1
+	APIKey        string `json:"api_key"`          // 留空用于 Ollama 等本地模型
+	Model         string `json:"model"`            // 模型名称，如 deepseek-chat、gpt-4o-mini
+	MinContentLen int    `json:"min_content_len"`  // 跳过 AI 的最小内容长度，默认 50
+	MaxContentLen int    `json:"max_content_len"`  // 跳过 AI 的最大内容长度，默认 10000
+	Timeout       int    `json:"timeout_sec"`      // HTTP 请求超时秒数，默认 30
 }
 
 const (
@@ -159,6 +170,23 @@ func Load() (*Config, error) {
 		config.IMA.APIURL = "https://ima.qq.com/openapi/note/v1"
 	}
 
+	// 补全 AI 默认值
+	if config.AI.Endpoint == "" {
+		config.AI.Endpoint = "https://aiproxy.want.biz/v1"
+	}
+	if config.AI.Model == "" {
+		config.AI.Model = "Assisant"
+	}
+	if config.AI.MinContentLen == 0 {
+		config.AI.MinContentLen = 100
+	}
+	if config.AI.MaxContentLen == 0 {
+		config.AI.MaxContentLen = 10000
+	}
+	if config.AI.Timeout == 0 {
+		config.AI.Timeout = 60
+	}
+
 	return &config, nil
 }
 
@@ -224,6 +252,14 @@ func DefaultConfig() *Config {
 			ClientID: "",
 			APIKey:   "",
 			FolderID: "",
+		},
+		AI: AIConfig{
+			Enabled:       false,
+			Endpoint:      "https://aiproxy.want.biz/v1",
+			Model:         "Assisant",
+			MinContentLen: 100,
+			MaxContentLen: 10000,
+			Timeout:       60,
 		},
 	}
 }

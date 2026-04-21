@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/yuanguangshan/knas/internal/ai"
 	"github.com/yuanguangshan/knas/internal/clipboard"
 	"github.com/yuanguangshan/knas/internal/config"
 	"github.com/yuanguangshan/knas/internal/history"
@@ -60,6 +61,11 @@ func main() {
 		FilenamePrefixLength: cfg.SSH.FilenamePrefixLength,
 	})
 	histStore := history.NewStore(config.GetConfigDir())
+
+	aiProcessor := ai.NewProcessor(cfg.AI)
+	if aiProcessor != nil {
+		log.Printf("[INFO] AI processing enabled (model: %s, endpoint: %s)", cfg.AI.Model, cfg.AI.Endpoint)
+	}
 
 	mon := clipboard.NewMonitor(clipboard.MonitorConfig{
 		MinLength:    cfg.Clipboard.MinLength,
@@ -111,7 +117,7 @@ func main() {
 			time.Duration(cfg.Relay.Interval)*time.Second,
 			func(content string) {
 				// Relay 内容也走统一的同步+归档流程
-				go syncAndArchiveText(client, cfg, content, "relay", histStore)
+				go syncAndArchiveText(client, cfg, content, "relay", histStore, aiProcessor)
 			},
 		)
 		puller.Start()
@@ -128,13 +134,13 @@ func main() {
 			log.Println("[INFO] knas daemon stopped")
 			return
 		case payload := <-mon.Items():
-			go handlePayload(client, cfg, payload, histStore)
+			go handlePayload(client, cfg, payload, histStore, aiProcessor)
 		}
 	}
 }
 
 // handlePayload 处理来自 Monitor 的同步项
-func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, histStore *history.Store) {
+func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, histStore *history.Store, aiProcessor *ai.Processor) {
 	retryCfg := retry.Config{
 		MaxRetries: cfg.Sync.MaxRetries,
 		BaseDelay:  time.Duration(cfg.Sync.RetryDelay) * time.Millisecond,
@@ -150,8 +156,26 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 	case clipboard.TextPayload:
 		entryType = "text"
 		entryContent = v.Content
+
+		// AI 处理（在 retry 之前，只调用一次）
+		var meta *ssh.ContentMetadata
+		if aiProcessor != nil && aiProcessor.ShouldProcess(v.Content) {
+			aiCtx, aiCancel := context.WithTimeout(context.Background(), time.Duration(cfg.AI.Timeout)*time.Second)
+			aiResult := aiProcessor.Process(aiCtx, v.Content)
+			aiCancel()
+			if aiResult != nil {
+				meta = &ssh.ContentMetadata{
+					Tags:             aiResult.Tags,
+					Summary:          aiResult.Summary,
+					Score:            aiResult.Score,
+					OrganizedContent: aiResult.OrganizedContent,
+					Processed:        true,
+				}
+			}
+		}
+
 		err = retry.Do(context.Background(), retryCfg, func() error {
-			path, syncErr := client.SyncItem(v.Content, v.Timestamp)
+			path, syncErr := client.SyncItem(v.Content, v.Timestamp, meta)
 			if syncErr == nil {
 				nasPath = path
 			}
@@ -197,7 +221,7 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 }
 
 // syncAndArchiveText 处理来自 Relay 的文本同步
-func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source string, histStore *history.Store) {
+func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source string, histStore *history.Store, aiProcessor *ai.Processor) {
 	// Relay 内容同样需要经过过滤检查
 	if clipboard.ShouldFilter(content, cfg.Clipboard.MinLength, cfg.Clipboard.MaxLength, cfg.Clipboard.ExcludeWords) {
 		log.Printf("[INFO] Relay content filtered (length/exclude rules)")
@@ -211,8 +235,26 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 	}
 
 	var nasPath string
+
+	// AI 处理（Relay 路径）
+	var meta *ssh.ContentMetadata
+	if aiProcessor != nil && aiProcessor.ShouldProcess(content) {
+		aiCtx, aiCancel := context.WithTimeout(context.Background(), time.Duration(cfg.AI.Timeout)*time.Second)
+		aiResult := aiProcessor.Process(aiCtx, content)
+		aiCancel()
+		if aiResult != nil {
+			meta = &ssh.ContentMetadata{
+				Tags:             aiResult.Tags,
+				Summary:          aiResult.Summary,
+				Score:            aiResult.Score,
+				OrganizedContent: aiResult.OrganizedContent,
+				Processed:        true,
+			}
+		}
+	}
+
 	err := retry.Do(context.Background(), retryCfg, func() error {
-		path, syncErr := client.SyncItem(content, time.Now())
+		path, syncErr := client.SyncItem(content, time.Now(), meta)
 		if syncErr == nil {
 			nasPath = path
 		}

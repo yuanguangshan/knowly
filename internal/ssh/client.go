@@ -27,6 +27,15 @@ type DirEntry struct {
 	ModTime string `json:"mod_time"`
 }
 
+// ContentMetadata AI 处理后的元数据，用于扩展归档文件的 frontmatter
+type ContentMetadata struct {
+	Tags             []string
+	Summary          string
+	Score            int
+	OrganizedContent string
+	Processed        bool
+}
+
 // whitespaceRegex 预编译的正则表达式
 var whitespaceRegex = regexp.MustCompile(`\s+`)
 
@@ -413,7 +422,7 @@ func (c *Client) appendHashIndex(relPath, hash string) {
 	session.Run(cmd)
 }
 
-func (c *Client) SyncItem(content string, timestamp time.Time) (string, error) {
+func (c *Client) SyncItem(content string, timestamp time.Time, meta *ContentMetadata) (string, error) {
 	year := timestamp.Format("2006")
 	month := timestamp.Format("01")
 	day := timestamp.Format("02")
@@ -447,7 +456,7 @@ func (c *Client) SyncItem(content string, timestamp time.Time) (string, error) {
 	}
 
 	// 准备文件内容（包含 content_hash 用于后续去重）
-	fileContent := c.formatContent(content, timestamp, hash)
+	fileContent := c.formatContent(content, timestamp, hash, meta)
 
 	// 写入文件
 	if err := c.WriteFile(fullPath, fileContent); err != nil {
@@ -495,7 +504,35 @@ func extractContentPrefix(content string, n int) string {
 	return prefix
 }
 
-func (c *Client) formatContent(content string, timestamp time.Time, hash string) string {
+func (c *Client) formatContent(content string, timestamp time.Time, hash string, meta *ContentMetadata) string {
+	if meta != nil && meta.Processed {
+		tagsStr := "[]"
+		if len(meta.Tags) > 0 {
+			tagsStr = "[" + strings.Join(meta.Tags, ", ") + "]"
+		}
+		return fmt.Sprintf(`---
+sync_time: %s
+source: clipboard
+content_hash: %s
+tags: %s
+summary: %q
+score: %d
+---
+
+# 核心摘要
+%s
+
+### 原始内容
+%s`,
+			timestamp.Format("2006-01-02 15:04:05"),
+			hash,
+			tagsStr,
+			meta.Summary,
+			meta.Score,
+			meta.OrganizedContent,
+			content)
+	}
+
 	return fmt.Sprintf(`---
 sync_time: %s
 source: clipboard
