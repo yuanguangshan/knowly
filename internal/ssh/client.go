@@ -42,10 +42,13 @@ type Config struct {
 type Client struct {
 	config     *Config
 	sshClient  *ssh.Client
-	netConn    net.Conn     // 底层 TCP 连接，用于强制关闭
-	connMu     sync.Mutex // 保护重连逻辑
-	homeDir    string     // 缓存的远程家目录
+	netConn    net.Conn       // 底层 TCP 连接，用于强制关闭
+	connMu     sync.RWMutex   // 保护重连逻辑（读锁：并发操作，写锁：重连）
+	homeDir    string         // 缓存的远程家目录
+	sessionSem chan struct{}  // 会话信号量，限制并发 SSH 会话数
 }
+
+const maxConcurrentSessions = 3
 
 func NewClient(config *Config) *Client {
 	if config.Port == "" {
@@ -55,8 +58,14 @@ func NewClient(config *Config) *Client {
 		config.BasePath = "~/knas_archive"
 	}
 
+	sem := make(chan struct{}, maxConcurrentSessions)
+	for i := 0; i < maxConcurrentSessions; i++ {
+		sem <- struct{}{}
+	}
+
 	return &Client{
-		config: config,
+		config:     config,
+		sessionSem: sem,
 	}
 }
 
@@ -64,6 +73,33 @@ func (c *Client) Connect() error {
 	c.connMu.Lock()
 	defer c.connMu.Unlock()
 	return c.connectLocked()
+}
+
+// newSession 获取一个 SSH 会话（并发安全，受信号量控制）
+// 返回 session 和释放函数，调用方必须 defer 调用 release
+func (c *Client) newSession() (*ssh.Session, func(), error) {
+	if err := c.ensureConnected(); err != nil {
+		return nil, nil, fmt.Errorf("reconnect failed: %w", err)
+	}
+
+	// 获取信号量（阻塞直到有空闲槽位）
+	<-c.sessionSem
+
+	session, err := c.sshClient.NewSession()
+	if err != nil {
+		// 创建会话失败，归还信号量
+		c.sessionSem <- struct{}{}
+		// 会话创建失败可能是连接已断，触发重连
+		c.ForceReset()
+		return nil, nil, fmt.Errorf("failed to create session: %w", err)
+	}
+
+	release := func() {
+		session.Close()
+		c.sessionSem <- struct{}{}
+	}
+
+	return session, release, nil
 }
 
 // connectLocked 建立 SSH 连接（调用方需持有 connMu）
@@ -181,23 +217,49 @@ func (c *Client) ForceReset() {
 }
 
 // ensureConnected 检查连接存活性，断线时自动重连
+// 使用读锁做 keepalive 探活（允许多个 goroutine 并发检查），
+// 仅在需要重连时升级为写锁
 func (c *Client) ensureConnected() error {
-	c.connMu.Lock()
-	defer c.connMu.Unlock()
-
+	// 快速路径：读锁检查连接
+	c.connMu.RLock()
 	if c.sshClient != nil {
-		// 给 keepalive 探活设置超时，避免在僵死连接上无限等待
 		if c.netConn != nil {
 			c.netConn.SetDeadline(time.Now().Add(5 * time.Second))
 		}
 		_, _, err := c.sshClient.SendRequest("keepalive@openssh.com", true, nil)
 		if c.netConn != nil {
-			c.netConn.SetDeadline(time.Time{}) // 清除 deadline
+			c.netConn.SetDeadline(time.Time{})
+		}
+		if err == nil {
+			c.connMu.RUnlock()
+			return nil
+		}
+		// 连接已死，释放读锁后获取写锁进行重连
+		c.connMu.RUnlock()
+		return c.reconnect()
+	}
+	c.connMu.RUnlock()
+	return c.reconnect()
+}
+
+// reconnect 获取写锁执行重连
+func (c *Client) reconnect() error {
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+
+	// 双重检查：可能在等待写锁期间其他 goroutine 已重连成功
+	if c.sshClient != nil {
+		if c.netConn != nil {
+			c.netConn.SetDeadline(time.Now().Add(5 * time.Second))
+		}
+		_, _, err := c.sshClient.SendRequest("keepalive@openssh.com", true, nil)
+		if c.netConn != nil {
+			c.netConn.SetDeadline(time.Time{})
 		}
 		if err == nil {
 			return nil
 		}
-		// 连接已死，强制关闭底层 TCP 连接
+		// 连接确实已死
 		if c.netConn != nil {
 			c.netConn.Close()
 			c.netConn = nil
@@ -253,15 +315,11 @@ func shellEscape(s string) string {
 }
 
 func (c *Client) MkdirAll(path string) error {
-	if err := c.ensureConnected(); err != nil {
-		return fmt.Errorf("reconnect failed: %w", err)
-	}
-
-	session, err := c.sshClient.NewSession()
+	session, release, err := c.newSession()
 	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
+		return err
 	}
-	defer session.Close()
+	defer release()
 
 	fullPath := c.expandPath(path)
 	cmd := fmt.Sprintf("mkdir -p %s", shellEscape(fullPath))
@@ -279,15 +337,11 @@ func (c *Client) MkdirAll(path string) error {
 }
 
 func (c *Client) WriteFile(path string, content string) error {
-	if err := c.ensureConnected(); err != nil {
-		return fmt.Errorf("reconnect failed: %w", err)
-	}
-
-	session, err := c.sshClient.NewSession()
+	session, release, err := c.newSession()
 	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
+		return err
 	}
-	defer session.Close()
+	defer release()
 
 	fullPath := c.expandPath(path)
 	// 使用 cat 命令写入文件，避免特殊字符问题
@@ -329,15 +383,11 @@ func contentHash(data []byte) string {
 // ExistsByHash 检查远程当天目录中是否已存在包含指定哈希的文件
 // 使用单日哈希索引文件 .knas_hashes 进行 O(1) 查询，替代 grep -rl 全盘扫描
 func (c *Client) ExistsByHash(relPath, hash string) bool {
-	if err := c.ensureConnected(); err != nil {
-		return false
-	}
-
-	session, err := c.sshClient.NewSession()
+	session, release, err := c.newSession()
 	if err != nil {
 		return false
 	}
-	defer session.Close()
+	defer release()
 
 	dirPath := c.expandPath(filepath.Join(c.config.BasePath, relPath))
 	hashFile := filepath.Join(dirPath, ".knas_hashes")
@@ -350,15 +400,11 @@ func (c *Client) ExistsByHash(relPath, hash string) bool {
 
 // appendHashIndex 将哈希值追加到远程当天的索引文件中
 func (c *Client) appendHashIndex(relPath, hash string) {
-	if err := c.ensureConnected(); err != nil {
-		return
-	}
-
-	session, err := c.sshClient.NewSession()
+	session, release, err := c.newSession()
 	if err != nil {
 		return
 	}
-	defer session.Close()
+	defer release()
 
 	dirPath := c.expandPath(filepath.Join(c.config.BasePath, relPath))
 	hashFile := filepath.Join(dirPath, ".knas_hashes")
@@ -368,10 +414,6 @@ func (c *Client) appendHashIndex(relPath, hash string) {
 }
 
 func (c *Client) SyncItem(content string, timestamp time.Time) (string, error) {
-	if err := c.ensureConnected(); err != nil {
-		return "", fmt.Errorf("reconnect failed: %w", err)
-	}
-
 	year := timestamp.Format("2006")
 	month := timestamp.Format("01")
 	day := timestamp.Format("02")
@@ -467,15 +509,11 @@ content_hash: %s
 }
 
 func (c *Client) TestConnection() error {
-	if err := c.ensureConnected(); err != nil {
-		return fmt.Errorf("reconnect failed: %w", err)
-	}
-
-	session, err := c.sshClient.NewSession()
+	session, release, err := c.newSession()
 	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
+		return err
 	}
-	defer session.Close()
+	defer release()
 
 	output, err := session.Output("echo 'connection test'")
 	if err != nil {
@@ -491,10 +529,6 @@ func (c *Client) TestConnection() error {
 
 // SyncImage 同步图片到远程服务器
 func (c *Client) SyncImage(data []byte, timestamp time.Time) (string, error) {
-	if err := c.ensureConnected(); err != nil {
-		return "", fmt.Errorf("reconnect failed: %w", err)
-	}
-
 	year := timestamp.Format("2006")
 	month := timestamp.Format("01")
 	day := timestamp.Format("02")
@@ -533,15 +567,11 @@ func (c *Client) SyncImage(data []byte, timestamp time.Time) (string, error) {
 
 // imageExistsByHash 检查远程当天目录中是否存在包含指定哈希前缀的图片文件
 func (c *Client) imageExistsByHash(relPath, hashPrefix string) bool {
-	if err := c.ensureConnected(); err != nil {
-		return false
-	}
-
-	session, err := c.sshClient.NewSession()
+	session, release, err := c.newSession()
 	if err != nil {
 		return false
 	}
-	defer session.Close()
+	defer release()
 
 	dirPath := c.expandPath(filepath.Join(c.config.BasePath, relPath))
 	cmd := fmt.Sprintf("ls %s/*_%s_image.png 2>/dev/null | head -1", shellEscape(dirPath), hashPrefix)
@@ -555,15 +585,11 @@ func (c *Client) imageExistsByHash(relPath, hashPrefix string) bool {
 
 // ReadFile 从远程服务器读取文件的二进制内容
 func (c *Client) ReadFile(path string) ([]byte, error) {
-	if err := c.ensureConnected(); err != nil {
-		return nil, fmt.Errorf("reconnect failed: %w", err)
-	}
-
-	session, err := c.sshClient.NewSession()
+	session, release, err := c.newSession()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create session: %w", err)
+		return nil, err
 	}
-	defer session.Close()
+	defer release()
 
 	fullPath := c.expandPath(path)
 	cmd := fmt.Sprintf("cat %s", shellEscape(fullPath))
@@ -577,15 +603,11 @@ func (c *Client) ReadFile(path string) ([]byte, error) {
 
 // WriteBinary 二进制安全写入
 func (c *Client) WriteBinary(path string, data []byte) error {
-	if err := c.ensureConnected(); err != nil {
-		return fmt.Errorf("reconnect failed: %w", err)
-	}
-
-	session, err := c.sshClient.NewSession()
+	session, release, err := c.newSession()
 	if err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
+		return err
 	}
-	defer session.Close()
+	defer release()
 
 	fullPath := c.expandPath(path)
 	cmd := fmt.Sprintf("cat > %s", shellEscape(fullPath))
@@ -618,15 +640,11 @@ func (c *Client) WriteBinary(path string, data []byte) error {
 
 // ListDir 列出远程目录内容
 func (c *Client) ListDir(remotePath string) ([]DirEntry, error) {
-	if err := c.ensureConnected(); err != nil {
-		return nil, fmt.Errorf("reconnect failed: %w", err)
-	}
-
-	session, err := c.sshClient.NewSession()
+	session, release, err := c.newSession()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create session: %w", err)
+		return nil, err
 	}
-	defer session.Close()
+	defer release()
 
 	fullPath := c.expandPath(remotePath)
 	cmd := fmt.Sprintf("ls -la --time-style=long-iso %s", shellEscape(fullPath))
@@ -682,15 +700,11 @@ type SearchResult struct {
 
 // Search 在远程归档目录中全文搜索
 func (c *Client) Search(keyword string, limit int) ([]SearchResult, error) {
-	if err := c.ensureConnected(); err != nil {
-		return nil, fmt.Errorf("reconnect failed: %w", err)
-	}
-
-	session, err := c.sshClient.NewSession()
+	session, release, err := c.newSession()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create session: %w", err)
+		return nil, err
 	}
-	defer session.Close()
+	defer release()
 
 	if limit <= 0 {
 		limit = 50

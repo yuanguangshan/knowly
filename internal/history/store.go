@@ -16,6 +16,17 @@ import (
 
 const defaultMaxEntries = 1000
 
+// readBlockSize 逆向读取的块大小
+const readBlockSize = 4096
+
+// chunkPool 复用 readRecent 的读取缓冲区，减少高频调用时的 GC 压力
+var chunkPool = sync.Pool{
+	New: func() interface{} {
+		buf := make([]byte, readBlockSize)
+		return &buf
+	},
+}
+
 // Entry 历史条目
 type Entry struct {
 	ID        string    `json:"id"`
@@ -230,63 +241,74 @@ func (s *Store) readRecent(n int) ([]Entry, error) {
 	}
 
 	// 从文件末尾按块逆向读取，收集完整行
-	const blockSize = 4096
 	var lines []string
-	var buf []byte
+	var tailBuf []byte
 	remaining := fileSize
-	foundNewline := true // 文件末尾可能没有换行，跳过
+	atTail := true // 文件末尾可能没有换行，跳过尾部空行
 
 	for remaining > 0 && len(lines) <= n {
-		readSize := int64(blockSize)
+		readSize := int64(readBlockSize)
 		if remaining < readSize {
 			readSize = remaining
 		}
 		remaining -= readSize
 
-		chunk := make([]byte, readSize)
+		// 从池中复用缓冲区
+		chunkPtr := chunkPool.Get().(*[]byte)
+		chunk := (*chunkPtr)[:readSize]
+
 		if _, err := f.Seek(remaining, 0); err != nil {
+			chunkPool.Put(chunkPtr)
 			return nil, err
 		}
 		if _, err := f.Read(chunk); err != nil {
+			chunkPool.Put(chunkPtr)
 			return nil, err
 		}
 
 		// 将 chunk 和之前未完成的行首拼接
-		chunk = append(chunk, buf...)
-		buf = nil
+		// 注意：这里 chunk 来自池，容量固定，拼接需要新切片
+		combined := make([]byte, len(chunk)+len(tailBuf))
+		copy(combined, chunk)
+		copy(combined[len(chunk):], tailBuf)
+		tailBuf = nil
+
+		// 归还缓冲区到池
+		chunkPool.Put(chunkPtr)
 
 		// 从后向前拆分行
-		for i := len(chunk) - 1; i >= 0; i-- {
-			if chunk[i] == '\n' {
-				if foundNewline {
+		data := combined
+		for i := len(data) - 1; i >= 0; i-- {
+			if data[i] == '\n' {
+				if atTail {
 					// 跳过末尾的空行
-					if i < len(chunk)-1 {
-						lines = append(lines, string(chunk[i+1:]))
+					if i < len(data)-1 {
+						lines = append(lines, string(data[i+1:]))
 					}
 				} else {
-					if i < len(chunk)-1 {
-						lines = append(lines, string(chunk[i+1:]))
+					if i < len(data)-1 {
+						lines = append(lines, string(data[i+1:]))
 					}
 				}
-				foundNewline = false
-				chunk = chunk[:i]
+				atTail = false
+				data = data[:i]
 
 				if len(lines) >= n {
 					break
 				}
 			}
 		}
-		if len(chunk) > 0 {
-			buf = chunk
+		if len(data) > 0 {
+			tailBuf = data
 		}
 	}
 
 	// 处理文件最开头没有换行的剩余数据
-	if len(buf) > 0 && len(lines) < n {
-		lines = append(lines, string(buf))
+	if len(tailBuf) > 0 && len(lines) < n {
+		lines = append(lines, string(tailBuf))
 	}
 
-	// lines 中顺序是从文件末尾到开头，需要反转并截取
+	// lines 中顺序是从文件末尾到开头，所以 entries[0] 是最新的
 	var entries []Entry
 	for i := 0; i < len(lines) && len(entries) < n; i++ {
 		line := strings.TrimRight(lines[i], "\r")
@@ -299,9 +321,6 @@ func (s *Store) readRecent(n int) ([]Entry, error) {
 		}
 	}
 
-	// entries 现在是从旧到新（因为 lines 是从后到前收集的，但我们反转了遍历顺序）
-	// 实际上 lines 是从末尾到开头的，所以 entries[0] 是最新的
-	// 不需要再反转
 	return entries, nil
 }
 
