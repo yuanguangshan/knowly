@@ -883,7 +883,7 @@ async function loadLogs() {
     const lines = await api('/api/logs?level=' + currentLevel + '&limit=200');
     const container = document.getElementById('logContainer');
     container.innerHTML = '';
-    lines.reverse().forEach(l => appendLogLine(l));
+    lines.forEach(l => appendLogLine(l));
   } catch (e) { console.error(e); }
 }
 
