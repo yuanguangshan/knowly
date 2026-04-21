@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/yuanguangshan/knas/internal/config"
+	"github.com/yuanguangshan/knas/internal/history"
 	"github.com/yuanguangshan/knas/internal/publisher"
 	"github.com/yuanguangshan/knas/internal/ssh"
 )
@@ -252,6 +255,7 @@ func (s *Server) handleArchiveDownload(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	limitStr := r.URL.Query().Get("limit")
 	typeFilter := r.URL.Query().Get("type")
+	tagFilter := r.URL.Query().Get("tag")
 	limit := 50
 	if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
 		limit = n
@@ -264,11 +268,12 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type histEntry struct {
-		ID        string `json:"id"`
-		Content   string `json:"content"`
-		Type      string `json:"type"`
-		Timestamp string `json:"timestamp"`
-		NASPath   string `json:"nas_path"`
+		ID        string   `json:"id"`
+		Content   string   `json:"content"`
+		Type      string   `json:"type"`
+		Timestamp string   `json:"timestamp"`
+		NASPath   string   `json:"nas_path"`
+		Tags      []string `json:"tags"`
 	}
 
 	var result []histEntry
@@ -276,16 +281,42 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		if typeFilter != "" && typeFilter != "all" && e.Type != typeFilter {
 			continue
 		}
+		if tagFilter != "" {
+			found := false
+			for _, t := range e.Tags {
+				if t == tagFilter {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
 		result = append(result, histEntry{
 			ID:        e.ID,
 			Content:   e.Content,
 			Type:      e.Type,
 			Timestamp: e.Timestamp.Format("2006-01-02 15:04:05"),
 			NASPath:   e.NASPath,
+			Tags:      e.Tags,
 		})
 	}
 
 	jsonResp(w, result)
+}
+
+// handleTags 返回所有标签及计数
+func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
+	tags, err := s.histStore.AllTags()
+	if err != nil {
+		jsonError(w, fmt.Sprintf("获取标签失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if tags == nil {
+		tags = []history.TagCount{}
+	}
+	jsonResp(w, tags)
 }
 
 // handleStatus 返回守护进程状态
@@ -336,28 +367,52 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, status)
 }
 
-// handleRestart 重启 knas 进程
+// handleRestart 重启 knas daemon 进程
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	exePath, err := os.Executable()
+	// 读取 daemon PID
+	pidPath := config.GetPidPath()
+	data, err := os.ReadFile(pidPath)
 	if err != nil {
-		jsonError(w, "无法获取可执行文件路径", http.StatusInternalServerError)
+		jsonError(w, "守护进程未运行", http.StatusServiceUnavailable)
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		jsonError(w, "无效的 PID 文件", http.StatusInternalServerError)
+		return
+	}
+
+	// 停止 daemon
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		jsonError(w, fmt.Sprintf("停止守护进程失败: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	jsonResp(w, map[string]string{"status": "restarting"})
 
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
-	}
-
 	go func() {
-		time.Sleep(500 * time.Millisecond)
-		syscall.Exec(exePath, os.Args, os.Environ())
+		// 等待 daemon 完全停止
+		time.Sleep(2 * time.Second)
+
+		// 获取可执行文件路径并启动新 daemon
+		exePath, err := os.Executable()
+		if err != nil {
+			log.Printf("[ERROR] restart: get exe path: %v", err)
+			return
+		}
+		cmd := exec.Command(exePath, "--daemon")
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Stdin = nil
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+		if err := cmd.Start(); err != nil {
+			log.Printf("[ERROR] restart: start daemon: %v", err)
+		}
 	}()
 }
 

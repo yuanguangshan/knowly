@@ -151,6 +151,7 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 	var err error
 	var entryType string
 	var entryContent string
+	var aiTags []string
 
 	switch v := p.(type) {
 	case clipboard.TextPayload:
@@ -164,6 +165,7 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 			aiResult := aiProcessor.Process(aiCtx, v.Content)
 			aiCancel()
 			if aiResult != nil {
+				aiTags = aiResult.Tags
 				meta = &ssh.ContentMetadata{
 					Tags:             aiResult.Tags,
 					Summary:          aiResult.Summary,
@@ -206,11 +208,12 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 		return
 	}
 
-	// 同步成功 -> 记录历史（含 NASPath）
+	// 同步成功 -> 记录历史（含 NASPath 和 Tags）
 	histStore.Append(history.Entry{
 		Content: entryContent,
 		Type:    entryType,
 		NASPath: nasPath,
+		Tags:    aiTags,
 	})
 	log.Printf("[INFO] Synced & Archived (%s): %s", entryType, nasPath)
 
@@ -238,11 +241,13 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 
 	// AI 处理（Relay 路径）
 	var meta *ssh.ContentMetadata
+	var aiTags []string
 	if aiProcessor != nil && aiProcessor.ShouldProcess(content) {
 		aiCtx, aiCancel := context.WithTimeout(context.Background(), time.Duration(cfg.AI.Timeout)*time.Second)
 		aiResult := aiProcessor.Process(aiCtx, content)
 		aiCancel()
 		if aiResult != nil {
+			aiTags = aiResult.Tags
 			meta = &ssh.ContentMetadata{
 				Tags:             aiResult.Tags,
 				Summary:          aiResult.Summary,
@@ -282,6 +287,7 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 		Content: preview,
 		Type:    "text",
 		NASPath: nasPath,
+		Tags:    aiTags,
 	})
 	log.Printf("[INFO] Relay synced & archived: %s", nasPath)
 }

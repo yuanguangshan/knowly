@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,7 @@ type Entry struct {
 	Type      string    `json:"type"`      // "text" 或 "image"
 	Timestamp time.Time `json:"timestamp"`
 	NASPath   string    `json:"nas_path"`  // 可选，指向完整归档文件路径
+	Tags      []string  `json:"tags"`      // AI 生成的标签
 }
 
 // Store 历史存储
@@ -474,4 +476,40 @@ func (s *Store) Find(id string) (*Entry, error) {
 		return nil, fmt.Errorf("find history error: %w", err)
 	}
 	return nil, nil
+}
+
+// TagCount 标签及其出现次数
+type TagCount struct {
+	Tag   string `json:"tag"`
+	Count int    `json:"count"`
+}
+
+// AllTags 返回所有去重标签及出现次数，按次数降序排列
+func (s *Store) AllTags() ([]TagCount, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := s.readAll()
+	if err != nil {
+		return nil, err
+	}
+
+	countMap := make(map[string]int)
+	for _, e := range entries {
+		for _, tag := range e.Tags {
+			countMap[tag]++
+		}
+	}
+
+	result := make([]TagCount, 0, len(countMap))
+	for tag, count := range countMap {
+		result = append(result, TagCount{Tag: tag, Count: count})
+	}
+
+	// 按次数降序
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Count > result[j].Count
+	})
+
+	return result, nil
 }

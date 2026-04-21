@@ -66,6 +66,7 @@ func (s *Server) Start() error {
 
 	// 历史 API
 	mux.HandleFunc("/api/history", s.handleHistory)
+	mux.HandleFunc("/api/tags", s.handleTags)
 
 	// 状态 API
 	mux.HandleFunc("/api/status", s.handleStatus)
