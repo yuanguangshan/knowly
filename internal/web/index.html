@@ -149,6 +149,7 @@ body {
   position: relative;
   white-space: pre-wrap;
   word-break: break-all;
+  cursor: pointer;
 }
 .log-line:hover { background: var(--bg-hover); }
 .log-line .log-time { color: var(--text-secondary); white-space: nowrap; flex-shrink: 0; }
@@ -160,6 +161,7 @@ body {
   opacity: 0; cursor: pointer; color: var(--text-secondary);
   flex-shrink: 0; font-size: 11px; padding: 0 4px;
 }
+.log-line .copy-btn::before { content: '📋'; }
 .log-line:hover .copy-btn { opacity: 1; }
 .log-line .copy-btn:hover { color: var(--accent); }
 .log-line.level-INFO { border-left-color: var(--info); }
@@ -397,6 +399,7 @@ body {
   right: 6px;
   font-size: 11px;
 }
+.history-detail .copy-btn::before { content: '📋'; }
 /* Toast */
 .toast {
   position: fixed;
@@ -896,11 +899,12 @@ function appendLogLine(line) {
   const div = document.createElement('div');
   div.className = 'log-line level-' + (line.level || '');
   div.dataset.key = key;
+  div.dataset.raw = line.raw || line.message || '';
   div.innerHTML =
     '<span class="log-time">' + escHtml(line.time || '') + '</span>' +
     '<span class="log-level">' + escHtml(line.level || '') + '</span>' +
     '<span class="log-msg">' + escHtml(line.message || line.raw || '') + '</span>' +
-    '<span class="copy-btn" onclick="copyText(' + escAttr(line.raw || '') + ')">复制</span>';
+    '<span class="copy-btn" data-copy="' + escHtml(line.raw || line.message || '') + '"></span>';
   container.insertBefore(div, container.firstChild);
 }
 
@@ -1143,18 +1147,18 @@ async function loadTags() {
     const tags = await api('/api/tags');
     const bar = document.getElementById('tagsBar');
     if (!tags.length) { bar.innerHTML = ''; return; }
-    let html = '<span class="tag-item' + (currentTagFilter === '' ? ' active' : '') + '" onclick="filterByTag(\'\')">全部</span>';
+    let html = '<span class="tag-item' + (currentTagFilter === '' ? ' active' : '') + '" data-tag="">全部</span>';
 
     // 如果标签数量大于3，默认折叠
     const showTags = tagsExpanded ? tags : tags.slice(0, 3);
     showTags.forEach(t => {
-      html += '<span class="tag-item' + (currentTagFilter === t.tag ? ' active' : '') + '" onclick="filterByTag(\'' + escAttr(t.tag) + '\')">' + escHtml(t.tag) + '<small>' + t.count + '</small></span>';
+      html += '<span class="tag-item' + (currentTagFilter === t.tag ? ' active' : '') + '" data-tag="' + escHtml(t.tag) + '">' + escHtml(t.tag) + '<small>' + t.count + '</small></span>';
     });
 
     // 如果标签总数大于3，显示展开/折叠按钮
     if (tags.length > 3) {
       const toggleText = tagsExpanded ? '收起' : '展开更多';
-      html += '<span class="tag-item tag-toggle" onclick="toggleTags(event)">' + toggleText + '</span>';
+      html += '<span class="tag-item tag-toggle">' + toggleText + '</span>';
     }
 
     bar.innerHTML = html;
@@ -1214,7 +1218,12 @@ function toggleHistoryDetail(el, entry) {
   const detail = document.createElement('div');
   detail.className = 'history-detail';
   detail.innerHTML = escHtml(entry.content || '') +
-    '<span class="copy-btn btn" onclick="event.stopPropagation(); copyText(' + escAttr(entry.content || '') + ')">复制</span>';
+    '<span class="copy-btn btn" data-copy="' + escHtml(entry.content || '') + '"></span>';
+
+  detail.querySelector('.copy-btn').addEventListener('click', function(e) {
+    e.stopPropagation();
+    copyText(this.dataset.copy || '');
+  });
   el.appendChild(detail);
 }
 
@@ -1620,6 +1629,30 @@ document.addEventListener('DOMContentLoaded', function() {
   connectLogStream();
   loadStatus();
   setInterval(loadStatus, 30000);
+
+  // 标签栏点击事件委托
+  document.getElementById('tagsBar').addEventListener('click', function(e) {
+    var el = e.target.closest('.tag-item');
+    if (!el) return;
+    if (el.classList.contains('tag-toggle')) { toggleTags(e); return; }
+    filterByTag(el.dataset.tag || '');
+  });
+
+  // 日志行点击复制（整行复制）和复制按钮
+  document.getElementById('logContainer').addEventListener('click', function(e) {
+    var btn = e.target.closest('.copy-btn');
+    if (btn) {
+      e.stopPropagation();
+      var text = btn.dataset.copy || '';
+      copyText(text);
+      return;
+    }
+    var line = e.target.closest('.log-line');
+    if (line) {
+      var text = line.dataset.raw || line.querySelector('.log-msg').textContent;
+      copyText(text);
+    }
+  });
 });
 </script>
 </body>
