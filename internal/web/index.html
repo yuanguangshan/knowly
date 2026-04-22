@@ -1761,11 +1761,11 @@ async function restartKnowly() {
   if (!confirm('确定要重启 Knowly 吗？')) return;
   try {
     await fetch('/api/admin/restart', { method: 'POST' });
-    showToast('正在重启...');
-    setTimeout(() => { location.reload(); }, 3000);
+    showToast('正在重启，等待服务就绪...');
+    setTimeout(() => { reloadWhenReady(); }, 3000);
   } catch (e) {
-    showToast('重启请求已发送，页面将自动刷新');
-    setTimeout(() => { location.reload(); }, 3000);
+    showToast('重启请求已发送，等待服务就绪...');
+    setTimeout(() => { reloadWhenReady(); }, 3000);
   }
 }
 
@@ -1795,8 +1795,8 @@ async function updateKnowly() {
                 btn.textContent = '更新';
               }
               if (ev.step === 'done') {
-                showToast('更新完成，页面即将刷新');
-                setTimeout(() => { location.reload(); }, 2000);
+                showToast('更新完成，等待服务就绪...');
+                setTimeout(() => { reloadWhenReady(); }, 2000);
               }
             } catch(e) {}
           }
@@ -1804,9 +1804,18 @@ async function updateKnowly() {
       }
     }
   } catch (e) {
-    showToast('更新请求已发送，页面将自动刷新');
-    setTimeout(() => { location.reload(); }, 3000);
+    showToast('更新请求已发送，等待服务就绪...');
+    setTimeout(() => { reloadWhenReady(); }, 3000);
   }
+}
+
+function reloadWhenReady() {
+  fetch('/api/status', { cache: 'no-store' }).then(r => {
+    if (r.ok) location.reload();
+    else throw new Error();
+  }).catch(() => {
+    setTimeout(() => { reloadWhenReady(); }, 2000);
+  });
 }
 
 async function releaseKnowly() {
