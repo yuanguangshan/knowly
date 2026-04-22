@@ -50,12 +50,7 @@ func parseLogLine(line string) map[string]string {
 
 	if len(line) >= 19 && line[4] == '/' && line[7] == '/' && line[10] == ' ' {
 		result["time"] = line[:19]
-		rest := line[19:]
-		idx := strings.Index(rest, ": ")
-		if idx >= 0 {
-			rest = rest[idx+2:]
-		}
-		rest = strings.TrimSpace(rest)
+		rest := strings.TrimSpace(line[19:])
 		for _, level := range []string{"INFO", "WARN", "ERROR", "DEBUG"} {
 			prefix := "[" + level + "] "
 			if strings.HasPrefix(rest, prefix) {
@@ -104,8 +99,18 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		lines = lines[len(lines)-limit:]
 	}
 
-	result := make([]map[string]string, 0, len(lines))
+	// 合并多行日志：非时间戳开头的行追加到上一条
+	merged := make([]string, 0, len(lines))
 	for _, line := range lines {
+		if len(line) >= 19 && line[4] == '/' && line[7] == '/' && line[10] == ' ' {
+			merged = append(merged, line)
+		} else if len(merged) > 0 {
+			merged[len(merged)-1] += "\n" + line
+		}
+	}
+
+	result := make([]map[string]string, 0, len(merged))
+	for _, line := range merged {
 		result = append(result, parseLogLine(line))
 	}
 
@@ -155,12 +160,25 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 
 			f.Seek(offset, io.SeekStart)
 			scanner := bufio.NewScanner(f)
+			var pending string
 			for scanner.Scan() {
 				line := scanner.Text()
 				if line == "" {
 					continue
 				}
-				data, _ := json.Marshal(parseLogLine(line))
+				if len(line) >= 19 && line[4] == '/' && line[7] == '/' && line[10] == ' ' {
+					if pending != "" {
+						data, _ := json.Marshal(parseLogLine(pending))
+						fmt.Fprintf(w, "data: %s\n\n", data)
+						flusher.Flush()
+					}
+					pending = line
+				} else if pending != "" {
+					pending += "\n" + line
+				}
+			}
+			if pending != "" {
+				data, _ := json.Marshal(parseLogLine(pending))
 				fmt.Fprintf(w, "data: %s\n\n", data)
 				flusher.Flush()
 			}

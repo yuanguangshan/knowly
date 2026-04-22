@@ -46,6 +46,18 @@ body {
   font-weight: 600;
   color: var(--accent);
 }
+.header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.header .subtitle {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 400;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
 .header .status-info {
   font-size: 12px;
   color: var(--text-secondary);
@@ -174,13 +186,6 @@ body {
   font-weight: 600; white-space: nowrap; flex-shrink: 0; min-width: 44px;
 }
 .log-line .log-msg { flex: 1; }
-.log-line .copy-btn {
-  opacity: 0; cursor: pointer; color: var(--text-secondary);
-  flex-shrink: 0; font-size: 11px; padding: 0 4px;
-}
-.log-line .copy-btn::before { content: '📋'; }
-.log-line:hover .copy-btn { opacity: 1; }
-.log-line .copy-btn:hover { color: var(--accent); }
 .log-line.level-INFO { border-left-color: var(--info); }
 .log-line.level-INFO .log-level { color: var(--info); }
 .log-line.level-WARN { border-left-color: var(--warn); }
@@ -701,7 +706,6 @@ canvas {
   .log-line { flex-wrap: wrap; gap: 2px 6px; }
   .log-line .log-time { font-size: 11px; }
   .log-line .log-msg { width: 100%; padding-left: 0; }
-  .log-line .copy-btn { opacity: 0.6; }
   /* Archive: stack vertically */
   .archive-layout { flex-direction: column; }
   .archive-sidebar {
@@ -730,7 +734,10 @@ canvas {
 <body>
 
 <div class="header">
-  <h1>Knowly</h1>
+  <div class="header-left">
+    <h1>Knowly</h1>
+    <p class="subtitle">Capture. Enrich. Own.</p>
+  </div>
   <div class="status-info" id="headerStatus"></div>
 </div>
 <div class="motto-bar" id="mottoBar"></div>
@@ -1051,10 +1058,9 @@ function appendLogLine(line) {
   div.dataset.key = key;
   div.dataset.raw = line.raw || line.message || '';
   div.innerHTML =
-    '<span class="log-time">' + escHtml(line.time || '') + '</span>' +
+    '<span class="log-time">' + escHtml((line.time || '').replace(/^\d{4}\//, '')) + '</span>' +
     '<span class="log-level">' + escHtml(line.level || '') + '</span>' +
-    '<span class="log-msg">' + escHtml(line.message || line.raw || '') + '</span>' +
-    '<span class="copy-btn" data-copy="' + escHtml(line.raw || line.message || '') + '"></span>';
+    '<span class="log-msg">' + escHtml(line.message || line.raw || '') + '</span>';
   container.insertBefore(div, container.firstChild);
 }
 
@@ -1885,15 +1891,8 @@ document.addEventListener('DOMContentLoaded', function() {
     filterByTag(el.dataset.tag || '');
   });
 
-  // 日志行点击复制（整行复制）和复制按钮
+  // 日志行点击复制
   document.getElementById('logContainer').addEventListener('click', function(e) {
-    var btn = e.target.closest('.copy-btn');
-    if (btn) {
-      e.stopPropagation();
-      var text = btn.dataset.copy || '';
-      copyText(text);
-      return;
-    }
     var line = e.target.closest('.log-line');
     if (line) {
       var text = line.dataset.raw || line.querySelector('.log-msg').textContent;
