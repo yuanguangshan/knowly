@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/yuanguangshan/knowly/internal/clipboard"
 	"github.com/yuanguangshan/knowly/internal/config"
 	"github.com/yuanguangshan/knowly/internal/history"
+	"github.com/yuanguangshan/knowly/internal/outbox"
 	"github.com/yuanguangshan/knowly/internal/publisher"
 	"github.com/yuanguangshan/knowly/internal/relay"
 	"github.com/yuanguangshan/knowly/internal/retry"
@@ -61,6 +63,7 @@ func main() {
 		FilenamePrefixLength: cfg.SSH.FilenamePrefixLength,
 	})
 	histStore := history.NewStore(config.GetConfigDir())
+	outboxStore := outbox.NewStore(config.GetConfigDir())
 
 	aiProcessor := ai.NewProcessor(cfg.AI)
 	if aiProcessor != nil {
@@ -109,6 +112,13 @@ func main() {
 	mon.Start()
 	log.Println("[INFO] knowly daemon started")
 
+	// 启动后尝试排空之前积压的 outbox 条目
+	go drainOutbox(outboxStore, client, histStore)
+
+	// 周期性排空 outbox（每 5 分钟检查一次）
+	drainTicker := time.NewTicker(5 * time.Minute)
+	defer drainTicker.Stop()
+
 	// 5. 启动 Relay 拉取器（如果启用）
 	if cfg.Relay.Enabled && cfg.Relay.Endpoint != "" {
 		puller := relay.NewPuller(
@@ -117,7 +127,7 @@ func main() {
 			time.Duration(cfg.Relay.Interval)*time.Second,
 			func(content string) {
 				// Relay 内容也走统一的同步+归档流程
-				go syncAndArchiveText(client, cfg, content, "relay", histStore, aiProcessor)
+				go syncAndArchiveText(client, cfg, content, "relay", histStore, aiProcessor, outboxStore)
 			},
 		)
 		puller.Start()
@@ -147,13 +157,15 @@ func main() {
 			log.Println("[INFO] knowly daemon stopped")
 			return
 		case payload := <-mon.Items():
-			go handlePayload(client, cfg, payload, histStore, aiProcessor)
+			go handlePayload(client, cfg, payload, histStore, aiProcessor, outboxStore)
+		case <-drainTicker.C:
+			go drainOutbox(outboxStore, client, histStore)
 		}
 	}
 }
 
 // handlePayload 处理来自 Monitor 的同步项
-func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, histStore *history.Store, aiProcessor *ai.Processor) {
+func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store) {
 	retryCfg := retry.Config{
 		MaxRetries: cfg.Sync.MaxRetries,
 		BaseDelay:  time.Duration(cfg.Sync.RetryDelay) * time.Millisecond,
@@ -165,6 +177,7 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 	var entryType string
 	var entryContent string
 	var aiTags []string
+	var meta *ssh.ContentMetadata
 
 	switch v := p.(type) {
 	case clipboard.TextPayload:
@@ -172,7 +185,6 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 		entryContent = v.Content
 
 		// AI 处理（在 retry 之前，只调用一次）
-		var meta *ssh.ContentMetadata
 		if aiProcessor != nil && aiProcessor.ShouldProcess(v.Content) {
 			aiCtx, aiCancel := context.WithTimeout(context.Background(), time.Duration(cfg.AI.Timeout)*time.Second)
 			aiResult := aiProcessor.Process(aiCtx, v.Content)
@@ -209,9 +221,12 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 	}
 
 	if err != nil {
-		log.Printf("[ERROR] Sync failed (%s): %v", entryType, err)
+		log.Printf("[ERROR] Sync failed (%s): %v, saving to outbox", entryType, err)
 		// 强制断开僵死连接，确保下次操作触发全新重连
 		client.ForceReset()
+
+		// 回退到本地暂存，待 SSH 恢复后自动同步
+		pushToOutbox(outboxStore, p, aiTags, meta)
 		return
 	}
 
@@ -236,8 +251,84 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 	}
 }
 
+// pushToOutbox 将失败的 payload 保存到本地暂存队列
+func pushToOutbox(outboxStore *outbox.Store, p clipboard.Payload, aiTags []string, meta *ssh.ContentMetadata) {
+	switch v := p.(type) {
+	case clipboard.TextPayload:
+		item := outbox.Item{
+			Type:      "text",
+			Content:   v.Content,
+			Timestamp: v.Timestamp,
+			Tags:      aiTags,
+		}
+		if meta != nil && meta.Processed {
+			item.Summary = meta.Summary
+			item.Score = meta.Score
+			item.OrganizedContent = meta.OrganizedContent
+			item.Processed = true
+		}
+		if err := outboxStore.Push(item); err != nil {
+			log.Printf("[ERROR] Failed to save text to outbox: %v", err)
+		}
+	case clipboard.ImagePayload:
+		if err := outboxStore.Push(outbox.Item{
+			Type:      "image",
+			Content:   base64.StdEncoding.EncodeToString(v.Data),
+			Timestamp: v.Timestamp,
+		}); err != nil {
+			log.Printf("[ERROR] Failed to save image to outbox: %v", err)
+		}
+	}
+}
+
+// drainOutbox 尝试排空本地暂存队列，将积压条目同步到远端
+func drainOutbox(outboxStore *outbox.Store, client *ssh.Client, histStore *history.Store) {
+	if outboxStore.PendingCount() == 0 {
+		return
+	}
+
+	log.Printf("[INFO] Outbox: draining pending items...")
+
+	syncFn := func(item outbox.Item) (string, error) {
+		switch item.Type {
+		case "text":
+			var meta *ssh.ContentMetadata
+			if item.Processed {
+				meta = &ssh.ContentMetadata{
+					Tags:             item.Tags,
+					Summary:          item.Summary,
+					Score:            item.Score,
+					OrganizedContent: item.OrganizedContent,
+					Processed:        true,
+				}
+			}
+			return client.SyncItem(item.Content, item.Timestamp, meta)
+		case "image":
+			data, err := outbox.DecodeImageContent(item.Content)
+			if err != nil {
+				return "", fmt.Errorf("base64 decode failed: %w", err)
+			}
+			return client.SyncImage(data, item.Timestamp)
+		default:
+			return "", fmt.Errorf("unknown type: %s", item.Type)
+		}
+	}
+
+	synced, err := outboxStore.Drain(syncFn)
+	if err != nil {
+		// 排空过程中遇到 SSH 错误，重置连接
+		client.ForceReset()
+		log.Printf("[WARN] Outbox: drain stopped after %d items (SSH error)", synced)
+		return
+	}
+
+	if synced > 0 {
+		log.Printf("[INFO] Outbox: drained %d pending items", synced)
+	}
+}
+
 // syncAndArchiveText 处理来自 Relay 的文本同步
-func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source string, histStore *history.Store, aiProcessor *ai.Processor) {
+func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source string, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store) {
 	// Relay 内容同样需要经过过滤检查
 	if clipboard.ShouldFilter(content, cfg.Clipboard.MinLength, cfg.Clipboard.MaxLength, cfg.Clipboard.ExcludeWords) {
 		log.Printf("[INFO] Relay content filtered (length/exclude rules)")
@@ -280,9 +371,17 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 	})
 
 	if err != nil {
-		log.Printf("[ERROR] Relay sync failed: %v", err)
+		log.Printf("[ERROR] Relay sync failed: %v, saving to outbox", err)
 		// 强制断开僵死连接，确保下次操作触发全新重连
 		client.ForceReset()
+
+		// 回退到本地暂存
+		outboxStore.Push(outbox.Item{
+			Type:      "text",
+			Content:   content,
+			Timestamp: time.Now(),
+			Tags:      aiTags,
+		})
 		return
 	}
 
