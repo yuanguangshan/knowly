@@ -93,20 +93,29 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// daemon 模式下无限重试连接，避免 launchd 启动时网络未就绪导致退出
-	for {
-		if err := client.Connect(); err != nil {
-			log.Printf("[WARN] SSH connect failed: %v, retrying in 10s...", err)
-			select {
-			case <-ctx.Done():
-				log.Println("[INFO] knowly daemon stopped (during connect retry)")
-				return
-			case <-time.After(10 * time.Second):
-				continue
-			}
-		}
-		break
+	// 4.1 先启动 Web 管理界面（不依赖 SSH 连接）
+	var webSrv *web.Server
+	if cfg.Web.IsEnabled() {
+		webAddr := fmt.Sprintf(":%d", cfg.Web.Port)
+		webSrv = web.NewServerWithDeps(cfg, webAddr, client, histStore)
+		webSrv.StartAsync()
 	}
+
+	// 4.2 异步连接 SSH（不阻塞 Web 启动）
+	go func() {
+		for {
+			if err := client.Connect(); err != nil {
+				log.Printf("[WARN] SSH connect failed: %v, retrying in 10s...", err)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(10 * time.Second):
+					continue
+				}
+			}
+			break
+		}
+	}()
 	defer client.Disconnect()
 
 	mon.Start()
@@ -133,14 +142,6 @@ func main() {
 		puller.Start()
 		defer puller.Stop()
 		log.Println("[INFO] Relay puller started")
-	}
-
-	// 6. 启动 Web 管理界面（如果启用）
-	var webSrv *web.Server
-	if cfg.Web.IsEnabled() {
-		webAddr := fmt.Sprintf(":%d", cfg.Web.Port)
-		webSrv = web.NewServerWithDeps(cfg, webAddr, client, histStore)
-		webSrv.StartAsync()
 	}
 
 	// 7. 消费 Payload 循环
