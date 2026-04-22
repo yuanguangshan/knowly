@@ -411,8 +411,8 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	// 用 setsid 启动一个独立的 shell 脚本：先等旧进程退出，再启动新 daemon
 	// 这样即使当前进程被 SIGTERM 杀掉，重启脚本仍会继续运行
 	script := fmt.Sprintf(
-		"kill -TERM %d; while kill -0 %d 2>/dev/null; do sleep 0.2; done; sleep 0.5; exec %s --daemon",
-		pid, pid, exePath,
+		"kill -TERM %d; timeout 10 sh -c 'while kill -0 %d 2>/dev/null; do sleep 0.2; done' || kill -9 %d 2>/dev/null; sleep 0.5; exec %s --daemon",
+		pid, pid, pid, exePath,
 	)
 	restartCmd := exec.Command("/bin/sh", "-c", script)
 	restartCmd.Stdin = nil
