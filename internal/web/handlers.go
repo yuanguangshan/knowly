@@ -399,33 +399,29 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 停止 daemon
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-		jsonError(w, fmt.Sprintf("停止守护进程失败: %v", err), http.StatusInternalServerError)
+	// 获取可执行文件路径
+	exePath, err := os.Executable()
+	if err != nil {
+		jsonError(w, fmt.Sprintf("获取可执行文件路径失败: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	jsonResp(w, map[string]string{"status": "restarting"})
 
-	go func() {
-		// 等待 daemon 完全停止
-		time.Sleep(2 * time.Second)
-
-		// 获取可执行文件路径并启动新 daemon
-		exePath, err := os.Executable()
-		if err != nil {
-			log.Printf("[ERROR] restart: get exe path: %v", err)
-			return
-		}
-		cmd := exec.Command(exePath, "--daemon")
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		cmd.Stdin = nil
-		cmd.Stdout = nil
-		cmd.Stderr = nil
-		if err := cmd.Start(); err != nil {
-			log.Printf("[ERROR] restart: start daemon: %v", err)
-		}
-	}()
+	// 用 setsid 启动一个独立的 shell 脚本：先等旧进程退出，再启动新 daemon
+	// 这样即使当前进程被 SIGTERM 杀掉，重启脚本仍会继续运行
+	script := fmt.Sprintf(
+		"kill -TERM %d; while kill -0 %d 2>/dev/null; do sleep 0.2; done; sleep 0.5; exec %s --daemon",
+		pid, pid, exePath,
+	)
+	restartCmd := exec.Command("setsid", "sh", "-c", script)
+	restartCmd.Stdin = nil
+	restartCmd.Stdout = nil
+	restartCmd.Stderr = nil
+	restartCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := restartCmd.Start(); err != nil {
+		log.Printf("[ERROR] restart: start restart script: %v", err)
+	}
 }
 
 // handleUpdate 从源码编译并替换二进制文件，然后重启服务
