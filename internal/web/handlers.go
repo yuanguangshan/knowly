@@ -414,7 +414,7 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 		"kill -TERM %d; while kill -0 %d 2>/dev/null; do sleep 0.2; done; sleep 0.5; exec %s --daemon",
 		pid, pid, exePath,
 	)
-	restartCmd := exec.Command("setsid", "sh", "-c", script)
+	restartCmd := exec.Command("/bin/sh", "-c", script)
 	restartCmd.Stdin = nil
 	restartCmd.Stdout = nil
 	restartCmd.Stderr = nil
