@@ -5,13 +5,16 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -58,6 +61,47 @@ type Client struct {
 }
 
 const maxConcurrentSessions = 3
+
+// ncConn wraps an exec.Cmd's stdin/stdout as a net.Conn-like interface
+type ncConn struct {
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stdout io.Reader
+	closed int32
+}
+
+func (c *ncConn) Read(b []byte) (int, error)  { return c.stdout.Read(b) }
+func (c *ncConn) Write(b []byte) (int, error) { return c.stdin.Write(b) }
+func (c *ncConn) Close() error {
+	if atomic.CompareAndSwapInt32(&c.closed, 0, 1) {
+		c.stdin.Close()
+		return c.cmd.Process.Kill()
+	}
+	return nil
+}
+func (c *ncConn) LocalAddr() net.Addr                { return &net.TCPAddr{} }
+func (c *ncConn) RemoteAddr() net.Addr               { return &net.TCPAddr{} }
+func (c *ncConn) SetDeadline(t time.Time) error      { return nil }
+func (c *ncConn) SetReadDeadline(t time.Time) error  { return nil }
+func (c *ncConn) SetWriteDeadline(t time.Time) error { return nil }
+
+// dialViaNC uses the system nc command to establish a TCP connection,
+// bypassing third-party network extensions that may block Go's net.Dial.
+func dialViaNC(host, port string) (net.Conn, error) {
+	cmd := exec.Command("nc", host, port)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("nc stdin pipe: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("nc stdout pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("nc start: %w", err)
+	}
+	return &ncConn{cmd: cmd, stdin: stdin, stdout: stdout}, nil
+}
 
 func NewClient(config *Config) *Client {
 	if config.Port == "" {
@@ -173,10 +217,14 @@ func (c *Client) connectLocked() error {
 
 	addr := fmt.Sprintf("%s:%s", c.config.Host, c.config.Port)
 
-	// 先建立 TCP 连接，保存引用以便强制关闭底层 socket
+	// 优先直连，若失败则通过 nc 中转（绕过第三方网络扩展拦截）
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
-		return fmt.Errorf("failed to dial: %w", err)
+		log.Printf("[WARN] Direct TCP dial failed (%v), falling back to nc transport", err)
+		conn, err = dialViaNC(c.config.Host, c.config.Port)
+		if err != nil {
+			return fmt.Errorf("failed to dial (direct and nc fallback): %w", err)
+		}
 	}
 
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
