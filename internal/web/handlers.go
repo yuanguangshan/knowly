@@ -466,15 +466,6 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sendEvent("stopping", "停止服务...")
-	pidData, err := os.ReadFile(config.GetPidPath())
-	if err == nil {
-		if pid, err := strconv.Atoi(strings.TrimSpace(string(pidData))); err == nil {
-			syscall.Kill(pid, syscall.SIGTERM)
-		}
-	}
-	time.Sleep(1 * time.Second)
-
 	sendEvent("replacing", "替换二进制文件...")
 	built := filepath.Join(sourceDir, tmpBinary)
 	if err := os.Rename(built, currentExe); err != nil {
@@ -482,31 +473,39 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sendEvent("starting", "启动服务...")
-
-	// fork 新进程然后退出当前进程
+	// 使用独立 shell 脚本重启（和 handleRestart 相同方式）
+	// 脚本在独立进程组中运行，不受当前进程退出影响
+	pidData, err := os.ReadFile(config.GetPidPath())
+	if err != nil {
+		sendEvent("error", fmt.Sprintf("读取 PID 文件失败: %v", err))
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
+	if err != nil {
+		sendEvent("error", fmt.Sprintf("无效的 PID: %v", err))
+		return
+	}
 	exePath, err := os.Executable()
 	if err != nil {
 		sendEvent("error", fmt.Sprintf("获取路径失败: %v", err))
 		return
 	}
-	newCmd := exec.Command(exePath, "--daemon")
-	newCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	newCmd.Stdin = nil
-	newCmd.Stdout = nil
-	newCmd.Stderr = nil
-	if err := newCmd.Start(); err != nil {
-		sendEvent("error", fmt.Sprintf("启动失败: %v", err))
+
+	script := fmt.Sprintf(
+		"sleep 1; kill -TERM %d; timeout 10 sh -c 'while kill -0 %d 2>/dev/null; do sleep 0.2; done' || kill -9 %d 2>/dev/null; sleep 0.5; exec %s --daemon",
+		pid, pid, pid, exePath,
+	)
+	restartCmd := exec.Command("/bin/sh", "-c", script)
+	restartCmd.Stdin = nil
+	restartCmd.Stdout = nil
+	restartCmd.Stderr = nil
+	restartCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := restartCmd.Start(); err != nil {
+		sendEvent("error", fmt.Sprintf("启动重启脚本失败: %v", err))
 		return
 	}
 
 	sendEvent("done", "更新完成，页面即将刷新")
-
-	// 延迟退出当前进程，让 SSE 响应发完
-	go func() {
-		time.Sleep(1 * time.Second)
-		os.Exit(0)
-	}()
 }
 
 // findProjectRoot 从当前目录向上查找包含 go.mod 的目录
