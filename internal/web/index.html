@@ -165,35 +165,43 @@ body {
 .log-container {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 6px 8px;
   font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
   font-size: 12px;
   line-height: 1.6;
 }
 .log-line {
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-left: 3px solid transparent;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   position: relative;
   white-space: pre-wrap;
   word-break: break-all;
   cursor: pointer;
+  border-radius: 0 4px 4px 0;
+  transition: background 0.15s;
 }
 .log-line:hover { background: var(--bg-hover); }
-.log-line .log-time { color: var(--text-secondary); white-space: nowrap; flex-shrink: 0; }
+.log-line .log-time { color: var(--text-secondary); white-space: nowrap; flex-shrink: 0; opacity: 0.7; }
 .log-line .log-level {
-  font-weight: 600; white-space: nowrap; flex-shrink: 0; min-width: 44px;
+  font-weight: 600; white-space: nowrap; flex-shrink: 0; min-width: 48px;
+  font-size: 11px; letter-spacing: 0.3px;
 }
-.log-line .log-msg { flex: 1; }
+.log-line .log-msg { flex: 1; color: var(--text-primary); }
 .log-line.level-INFO { border-left-color: var(--info); }
 .log-line.level-INFO .log-level { color: var(--info); }
-.log-line.level-WARN { border-left-color: var(--warn); }
+.log-line.level-WARN { border-left-color: var(--warn); background: rgba(255,213,79,0.04); }
 .log-line.level-WARN .log-level { color: var(--warn); }
-.log-line.level-ERROR { border-left-color: var(--error); }
+.log-line.level-ERROR { border-left-color: var(--error); background: rgba(239,83,80,0.06); }
 .log-line.level-ERROR .log-level { color: var(--error); }
 .log-line.level-DEBUG { border-left-color: var(--debug); }
 .log-line.level-DEBUG .log-level { color: var(--debug); }
+.log-line.level-PLAIN { border-left-color: var(--border); opacity: 0.75; }
+.log-line.level-INFO .log-msg::before { content: '💡 '; }
+.log-line.level-WARN .log-msg::before { content: '⚠️ '; }
+.log-line.level-ERROR .log-msg::before { content: '🔴 '; }
+.log-line.level-DEBUG .log-msg::before { content: '🔍 '; }
 /* Archive styles */
 .archive-layout {
   display: flex;
@@ -702,6 +710,9 @@ canvas {
     border-bottom-color: var(--accent);
   }
   .content { order: 1; }
+  /* Toolbar: force single row */
+  .toolbar { flex-wrap: nowrap; overflow-x: auto; gap: 4px; padding: 8px 10px; }
+  .toolbar .btn { padding: 4px 8px; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
   /* Log */
   .log-line { flex-wrap: wrap; gap: 2px 6px; }
   .log-line .log-time { font-size: 11px; }
@@ -755,11 +766,11 @@ canvas {
     <!-- 日志面板 -->
     <div class="tab-panel active" id="panel-logs">
       <div class="toolbar">
-        <button class="btn active" onclick="filterLogs('all')">全部</button>
-        <button class="btn" onclick="filterLogs('INFO')">INFO</button>
-        <button class="btn" onclick="filterLogs('WARN')">WARN</button>
-        <button class="btn" onclick="filterLogs('ERROR')">ERROR</button>
-        <button class="btn" onclick="filterLogs('DEBUG')">DEBUG</button>
+        <button class="btn active" onclick="filterLogs('all')">📊 全部</button>
+        <button class="btn" onclick="filterLogs('INFO')">💡 INFO</button>
+        <button class="btn" onclick="filterLogs('WARN')">⚠️ WARN</button>
+        <button class="btn" onclick="filterLogs('ERROR')">🔴 ERROR</button>
+        <button class="btn" onclick="filterLogs('DEBUG')">🔍 DEBUG</button>
       </div>
       <div class="log-container" id="logContainer"></div>
     </div>
@@ -1054,12 +1065,14 @@ function appendLogLine(line) {
   var next = container.firstChild;
   while (next && next.dataset && next.dataset.key === key) { next = next.nextElementSibling; }
   const div = document.createElement('div');
-  div.className = 'log-line level-' + (line.level || '');
+  var level = line.level || '';
+  div.className = 'log-line level-' + (level || 'PLAIN');
   div.dataset.key = key;
   div.dataset.raw = line.raw || line.message || '';
+  var levelBadge = level ? escHtml(level) : '<span style="opacity:0.3">·</span>';
   div.innerHTML =
     '<span class="log-time">' + escHtml((line.time || '').replace(/^\d{4}\//, '')) + '</span>' +
-    '<span class="log-level">' + escHtml(line.level || '') + '</span>' +
+    '<span class="log-level">' + levelBadge + '</span>' +
     '<span class="log-msg">' + escHtml(line.message || line.raw || '') + '</span>';
   container.insertBefore(div, container.firstChild);
 }
