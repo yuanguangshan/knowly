@@ -2293,10 +2293,6 @@ function getInt(id) { const el = document.getElementById(id); return el ? parseI
 function setChecked(id, val) { const el = document.getElementById(id); if (el) el.checked = !!val; }
 function getChecked(id) { const el = document.getElementById(id); return el ? el.checked : false; }
 
-    showToast('保存失败: ' + e.message);
-  }
-}
-
 function updateUptime() {
   if (!adminStatus || adminStatus._fetchedAt === undefined) return;
   const sec = adminStatus.uptime + Math.floor((Date.now() - adminStatus._fetchedAt) / 1000);
