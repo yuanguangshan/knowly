@@ -491,6 +491,28 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 提交并推送到远程
+	sendEvent("pushing", "提交并推送到远程...")
+	gitRun := func(name string, args ...string) (string, error) {
+		cmd := exec.Command(name, args...)
+		cmd.Dir = sourceDir
+		out, err := cmd.CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	gitRun("git", "add", "-A")
+	if _, err := gitRun("git", "diff", "--cached", "--quiet"); err != nil {
+		// 有变更，提交并推送
+		if out, err := gitRun("git", "commit", "-m", "release"); err != nil && !strings.Contains(err.Error(), "nothing to commit") {
+			sendEvent("pushing", "提交失败: "+out)
+		} else if out, err := gitRun("git", "push"); err != nil {
+			sendEvent("pushing", "推送失败: "+out)
+		} else {
+			sendEvent("pushing", "已提交并推送到远程")
+		}
+	} else {
+		sendEvent("pushing", "无代码变更")
+	}
+
 	// 使用独立 shell 脚本重启（和 handleRestart 相同方式）
 	// 脚本在独立进程组中运行，不受当前进程退出影响
 	pidData, err := os.ReadFile(config.GetPidPath())
