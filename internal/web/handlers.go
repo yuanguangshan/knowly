@@ -819,6 +819,10 @@ func (s *Server) handleUpdateAIConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[INFO] AI config updated: enabled=%v, preset=%s, model=%s", newCfg.Enabled, newCfg.Preset, newCfg.Model)
+	promptMode := "自定义"
+	if newCfg.Prompt == "" {
+		promptMode = "默认"
+	}
+	log.Printf("[INFO] AI config updated (preset: %s, model: %s, endpoint: %s, prompt: %s)", newCfg.Preset, newCfg.Model, newCfg.Endpoint, promptMode)
 	jsonResp(w, map[string]string{"status": "saved"})
 }
