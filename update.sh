@@ -21,4 +21,13 @@ rm -f "$BINARY_NAME"
 echo "Starting knowly daemon..."
 knowly start
 
+echo "Committing and pushing..."
+git add -A
+if git diff --cached --quiet; then
+  echo "No changes to commit."
+else
+  git commit -m "release"
+  git push
+fi
+
 echo "Done."

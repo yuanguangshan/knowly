@@ -67,7 +67,15 @@ func main() {
 
 	aiProcessor := ai.NewProcessor(&cfg.AI)
 	if aiProcessor != nil {
-		log.Printf("[INFO] AI processing enabled (model: %s, endpoint: %s)", cfg.AI.Model, cfg.AI.Endpoint)
+		preset := cfg.AI.Preset
+		if preset == "" {
+			preset = "custom"
+		}
+		promptMode := "自定义"
+		if cfg.AI.Prompt == "" {
+			promptMode = "默认"
+		}
+		log.Printf("[INFO] AI processing enabled (preset: %s, model: %s, endpoint: %s, prompt: %s)", preset, cfg.AI.Model, cfg.AI.Endpoint, promptMode)
 	}
 
 	mon := clipboard.NewMonitor(clipboard.MonitorConfig{
