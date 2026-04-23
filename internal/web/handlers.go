@@ -666,6 +666,25 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// AI 生成标题和摘要
+	content := req.Content
+	if s.aiProcessor != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		if result := s.aiProcessor.GenerateTitleAndSummary(ctx, content); result != nil {
+			var header strings.Builder
+			if result.Title != "" {
+				header.WriteString("# " + result.Title + "\n\n")
+			}
+			if result.Summary != "" {
+				header.WriteString("> " + result.Summary + "\n\n")
+			}
+			header.WriteString("---\n\n")
+			content = header.String() + content
+			log.Printf("[INFO] AI generated title and summary for publish")
+		}
+	}
+
 	type publishResult struct {
 		Target string `json:"target"`
 		OK     bool   `json:"ok"`
@@ -677,13 +696,13 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 		var err error
 		switch target {
 		case "blog":
-			err = publisher.PublishBlog(s.cfg.Blog, req.Content)
+			err = publisher.PublishBlog(s.cfg.Blog, content)
 		case "podcast":
-			err = publisher.PublishPodcast(s.cfg.Podcast, req.Content)
+			err = publisher.PublishPodcast(s.cfg.Podcast, content)
 		case "ima":
-			err = publisher.PublishIMA(s.cfg.IMA, req.Content)
+			err = publisher.PublishIMA(s.cfg.IMA, content)
 		case "kindle":
-			err = publisher.PublishKindle(s.cfg.Kindle, req.Content)
+			err = publisher.PublishKindle(s.cfg.Kindle, content)
 		default:
 			results = append(results, publishResult{Target: target, Error: "未知目标"})
 			continue
