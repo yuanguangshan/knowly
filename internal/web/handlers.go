@@ -697,6 +697,7 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleTagAndPublish 添加标签并发布内容
+// 注意：此接口不受全局 enabled 配置限制，允许手动触发发布
 func (s *Server) handleTagAndPublish(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -704,9 +705,9 @@ func (s *Server) handleTagAndPublish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		ID     string   `json:"id"`
-		Tag    string   `json:"tag"`
-		Target string   `json:"target"`
+		ID     string `json:"id"`
+		Tag    string `json:"tag"`
+		Target string `json:"target"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "无效的请求体", http.StatusBadRequest)
@@ -736,30 +737,69 @@ func (s *Server) handleTagAndPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 添加标签
+	// 添加标签（先添加标签，即使发布失败也保留标签）
 	if err := s.histStore.UpdateTags(req.ID, []string{req.Tag}); err != nil {
 		jsonError(w, fmt.Sprintf("添加标签失败: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// 发布内容
-	var publishErr error
+	// 获取完整内容
 	content := entry.Content
-	if content == "" && entry.NASPath != "" {
-		// 如果历史记录中没有完整内容，尝试从 NAS 读取
-		// 这里暂时使用空内容，后续可以扩展
-		content = ""
+
+	// 如果历史记录中只有预览内容，从 NAS 读取完整内容
+	if entry.NASPath != "" && s.sshClient != nil {
+		// 移除 NAS 路径前缀（如果有）
+		nasPath := strings.TrimPrefix(entry.NASPath, "/root/.knowly/workspace/")
+		nasPath = strings.TrimPrefix(nasPath, "/")
+
+		fullPath := filepath.Join(s.cfg.SSH.BasePath, nasPath)
+		data, err := s.sshClient.ReadFile(fullPath)
+		if err != nil {
+			// NAS 读取失败，使用预览内容
+			log.Printf("[WARN] Failed to read NAS file %s: %v, using preview content", fullPath, err)
+		} else {
+			content = string(data)
+		}
 	}
+
+	// 如果仍然没有内容，返回错误
+	if content == "" {
+		jsonError(w, "内容为空，无法发布", http.StatusBadRequest)
+		return
+	}
+
+	// 发布内容（不受 enabled 配置限制）
+	var publishErr error
 
 	switch req.Target {
 	case "blog":
-		publishErr = publisher.PublishBlog(s.cfg.Blog, content)
+		// 检查必要配置
+		if s.cfg.Blog.APIURL == "" {
+			publishErr = fmt.Errorf("Blog API URL 未配置")
+		} else {
+			publishErr = publisher.PublishBlog(s.cfg.Blog, content)
+		}
 	case "podcast":
-		publishErr = publisher.PublishPodcast(s.cfg.Podcast, content)
+		// 检查必要配置
+		if s.cfg.Podcast.APIURL == "" {
+			publishErr = fmt.Errorf("Podcast API URL 未配置")
+		} else {
+			publishErr = publisher.PublishPodcast(s.cfg.Podcast, content)
+		}
 	case "ima":
-		publishErr = publisher.PublishIMA(s.cfg.IMA, content)
+		// 检查必要配置
+		if s.cfg.IMA.APIURL == "" || s.cfg.IMA.ClientID == "" || s.cfg.IMA.APIKey == "" {
+			publishErr = fmt.Errorf("IMA 配置不完整（需要 APIURL、ClientID、APIKey）")
+		} else {
+			publishErr = publisher.PublishIMA(s.cfg.IMA, content)
+		}
 	case "kindle":
-		publishErr = publisher.PublishKindle(s.cfg.Kindle, content)
+		// 检查必要配置
+		if s.cfg.Kindle.KindleEmail == "" || s.cfg.Kindle.SenderEmail == "" || s.cfg.Kindle.SenderPassword == "" {
+			publishErr = fmt.Errorf("Kindle 配置不完整（需要 KindleEmail、SenderEmail、SenderPassword）")
+		} else {
+			publishErr = publisher.PublishKindle(s.cfg.Kindle, content)
+		}
 	}
 
 	result := map[string]interface{}{
