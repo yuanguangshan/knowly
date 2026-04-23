@@ -93,6 +93,9 @@ func (s *Server) buildHandler() http.Handler {
 	// 搜索 API
 	mux.HandleFunc("/api/search", s.handleSearch)
 
+	// AI 配置 API
+	mux.HandleFunc("/api/config/ai", s.handleAIConfig)
+
 	// 构建处理链：Basic Auth -> 路由
 	handler := http.Handler(mux)
 	if s.cfg.Web.Auth != "" {

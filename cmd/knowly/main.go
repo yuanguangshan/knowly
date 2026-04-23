@@ -65,7 +65,7 @@ func main() {
 	histStore := history.NewStore(config.GetConfigDir())
 	outboxStore := outbox.NewStore(config.GetConfigDir())
 
-	aiProcessor := ai.NewProcessor(cfg.AI)
+	aiProcessor := ai.NewProcessor(&cfg.AI)
 	if aiProcessor != nil {
 		log.Printf("[INFO] AI processing enabled (model: %s, endpoint: %s)", cfg.AI.Model, cfg.AI.Endpoint)
 	}

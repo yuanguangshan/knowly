@@ -702,3 +702,101 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonResp(w, results)
 }
+
+// handleAIConfig 处理 AI 配置的读取和更新（GET/PUT）
+func (s *Server) handleAIConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetAIConfig(w, r)
+	case http.MethodPut:
+		s.handleUpdateAIConfig(w, r)
+	default:
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleGetAIConfig 返回当前 AI 配置（API Key 脱敏）
+func (s *Server) handleGetAIConfig(w http.ResponseWriter, r *http.Request) {
+	ai := s.cfg.AI
+
+	// 构建 presets 列表
+	presets := make(map[string]config.AIPresetOption)
+	for k, v := range config.AIPresets {
+		presets[k] = v
+	}
+
+	// 构建 prompt templates
+	templates := make(map[string]string)
+	for k, v := range config.AIPromptTemplates {
+		templates[k] = v
+	}
+
+	// 脱敏 API Key
+	masked := ai
+	if len(masked.APIKey) > 4 {
+		masked.APIKey = "****" + masked.APIKey[len(masked.APIKey)-4:]
+	} else if masked.APIKey != "" {
+		masked.APIKey = "****"
+	}
+
+	jsonResp(w, map[string]interface{}{
+		"config":           masked,
+		"presets":          presets,
+		"prompt_templates": templates,
+	})
+}
+
+// handleUpdateAIConfig 更新 AI 配置
+func (s *Server) handleUpdateAIConfig(w http.ResponseWriter, r *http.Request) {
+	var newCfg config.AIConfig
+	if err := json.NewDecoder(r.Body).Decode(&newCfg); err != nil {
+		jsonError(w, "无效的请求体", http.StatusBadRequest)
+		return
+	}
+
+	// 预设解析：填充 endpoint 和 model
+	if newCfg.Preset != "" && newCfg.Preset != "custom" {
+		if p, ok := config.AIPresets[newCfg.Preset]; ok {
+			if newCfg.Endpoint == "" {
+				newCfg.Endpoint = p.Endpoint
+			}
+			if newCfg.Model == "" {
+				newCfg.Model = p.Model
+			}
+		}
+	}
+
+	// 验证
+	if newCfg.Enabled && newCfg.Endpoint == "" {
+		jsonError(w, "启用 AI 时 endpoint 不能为空", http.StatusBadRequest)
+		return
+	}
+
+	// 保留原有 API Key（如果传来的是脱敏值或空值）
+	if newCfg.APIKey == "" || strings.HasPrefix(newCfg.APIKey, "****") {
+		newCfg.APIKey = s.cfg.AI.APIKey
+	}
+
+	// 补全默认值
+	if newCfg.MinContentLen == 0 {
+		newCfg.MinContentLen = 100
+	}
+	if newCfg.MaxContentLen == 0 {
+		newCfg.MaxContentLen = 10000
+	}
+	if newCfg.Timeout == 0 {
+		newCfg.Timeout = 60
+	}
+
+	// 更新内存中的配置
+	s.cfg.AI = newCfg
+
+	// 持久化到磁盘
+	if err := config.Save(s.cfg); err != nil {
+		jsonError(w, fmt.Sprintf("保存配置失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[INFO] AI config updated: enabled=%v, preset=%s, model=%s", newCfg.Enabled, newCfg.Preset, newCfg.Model)
+	jsonResp(w, map[string]string{"status": "saved"})
+}

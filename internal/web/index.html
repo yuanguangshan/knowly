@@ -746,6 +746,68 @@ canvas {
 }
 .btn-release:hover { opacity: 0.9; color: #fff; }
 .btn-release:disabled { opacity: 0.5; cursor: not-allowed; }
+/* === AI Settings Form === */
+.admin-select, .admin-input {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 13px;
+  width: 220px;
+  outline: none;
+}
+.admin-select:focus, .admin-input:focus {
+  border-color: var(--accent);
+}
+.admin-textarea {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 13px;
+  width: 100%;
+  resize: vertical;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  outline: none;
+  line-height: 1.5;
+}
+.admin-textarea:focus {
+  border-color: var(--accent);
+}
+.ai-form-row {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.ai-form-row:last-child { border-bottom: none; }
+.ai-form-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  min-width: 90px;
+}
+.ai-form-col {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.ai-save-btn {
+  background: var(--accent-dim);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 20px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 8px;
+}
+.ai-save-btn:hover { opacity: 0.9; }
 /* === Mobile responsive === */
 @media (max-width: 768px) {
   .header { padding: 10px 14px; }
@@ -970,6 +1032,45 @@ canvas {
             <button class="btn btn-release" id="releaseBtn" onclick="releaseKnowly()">&#x1f680; 发布</button>
           </div>
         </div>
+        <div class="admin-card">
+          <div class="admin-card-title">AI 设置</div>
+          <div id="aiSettingsLoading" style="color:var(--text-secondary);font-size:13px;padding:8px 0;">加载中...</div>
+          <div id="aiSettingsForm" style="display:none;">
+            <div class="ai-form-row">
+              <span class="ai-form-label">启用 AI</span>
+              <input type="checkbox" id="aiEnabled" style="transform:scale(1.2);">
+            </div>
+            <div class="ai-form-row">
+              <span class="ai-form-label">服务商预设</span>
+              <select id="aiPreset" class="admin-select">
+                <option value="custom">自定义</option>
+              </select>
+            </div>
+            <div class="ai-form-row">
+              <span class="ai-form-label">API 地址</span>
+              <input type="text" id="aiEndpoint" class="admin-input" placeholder="https://...">
+            </div>
+            <div class="ai-form-row">
+              <span class="ai-form-label">API Key</span>
+              <input type="password" id="aiApiKey" class="admin-input" placeholder="留空保持不变，输入新值则更新">
+            </div>
+            <div class="ai-form-row">
+              <span class="ai-form-label">模型</span>
+              <input type="text" id="aiModel" class="admin-input" placeholder="模型名称">
+            </div>
+            <div class="ai-form-row">
+              <span class="ai-form-label">提示词模板</span>
+              <select id="aiPromptTemplate" class="admin-select">
+                <option value="">通用模式（默认）</option>
+              </select>
+            </div>
+            <div class="ai-form-col">
+              <span class="ai-form-label">自定义提示词</span>
+              <textarea id="aiPrompt" class="admin-textarea" rows="6" placeholder="留空使用默认提示词"></textarea>
+            </div>
+            <button class="ai-save-btn" onclick="saveAIConfig()">保存 AI 设置</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1083,7 +1184,7 @@ function switchTab(tab) {
   if (tab === 'archive' && document.getElementById('selYear').options.length <= 1) loadYears();
   if (tab === 'history') { loadTags(); loadHistory(); }
   if (tab === 'stats') loadStats();
-  if (tab === 'admin') loadAdminStatus();
+  if (tab === 'admin') { loadAdminStatus(); loadAIConfig(); }
 }
 
 // === API Helper ===
@@ -1833,6 +1934,83 @@ async function loadAdminStatus() {
     if (adminTimer) clearInterval(adminTimer);
     adminTimer = setInterval(updateUptime, 1000);
   } catch (e) {}
+}
+
+async function loadAIConfig() {
+  try {
+    const data = await api('/api/config/ai');
+    const cfg = data.config;
+    document.getElementById('aiSettingsLoading').style.display = 'none';
+    document.getElementById('aiSettingsForm').style.display = 'block';
+    document.getElementById('aiEnabled').checked = cfg.enabled;
+    document.getElementById('aiEndpoint').value = cfg.endpoint || '';
+    document.getElementById('aiApiKey').value = '';
+    document.getElementById('aiModel').value = cfg.model || '';
+    document.getElementById('aiPrompt').value = cfg.prompt || '';
+    document.getElementById('aiPreset').value = cfg.preset || 'custom';
+
+    const presetSel = document.getElementById('aiPreset');
+    presetSel.innerHTML = '<option value="custom">自定义</option>';
+    if (data.presets) {
+      for (const [key, val] of Object.entries(data.presets)) {
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = val.label || key;
+        if (cfg.preset === key) opt.selected = true;
+        presetSel.appendChild(opt);
+      }
+    }
+    presetSel.onchange = function() {
+      const p = data.presets && data.presets[this.value];
+      if (p) {
+        document.getElementById('aiEndpoint').value = p.endpoint;
+        document.getElementById('aiModel').value = p.model;
+      }
+    };
+
+    const tmplSel = document.getElementById('aiPromptTemplate');
+    tmplSel.innerHTML = '<option value="">通用模式（默认）</option>';
+    if (data.prompt_templates) {
+      for (const [key, val] of Object.entries(data.prompt_templates)) {
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = key;
+        tmplSel.appendChild(opt);
+      }
+    }
+    tmplSel.onchange = function() {
+      if (this.value) {
+        document.getElementById('aiPrompt').value = this.value;
+      }
+    };
+  } catch (e) {}
+}
+
+async function saveAIConfig() {
+  const body = {
+    enabled: document.getElementById('aiEnabled').checked,
+    preset: document.getElementById('aiPreset').value,
+    endpoint: document.getElementById('aiEndpoint').value,
+    api_key: document.getElementById('aiApiKey').value,
+    model: document.getElementById('aiModel').value,
+    prompt: document.getElementById('aiPrompt').value,
+  };
+  try {
+    const res = await fetch('/api/config/ai', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (data.error) {
+      showToast('保存失败: ' + data.error);
+    } else {
+      showToast('AI 设置已保存');
+      loadAIConfig();
+    }
+  } catch (e) {
+    showToast('保存失败: ' + e.message);
+  }
 }
 
 function updateUptime() {

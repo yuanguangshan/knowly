@@ -80,12 +80,62 @@ type IMAConfig struct {
 
 type AIConfig struct {
 	Enabled       bool   `json:"enabled"`
-	Endpoint      string `json:"endpoint"`        // OpenAI 兼容 API 地址，如 http://localhost:11434/v1
-	APIKey        string `json:"api_key"`          // 留空用于 Ollama 等本地模型
-	Model         string `json:"model"`            // 模型名称，如 deepseek-chat、gpt-4o-mini
-	MinContentLen int    `json:"min_content_len"`  // 跳过 AI 的最小内容长度，默认 50
-	MaxContentLen int    `json:"max_content_len"`  // 跳过 AI 的最大内容长度，默认 10000
-	Timeout       int    `json:"timeout_sec"`      // HTTP 请求超时秒数，默认 30
+	Preset        string `json:"preset"`           // 服务商预设：openrouter/ollama/deepseek/openai/custom
+	Endpoint      string `json:"endpoint"`          // OpenAI 兼容 API 地址，如 http://localhost:11434/v1
+	APIKey        string `json:"api_key"`           // 留空用于 Ollama 等本地模型
+	Model         string `json:"model"`             // 模型名称，如 deepseek-chat、gpt-4o-mini
+	MinContentLen int    `json:"min_content_len"`   // 跳过 AI 的最小内容长度，默认 100
+	MaxContentLen int    `json:"max_content_len"`   // 跳过 AI 的最大内容长度，默认 10000
+	Timeout       int    `json:"timeout_sec"`       // HTTP 请求超时秒数，默认 60
+	Prompt        string `json:"prompt"`            // 自定义系统提示词，留空使用默认
+}
+
+// AIPresetOption 服务商预设选项
+type AIPresetOption struct {
+	Endpoint string `json:"endpoint"`
+	Model    string `json:"model"`
+	Label    string `json:"label"`
+}
+
+// AIPresets 内置服务商预设
+var AIPresets = map[string]AIPresetOption{
+	"openrouter": {"https://openrouter.ai/api/v1", "openrouter/free", "OpenRouter（推荐）"},
+	"ollama":     {"http://localhost:11434/v1", "llama3", "Ollama（本地，无需 Key）"},
+	"deepseek":   {"https://api.deepseek.com/v1", "deepseek-chat", "DeepSeek"},
+	"openai":     {"https://api.openai.com/v1", "gpt-4o-mini", "OpenAI"},
+}
+
+// AIPromptTemplates 内置提示词模板
+var AIPromptTemplates = map[string]string{
+	"通用模式": "",
+	"代码模式": `你是一个专注于代码分析的助手。用户会给你一段文本内容，你需要：
+1. 为内容生成 3-5 个标签（tags），侧重编程语言、框架、技术概念
+2. 用一句话生成中文摘要（summary，不超过50字）
+3. 给内容质量打分（score，0-10分，10分最高）
+4. 将代码内容整理成带语法高亮标记的格式（organized_content），使用 Markdown 格式
+
+注意：
+- 如果内容是日志、配置文件、系统输出、错误堆栈等机器生成内容，打低分（0-3分），并在 tags 中加入 "system_log"
+- 如果内容是人类思考、笔记、文章、代码片段等有价值的信息，正常打分
+
+你必须严格以 JSON 格式回复，不要包含任何其他文字：
+{"tags":["tag1","tag2"],"summary":"一句话摘要","score":8,"organized_content":"整理后的内容"}`,
+	"学术模式": `你是一个学术研究助手。用户会给你一段文本内容，你需要：
+1. 为内容生成 3-5 个标签（tags），侧重研究方法、核心结论、学科领域
+2. 用一句话生成中文摘要（summary，不超过50字），突出研究贡献
+3. 给内容质量打分（score，0-10分，10分最高）
+4. 整理内容结构（organized_content），提取研究背景、方法、结论，使用 Markdown 格式
+
+注意：
+- 识别并标注引用信息、数据来源
+- 区分观点和事实
+
+你必须严格以 JSON 格式回复，不要包含任何其他文字：
+{"tags":["tag1","tag2"],"summary":"一句话摘要","score":8,"organized_content":"整理后的内容"}`,
+	"极简模式": `简短分析内容，生成标签和摘要。
+
+你必须严格以 JSON 格式回复，不要包含任何其他文字：
+{"tags":["tag1","tag2"],"summary":"一句话摘要","score":8,"organized_content":"整理后的内容"}`,
 }
 
 const (
@@ -203,6 +253,18 @@ func Load() (*Config, error) {
 		config.AI.Timeout = 60
 	}
 
+	// 预设解析：当 Preset 非 custom 且非空时，覆盖默认 endpoint 和 model
+	if config.AI.Preset != "" && config.AI.Preset != "custom" {
+		if p, ok := AIPresets[config.AI.Preset]; ok {
+			if config.AI.Endpoint == "" || config.AI.Endpoint == "https://aiproxy.want.biz/v1" {
+				config.AI.Endpoint = p.Endpoint
+			}
+			if config.AI.Model == "" || config.AI.Model == "Assisant" {
+				config.AI.Model = p.Model
+			}
+		}
+	}
+
 	// 补全 Web 默认值
 	if config.Web.Port == 0 {
 		config.Web.Port = 8090
@@ -276,6 +338,7 @@ func DefaultConfig() *Config {
 		},
 		AI: AIConfig{
 			Enabled:       false,
+			Preset:        "custom",
 			Endpoint:      "https://aiproxy.want.biz/v1",
 			Model:         "Assisant",
 			MinContentLen: 100,
