@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -210,6 +212,12 @@ func PublishKindle(cfg config.KindleConfig, contentMD string) error {
 	}
 	filename := fmt.Sprintf("雨轩-%s.txt", title)
 
+	// RFC 2231 编码文件名
+	encodedFilename := fmt.Sprintf("utf-8''%s", url.PathEscape(filename))
+
+	// RFC 2047 编码 Subject
+	subject := mime.BEncoding.Encode("utf-8", strings.TrimSuffix(filename, ".txt"))
+
 	// 构建 MIME 邮件
 	boundary := fmt.Sprintf("----=_Part_%d", time.Now().UnixNano())
 	var buf bytes.Buffer
@@ -217,7 +225,7 @@ func PublishKindle(cfg config.KindleConfig, contentMD string) error {
 	// 邮件头
 	fmt.Fprintf(&buf, "From: %s\r\n", cfg.SenderEmail)
 	fmt.Fprintf(&buf, "To: %s\r\n", cfg.KindleEmail)
-	fmt.Fprintf(&buf, "Subject: =?utf-8?B?%s?=\r\n", base64.StdEncoding.EncodeToString([]byte(strings.TrimSuffix(filename, ".txt"))))
+	fmt.Fprintf(&buf, "Subject: %s\r\n", subject)
 	fmt.Fprintf(&buf, "MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&buf, "Content-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", boundary)
 
@@ -229,9 +237,9 @@ func PublishKindle(cfg config.KindleConfig, contentMD string) error {
 
 	// 附件部分（application/octet-stream，与 Python 版一致）
 	fmt.Fprintf(&buf, "\r\n--%s\r\n", boundary)
-	fmt.Fprintf(&buf, "Content-Type: application/octet-stream; name=\"%s\"\r\n", filename)
+	fmt.Fprintf(&buf, "Content-Type: application/octet-stream; name=\"%s\"\r\n", encodedFilename)
 	fmt.Fprintf(&buf, "Content-Transfer-Encoding: base64\r\n")
-	fmt.Fprintf(&buf, "Content-Disposition: attachment; filename=\"%s\"\r\n\r\n", filename)
+	fmt.Fprintf(&buf, "Content-Disposition: attachment; filename*=%s\r\n\r\n", encodedFilename)
 
 	// Base64 编码附件内容
 	encoded := base64.StdEncoding.EncodeToString([]byte(plainText))
