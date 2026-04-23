@@ -1542,7 +1542,7 @@ async function loadHistory() {
       const typeLabel = e.type === 'text' ? '文本' : '图片';
       const raw = (e.content || '').replace(/\n/g, ' ');
       const chars = [...raw];
-      const preview = chars.slice(0, 50).join('') + (chars.length > 50 ? '...' : '');
+      const preview = chars.slice(0, 100).join('') + (chars.length > 100 ? '...' : '');
       let tagsHtml = '';
       if (e.tags && e.tags.length) {
         tagsHtml = '<span class="history-tags">' + e.tags.map(t => '<span class="htag">#' + escHtml(t) + '</span>').join('') + '</span>';
