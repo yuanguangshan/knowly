@@ -696,13 +696,29 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 		var err error
 		switch target {
 		case "blog":
-			err = publisher.PublishBlog(s.cfg.Blog, content)
+			if s.cfg.Blog.APIURL == "" {
+				err = fmt.Errorf("Blog API URL 未配置")
+			} else {
+				err = publisher.PublishBlog(s.cfg.Blog, content)
+			}
 		case "podcast":
-			err = publisher.PublishPodcast(s.cfg.Podcast, content)
+			if s.cfg.Podcast.APIURL == "" {
+				err = fmt.Errorf("Podcast API URL 未配置")
+			} else {
+				err = publisher.PublishPodcast(s.cfg.Podcast, content)
+			}
 		case "ima":
-			err = publisher.PublishIMA(s.cfg.IMA, content)
+			if s.cfg.IMA.APIURL == "" || s.cfg.IMA.ClientID == "" || s.cfg.IMA.APIKey == "" {
+				err = fmt.Errorf("IMA 配置不完整（需要 APIURL、ClientID、APIKey）")
+			} else {
+				err = publisher.PublishIMA(s.cfg.IMA, content)
+			}
 		case "kindle":
-			err = publisher.PublishKindle(s.cfg.Kindle, content)
+			if s.cfg.Kindle.KindleEmail == "" || s.cfg.Kindle.SenderEmail == "" || s.cfg.Kindle.SenderPassword == "" {
+				err = fmt.Errorf("Kindle 配置不完整（需要 KindleEmail、SenderEmail、SenderPassword）")
+			} else {
+				err = publisher.PublishKindle(s.cfg.Kindle, content)
+			}
 		default:
 			results = append(results, publishResult{Target: target, Error: "未知目标"})
 			continue
