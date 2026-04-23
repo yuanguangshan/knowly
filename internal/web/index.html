@@ -1399,8 +1399,8 @@ function switchTab(tab) {
 }
 
 // === API Helper ===
-async function api(path) {
-  const res = await fetch(path);
+async function api(path, options) {
+  const res = await fetch(path, options);
   if (!res.ok) throw new Error(res.statusText);
   return res.json();
 }
