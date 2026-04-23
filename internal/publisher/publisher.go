@@ -429,10 +429,9 @@ func PublishIMA(cfg config.IMAConfig, contentMD string) error {
 
 // PublishKindle 发送内容到 Kindle 个人文档服务
 func PublishKindle(cfg config.KindleConfig, contentMD string) error {
-	formattedText := formatHTMLForKindle(contentMD)
-
-	// 用内容前 50 个字符作为标题，去除特殊字符
-	titleRunes := []rune(formattedText)
+	// 先用原始内容生成标题
+	plainText := stripMarkdown(contentMD)
+	titleRunes := []rune(plainText)
 	if len(titleRunes) > 50 {
 		titleRunes = titleRunes[:50]
 	}
@@ -476,6 +475,9 @@ func PublishKindle(cfg config.KindleConfig, contentMD string) error {
 	fmt.Fprintf(&buf, "Content-Type: text/html; charset=utf-8; name=\"%s\"\r\n", encodedFilename)
 	fmt.Fprintf(&buf, "Content-Transfer-Encoding: base64\r\n")
 	fmt.Fprintf(&buf, "Content-Disposition: attachment; filename*=%s\r\n\r\n", encodedFilename)
+
+	// 将 Markdown 转换为 HTML 格式
+	formattedText := formatHTMLForKindle(contentMD)
 
 	// Base64 编码附件内容
 	encoded := base64.StdEncoding.EncodeToString([]byte(formattedText))
