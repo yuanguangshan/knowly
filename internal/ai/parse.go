@@ -72,3 +72,42 @@ func validateResult(r *Result) (*Result, error) {
 	}
 	return r, nil
 }
+
+// parseTitleAndSummary 从 AI 响应中提取标题和摘要（容错处理）
+func parseTitleAndSummary(raw string) (*TitleAndSummary, error) {
+	// 1. 直接解析 JSON
+	var result TitleAndSummary
+	if err := json.Unmarshal([]byte(raw), &result); err == nil {
+		return validateTitleAndSummary(&result)
+	}
+
+	// 2. 从 markdown code fence 中提取 JSON
+	jsonStr := extractJSONBlock(raw)
+	if jsonStr != "" {
+		if err := json.Unmarshal([]byte(jsonStr), &result); err == nil {
+			return validateTitleAndSummary(&result)
+		}
+	}
+
+	// 3. 查找第一个 { 到最后一个 } 之间的内容
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start >= 0 && end > start {
+		if err := json.Unmarshal([]byte(raw[start:end+1]), &result); err == nil {
+			return validateTitleAndSummary(&result)
+		}
+	}
+
+	return nil, fmt.Errorf("could not extract JSON from AI response")
+}
+
+// validateTitleAndSummary 确保解析结果的值合理
+func validateTitleAndSummary(r *TitleAndSummary) (*TitleAndSummary, error) {
+	if r.Title == "" {
+		return nil, fmt.Errorf("title is empty")
+	}
+	if r.Summary == "" {
+		r.Summary = "暂无摘要"
+	}
+	return r, nil
+}

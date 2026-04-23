@@ -2,6 +2,7 @@ package web
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/yuanguangshan/knowly/internal/ai"
 	"github.com/yuanguangshan/knowly/internal/config"
 	"github.com/yuanguangshan/knowly/internal/history"
 	"github.com/yuanguangshan/knowly/internal/publisher"
@@ -768,6 +770,35 @@ func (s *Server) handleTagAndPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 调用 AI 生成标题和摘要
+	var aiTitle, aiSummary string
+	if s.aiProcessor != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+
+		var result *ai.TitleAndSummary = s.aiProcessor.GenerateTitleAndSummary(ctx, content)
+		if result != nil {
+			aiTitle = result.Title
+			aiSummary = result.Summary
+			log.Printf("[INFO] AI generated title and summary for %s", req.ID)
+		} else {
+			log.Printf("[WARN] AI title generation failed for %s, using original content", req.ID)
+		}
+	}
+
+	// 如果 AI 生成了标题和摘要，将它们添加到内容前面
+	if aiTitle != "" || aiSummary != "" {
+		var header strings.Builder
+		if aiTitle != "" {
+			header.WriteString("# " + aiTitle + "\n\n")
+		}
+		if aiSummary != "" {
+			header.WriteString("> " + aiSummary + "\n\n")
+		}
+		header.WriteString("---\n\n")
+		content = header.String() + content
+	}
+
 	// 发布内容（不受 enabled 配置限制）
 	var publishErr error
 
@@ -826,6 +857,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonResp(w, stats)
 }
+
 // handleSearch 全文搜索归档内容
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	keyword := r.URL.Query().Get("q")
@@ -980,11 +1012,11 @@ func maskField(val string) string {
 
 // sensitiveFields 需要脱敏的字段列表
 var sensitiveFields = map[string]bool{
-	"api_key":          true,
-	"secret":           true,
-	"auth":             true,
-	"sender_password":  true,
-	"key_path":         false, // 路径不脱敏
+	"api_key":         true,
+	"secret":          true,
+	"auth":            true,
+	"sender_password": true,
+	"key_path":        false, // 路径不脱敏
 }
 
 // maskConfig 返回脱敏后的配置 JSON

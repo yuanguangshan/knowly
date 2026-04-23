@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yuanguangshan/knowly/internal/ai"
 	"github.com/yuanguangshan/knowly/internal/config"
 	"github.com/yuanguangshan/knowly/internal/history"
 	"github.com/yuanguangshan/knowly/internal/ssh"
@@ -16,11 +17,12 @@ import (
 
 // Server Web 管理界面服务器
 type Server struct {
-	cfg       *config.Config
-	sshClient *ssh.Client
-	histStore *history.Store
-	addr      string
-	startTime time.Time
+	cfg        *config.Config
+	sshClient  *ssh.Client
+	histStore  *history.Store
+	aiProcessor *ai.Processor
+	addr       string
+	startTime  time.Time
 	httpServer *http.Server
 }
 
@@ -35,24 +37,28 @@ func NewServer(cfg *config.Config, addr string) *Server {
 		FilenamePrefixLength: cfg.SSH.FilenamePrefixLength,
 	})
 	histStore := history.NewStore(config.GetConfigDir())
+	aiProcessor := ai.NewProcessor(&cfg.AI)
 
 	return &Server{
-		cfg:       cfg,
-		sshClient: sshClient,
-		histStore: histStore,
-		addr:      addr,
-		startTime: time.Now(),
+		cfg:         cfg,
+		sshClient:   sshClient,
+		histStore:   histStore,
+		aiProcessor: aiProcessor,
+		addr:        addr,
+		startTime:   time.Now(),
 	}
 }
 
 // NewServerWithDeps 创建 Web 服务器实例（使用已有的 SSH 和 History 依赖）
 func NewServerWithDeps(cfg *config.Config, addr string, sshClient *ssh.Client, histStore *history.Store) *Server {
+	aiProcessor := ai.NewProcessor(&cfg.AI)
 	return &Server{
-		cfg:       cfg,
-		sshClient: sshClient,
-		histStore: histStore,
-		addr:      addr,
-		startTime: time.Now(),
+		cfg:         cfg,
+		sshClient:   sshClient,
+		histStore:   histStore,
+		aiProcessor: aiProcessor,
+		addr:        addr,
+		startTime:   time.Now(),
 	}
 }
 

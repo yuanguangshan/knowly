@@ -16,6 +16,7 @@ type Result struct {
 	Score            int      `json:"score"`
 	OrganizedContent string   `json:"organized_content"`
 	Processed        bool     `json:"processed"`
+	Title            string   `json:"title,omitempty"`
 }
 
 // Processor 处理 AI API 调用
@@ -83,5 +84,41 @@ func (p *Processor) Process(ctx context.Context, content string) *Result {
 
 	result.Processed = true
 	log.Printf("[INFO] AI processed: score=%d, tags=%v, summary=%q", result.Score, result.Tags, result.Summary)
+	return result
+}
+
+// TitleAndSummary 用于 AI 返回标题和摘要
+type TitleAndSummary struct {
+	Title    string `json:"title"`
+	Summary  string `json:"summary"`
+}
+
+const titlePrompt = `你是一个内容标题和摘要生成助手。用户会给你一段文本内容，你需要：
+1. 为内容生成一个简洁、吸引人的标题（title，不超过30字）
+2. 为内容生成一段摘要（summary，150字以内）
+
+注意：
+- 标题应该简洁明了，能够准确概括内容核心
+- 摘要应该突出内容的重点和价值
+- 避免使用日期、时间等作为标题
+
+你必须严格以 JSON 格式回复，不要包含任何其他文字：
+{"title":"简洁标题","summary":"内容摘要"}`
+
+// GenerateTitleAndSummary 生成标题和摘要，失败返回 nil
+func (p *Processor) GenerateTitleAndSummary(ctx context.Context, content string) *TitleAndSummary {
+	aiResponse, err := p.callAPI(ctx, titlePrompt, content)
+	if err != nil {
+		log.Printf("[WARN] AI title generation failed: %v", err)
+		return nil
+	}
+
+	result, err := parseTitleAndSummary(aiResponse)
+	if err != nil {
+		log.Printf("[WARN] AI title response parse failed: %v", err)
+		return nil
+	}
+
+	log.Printf("[INFO] AI generated title: %q, summary: %q", result.Title, result.Summary)
 	return result
 }
