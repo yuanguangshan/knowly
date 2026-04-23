@@ -201,8 +201,11 @@ func PublishKindle(cfg config.KindleConfig, contentMD string) error {
 		titleRunes = titleRunes[:50]
 	}
 	title := string(titleRunes)
-	// 去除文件名不安全字符
+	// 标点符号转为下划线，其他不安全字符去除
+	title = regexp.MustCompile(`[，。、；：？！""''【】（）《》—…·,\.;:?!'"()\[\]{}\-]`).ReplaceAllString(title, "_")
 	title = regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(title, "")
+	title = regexp.MustCompile(`_+`).ReplaceAllString(title, "_")
+	title = strings.Trim(title, "_ ")
 	title = strings.TrimSpace(title)
 	if title == "" {
 		title = time.Now().Format("20060102-150405")
