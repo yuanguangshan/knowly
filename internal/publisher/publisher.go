@@ -20,13 +20,56 @@ import (
 	"github.com/yuanguangshan/knowly/internal/config"
 )
 
-// extractTitle 从 Markdown 内容中提取标题（首行 # 标题），若无则用时间戳
+// extractTitle 从 Markdown 内容中提取标题
+// 优先级：1. # 标题  2. 第一行有意义的文本
 func extractTitle(content string) string {
-	re := regexp.MustCompile(`(?m)^#\s+(.+)$`)
-	matches := re.FindStringSubmatch(content)
-	if len(matches) > 1 {
-		return strings.TrimSpace(matches[1])
+	lines := strings.Split(content, "\n")
+
+	// 跳过 YAML frontmatter（--- 包围的内容）
+	startIdx := 0
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
+		for i := 1; i < len(lines); i++ {
+			if strings.TrimSpace(lines[i]) == "---" {
+				startIdx = i + 1
+				break
+			}
+		}
 	}
+
+	// 查找 # 标题
+	re := regexp.MustCompile(`^#\s+(.+)$`)
+	for i := startIdx; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		// 跳过空行
+		if line == "" {
+			continue
+		}
+		// 跳过纯标签行（如 #202604）
+		if regexp.MustCompile(`^#\d+$`).MatchString(line) {
+			continue
+		}
+		// 查找 # 标题
+		if matches := re.FindStringSubmatch(line); len(matches) > 1 {
+			title := strings.TrimSpace(matches[1])
+			if title != "" {
+				return title
+			}
+		}
+		// 找到第一个非空行，使用它作为标题
+		// 跳过日期行（如 2026-04-24 00:38:47）
+		if regexp.MustCompile(`^\d{4}-\d{2}-\d{2}`).MatchString(line) ||
+		   regexp.MustCompile(`^\d+分钟阅读`).MatchString(line) {
+			continue
+		}
+		// 使用第一行有意义文本的前 50 个字符作为标题
+		runes := []rune(line)
+		if len(runes) > 50 {
+			return string(runes[:50]) + "..."
+		}
+		return line
+	}
+
+	// 如果还是找不到，使用默认标题
 	return time.Now().Format("2006-01-02 15:04:05")
 }
 
