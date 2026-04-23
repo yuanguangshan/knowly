@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"mime"
@@ -92,14 +93,41 @@ func stripMarkdown(md string) string {
 	return strings.TrimSpace(text)
 }
 
-// formatForKindle 将 Markdown 内容转换为适合 Kindle 阅读的纯文本格式
-// Kindle 对格式支持有限，使用简洁清晰的排版
-func formatForKindle(md string) string {
+// formatHTMLForKindle 将 Markdown 转换为 Kindle 支持的 HTML 格式
+func formatHTMLForKindle(md string) string {
 	lines := strings.Split(md, "\n")
 	var result strings.Builder
-	inCodeBlock := false
 
-	for i, line := range lines {
+	// 写入 HTML 骨架和基础样式
+	result.WriteString(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+	body { font-family: serif; line-height: 1.6; margin: 1em; }
+	h1 { font-size: 1.8em; font-weight: bold; margin-top: 1.2em; margin-bottom: 0.5em; }
+	h2 { font-size: 1.5em; font-weight: bold; margin-top: 1em; margin-bottom: 0.5em; }
+	h3 { font-size: 1.2em; font-weight: bold; margin-top: 0.8em; margin-bottom: 0.4em; }
+	h4 { font-size: 1.1em; font-weight: bold; margin-top: 0.6em; margin-bottom: 0.3em; }
+	h5, h6 { font-size: 1em; font-weight: bold; margin-top: 0.5em; margin-bottom: 0.3em; }
+	p { margin: 0.5em 0; }
+	pre { background-color: #f4f4f4; padding: 10px; margin: 10px 0; font-family: monospace; white-space: pre-wrap; }
+	code { font-family: monospace; background-color: #f4f4f4; padding: 2px 4px; }
+	blockquote { border-left: 4px solid #ccc; margin: 0.5em 0; padding-left: 1em; color: #555; }
+	ul, ol { margin: 0.5em 0; padding-left: 2em; }
+	li { margin: 0.3em 0; }
+	hr { border: 0; border-top: 1px solid #ccc; margin: 20px 0; }
+</style>
+</head>
+<body>
+`)
+
+	inCodeBlock := false
+	var inList bool
+	var listType string // "ul" or "ol"
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		trimmed := strings.TrimRight(line, " \t")
 		stripped := strings.TrimSpace(trimmed)
 
@@ -116,22 +144,49 @@ func formatForKindle(md string) string {
 
 		// 处理代码块
 		if strings.HasPrefix(stripped, "```") {
+			if inList {
+				result.WriteString("</"+listType+">\n")
+				inList = false
+			}
 			inCodeBlock = !inCodeBlock
 			if inCodeBlock {
-				result.WriteString("\n[代码块]\n")
+				result.WriteString("<pre><code>\n")
 			} else {
-				result.WriteString("[代码块结束]\n\n")
+				result.WriteString("</code></pre>\n")
 			}
 			continue
 		}
+
 		if inCodeBlock {
-			result.WriteString(trimmed)
-			result.WriteString("\n")
+			result.WriteString(html.EscapeString(trimmed) + "\n")
+			continue
+		}
+
+		// 处理水平分隔线
+		if stripped == "---" || stripped == "***" {
+			if inList {
+				result.WriteString("</"+listType+">\n")
+				inList = false
+			}
+			result.WriteString("<hr>\n")
+			continue
+		}
+
+		// 处理空行
+		if stripped == "" {
+			if inList {
+				result.WriteString("</"+listType+">\n")
+				inList = false
+			}
 			continue
 		}
 
 		// 处理标题
 		if strings.HasPrefix(stripped, "#") {
+			if inList {
+				result.WriteString("</"+listType+">\n")
+				inList = false
+			}
 			level := 0
 			for _, c := range stripped {
 				if c == '#' {
@@ -142,82 +197,92 @@ func formatForKindle(md string) string {
 			}
 			title := strings.TrimSpace(stripped[level:])
 			if title != "" {
-				result.WriteString("\n")
-				// 根据级别用不同方式突出显示
-				if level == 1 {
-					// 一级标题：全大写 + 粗体 + 更多空行
-					result.WriteString("\n*** ")
-					result.WriteString(strings.ToUpper(title))
-					result.WriteString(" ***\n\n")
-				} else if level == 2 {
-					// 二级标题：首字母大写 + 粗体
-					result.WriteString("*** ")
-					result.WriteString(title)
-					result.WriteString(" ***\n\n")
-				} else {
-					// 三级及以下：正常显示
-					result.WriteString(title)
-					result.WriteString("\n\n")
+				if level > 6 {
+					level = 6
 				}
+				result.WriteString(fmt.Sprintf("<h%d>%s</h%d>\n", level, processInlineMarkdown(title), level))
 			}
 			continue
 		}
 
 		// 处理引用块
 		if strings.HasPrefix(stripped, ">") {
+			if inList {
+				result.WriteString("</"+listType+">\n")
+				inList = false
+			}
 			quoteText := strings.TrimSpace(stripped[1:])
-			result.WriteString("  | ")
-			result.WriteString(quoteText)
-			result.WriteString("\n")
+			result.WriteString(fmt.Sprintf("<blockquote>%s</blockquote>\n", processInlineMarkdown(quoteText)))
 			continue
 		}
 
 		// 处理无序列表
-		if strings.HasPrefix(stripped, "-") || strings.HasPrefix(stripped, "*") {
-			listText := strings.TrimSpace(stripped[1:])
-			result.WriteString("  * ")
-			result.WriteString(listText)
-			result.WriteString("\n")
+		if strings.HasPrefix(stripped, "- ") || strings.HasPrefix(stripped, "* ") {
+			if !inList || listType != "ul" {
+				if inList {
+					result.WriteString("</"+listType+">\n")
+				}
+				result.WriteString("<ul>\n")
+				inList = true
+				listType = "ul"
+			}
+			listText := strings.TrimSpace(stripped[2:])
+			result.WriteString(fmt.Sprintf("<li>%s</li>\n", processInlineMarkdown(listText)))
 			continue
 		}
 
 		// 处理有序列表
 		if matched, _ := regexp.MatchString(`^\d+\.\s`, stripped); matched {
-			result.WriteString("  ")
-			result.WriteString(stripped)
-			result.WriteString("\n")
+			if !inList || listType != "ol" {
+				if inList {
+					result.WriteString("</"+listType+">\n")
+				}
+				result.WriteString("<ol>\n")
+				inList = true
+				listType = "ol"
+			}
+			listText := regexp.MustCompile(`^\d+\.\s`).ReplaceAllString(stripped, "")
+			result.WriteString(fmt.Sprintf("<li>%s</li>\n", processInlineMarkdown(listText)))
 			continue
 		}
 
-		// 处理水平分隔线
-		if stripped == "---" || stripped == "***" {
-			result.WriteString("\n---\n\n")
-			continue
+		// 普通段落
+		if inList {
+			result.WriteString("</"+listType+">\n")
+			inList = false
 		}
-
-		// 处理空行
-		if stripped == "" {
-			result.WriteString("\n")
-			continue
-		}
-
-		// 处理普通段落
-		processed := trimmed
-		// 粗体用 *** 包围（Kindle 支持）
-		processed = regexp.MustCompile(`\*\*(.+?)\*\*`).ReplaceAllString(processed, "***$1***")
-		processed = regexp.MustCompile(`__(.+?)__`).ReplaceAllString(processed, "***$1***")
-		// 斜体用 _ 包围（Kindle 支持）
-		processed = regexp.MustCompile(`(?m)^\*(.+?)\*$`).ReplaceAllString(processed, "_$1_")
-		// 行内代码
-		processed = regexp.MustCompile("`(.+?)`").ReplaceAllString(processed, "'$1'")
-		// 链接
-		processed = regexp.MustCompile(`\[(.+?)\]\(.+?\)`).ReplaceAllString(processed, "$1")
-
-		result.WriteString(processed)
-		result.WriteString("\n")
+		processed := processInlineMarkdown(trimmed)
+		result.WriteString(fmt.Sprintf("<p>%s</p>\n", processed))
 	}
 
-	return strings.TrimSpace(result.String())
+	if inList {
+		result.WriteString("</"+listType+">\n")
+	}
+
+	result.WriteString("</body>\n</html>")
+	return result.String()
+}
+
+// processInlineMarkdown 处理行内的加粗、斜体、代码、链接
+func processInlineMarkdown(text string) string {
+	// 先转义基本的 HTML 字符
+	text = html.EscapeString(text)
+
+	// 处理加粗 ** 或 __
+	text = regexp.MustCompile(`\*\*(.+?)\*\*`).ReplaceAllString(text, "<b>$1</b>")
+	text = regexp.MustCompile(`__(.+?)__`).ReplaceAllString(text, "<b>$1</b>")
+
+	// 处理斜体 * 或 _（避免误伤已处理的加粗）
+	text = regexp.MustCompile(`\*([^*]+?)\*`).ReplaceAllString(text, "<i>$1</i>")
+	// 不处理单独的 _ 避免误伤中文
+
+	// 行内代码
+	text = regexp.MustCompile("`(.+?)`").ReplaceAllString(text, "<code>$1</code>")
+
+	// 链接 [text](url)
+	text = regexp.MustCompile(`\[(.+?)\]\((.+?)\)`).ReplaceAllString(text, `<a href="$2">$1</a>`)
+
+	return text
 }
 
 // defaultTags 生成默认标签 YYYYMM
@@ -364,7 +429,7 @@ func PublishIMA(cfg config.IMAConfig, contentMD string) error {
 
 // PublishKindle 发送内容到 Kindle 个人文档服务
 func PublishKindle(cfg config.KindleConfig, contentMD string) error {
-	formattedText := formatForKindle(contentMD)
+	formattedText := formatHTMLForKindle(contentMD)
 
 	// 用内容前 50 个字符作为标题，去除特殊字符
 	titleRunes := []rune(formattedText)
@@ -381,13 +446,13 @@ func PublishKindle(cfg config.KindleConfig, contentMD string) error {
 	if title == "" {
 		title = time.Now().Format("20060102-150405")
 	}
-	filename := fmt.Sprintf("雨轩-%s.txt", title)
+	filename := fmt.Sprintf("雨轩-%s.html", title)
 
 	// RFC 2231 编码文件名
 	encodedFilename := fmt.Sprintf("utf-8''%s", url.PathEscape(filename))
 
 	// RFC 2047 编码 Subject
-	subject := mime.BEncoding.Encode("utf-8", strings.TrimSuffix(filename, ".txt"))
+	subject := mime.BEncoding.Encode("utf-8", strings.TrimSuffix(filename, ".html"))
 
 	// 构建 MIME 邮件
 	boundary := fmt.Sprintf("----=_Part_%d", time.Now().UnixNano())
@@ -406,9 +471,9 @@ func PublishKindle(cfg config.KindleConfig, contentMD string) error {
 	fmt.Fprintf(&buf, "Content-Transfer-Encoding: 7bit\r\n\r\n")
 	fmt.Fprintf(&buf, "Sent by knowly.\r\n")
 
-	// 附件部分（application/octet-stream，与 Python 版一致）
+	// 附件部分（使用 text/html 让 Kindle 正确渲染）
 	fmt.Fprintf(&buf, "\r\n--%s\r\n", boundary)
-	fmt.Fprintf(&buf, "Content-Type: application/octet-stream; name=\"%s\"\r\n", encodedFilename)
+	fmt.Fprintf(&buf, "Content-Type: text/html; charset=utf-8; name=\"%s\"\r\n", encodedFilename)
 	fmt.Fprintf(&buf, "Content-Transfer-Encoding: base64\r\n")
 	fmt.Fprintf(&buf, "Content-Disposition: attachment; filename*=%s\r\n\r\n", encodedFilename)
 
