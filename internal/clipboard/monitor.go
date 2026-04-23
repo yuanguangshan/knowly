@@ -55,18 +55,34 @@ func hashStr(s string) string {
 	return hashBytes([]byte(s))
 }
 
+// FilterReason 记录过滤的具体原因
+type FilterReason struct {
+	Filtered    bool
+	Reason      string // "length_too_short", "length_too_long", "exclude_word"
+	MatchedWord string // 仅 exclude_word 时有值
+}
+
 // ShouldFilter 检查内容是否应被过滤（长度不足、超出上限、包含敏感词）
 // 导出此函数以便 Relay 等外部路径复用同一过滤逻辑
 func ShouldFilter(content string, minLength, maxLength int, excludeWords []string) bool {
-	if len(content) < minLength || len(content) > maxLength {
-		return true
+	r := ShouldFilterDetail(content, minLength, maxLength, excludeWords)
+	return r.Filtered
+}
+
+// ShouldFilterDetail 返回详细的过滤结果，包含具体原因
+func ShouldFilterDetail(content string, minLength, maxLength int, excludeWords []string) FilterReason {
+	if len(content) < minLength {
+		return FilterReason{Filtered: true, Reason: "length_too_short"}
+	}
+	if len(content) > maxLength {
+		return FilterReason{Filtered: true, Reason: "length_too_long"}
 	}
 	for _, word := range excludeWords {
 		if strings.Contains(content, word) {
-			return true
+			return FilterReason{Filtered: true, Reason: "exclude_word", MatchedWord: word}
 		}
 	}
-	return false
+	return FilterReason{Filtered: false}
 }
 
 type Monitor struct {

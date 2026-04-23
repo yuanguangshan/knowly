@@ -331,8 +331,15 @@ func drainOutbox(outboxStore *outbox.Store, client *ssh.Client, histStore *histo
 // syncAndArchiveText 处理来自 Relay 的文本同步
 func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source string, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store) {
 	// Relay 内容同样需要经过过滤检查
-	if clipboard.ShouldFilter(content, cfg.Clipboard.MinLength, cfg.Clipboard.MaxLength, cfg.Clipboard.ExcludeWords) {
-		log.Printf("[INFO] Relay content filtered (length/exclude rules)")
+	if r := clipboard.ShouldFilterDetail(content, cfg.Clipboard.MinLength, cfg.Clipboard.MaxLength, cfg.Clipboard.ExcludeWords); r.Filtered {
+		switch r.Reason {
+		case "exclude_word":
+			log.Printf("[INFO] Relay content filtered by sensitive word: %q", r.MatchedWord)
+		case "length_too_short":
+			log.Printf("[INFO] Relay content filtered: too short (%d < %d)", len(content), cfg.Clipboard.MinLength)
+		case "length_too_long":
+			log.Printf("[INFO] Relay content filtered: too long (%d > %d)", len(content), cfg.Clipboard.MaxLength)
+		}
 		return
 	}
 
