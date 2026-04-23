@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"mime/multipart"
-	"mime/quotedprintable"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -213,49 +211,39 @@ func PublishKindle(cfg config.KindleConfig, contentMD string) error {
 	filename := fmt.Sprintf("雨轩-%s.txt", title)
 
 	// 构建 MIME 邮件
+	boundary := fmt.Sprintf("----=_Part_%d", time.Now().UnixNano())
 	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-
-	// 设置 boundary
-	boundary := writer.Boundary()
-
-	// 手动构建 MIME 消息
-	buf.Reset()
 
 	// 邮件头
 	fmt.Fprintf(&buf, "From: %s\r\n", cfg.SenderEmail)
 	fmt.Fprintf(&buf, "To: %s\r\n", cfg.KindleEmail)
-	fmt.Fprintf(&buf, "Subject: %s\r\n", strings.TrimSuffix(filename, ".txt"))
+	fmt.Fprintf(&buf, "Subject: =?utf-8?B?%s?=\r\n", base64.StdEncoding.EncodeToString([]byte(strings.TrimSuffix(filename, ".txt"))))
 	fmt.Fprintf(&buf, "MIME-Version: 1.0\r\n")
-	fmt.Fprintf(&buf, "Content-Type: multipart/mixed; boundary=%s\r\n\r\n", boundary)
+	fmt.Fprintf(&buf, "Content-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", boundary)
 
 	// 文本正文部分
 	fmt.Fprintf(&buf, "--%s\r\n", boundary)
 	fmt.Fprintf(&buf, "Content-Type: text/plain; charset=utf-8\r\n")
-	fmt.Fprintf(&buf, "Content-Transfer-Encoding: quoted-printable\r\n\r\n")
-	qp := quotedprintable.NewWriter(&buf)
-	qp.Write([]byte("Sent by knowly."))
-	qp.Close()
-	fmt.Fprintf(&buf, "\r\n")
+	fmt.Fprintf(&buf, "Content-Transfer-Encoding: 7bit\r\n\r\n")
+	fmt.Fprintf(&buf, "Sent by knowly.\r\n")
 
-	// 附件部分
-	fmt.Fprintf(&buf, "--%s\r\n", boundary)
-	fmt.Fprintf(&buf, "Content-Type: text/plain; charset=utf-8; name=\"%s\"\r\n", filename)
+	// 附件部分（application/octet-stream，与 Python 版一致）
+	fmt.Fprintf(&buf, "\r\n--%s\r\n", boundary)
+	fmt.Fprintf(&buf, "Content-Type: application/octet-stream; name=\"%s\"\r\n", filename)
 	fmt.Fprintf(&buf, "Content-Transfer-Encoding: base64\r\n")
 	fmt.Fprintf(&buf, "Content-Disposition: attachment; filename=\"%s\"\r\n\r\n", filename)
 
 	// Base64 编码附件内容
 	encoded := base64.StdEncoding.EncodeToString([]byte(plainText))
-	lineLen := 76
-	for i := 0; i < len(encoded); i += lineLen {
-		end := i + lineLen
+	for i := 0; i < len(encoded); i += 76 {
+		end := i + 76
 		if end > len(encoded) {
 			end = len(encoded)
 		}
 		fmt.Fprintf(&buf, "%s\r\n", encoded[i:end])
 	}
 
-	fmt.Fprintf(&buf, "--%s--\r\n", boundary)
+	fmt.Fprintf(&buf, "\r\n--%s--\r\n", boundary)
 
 	// 通过 SMTP SSL 发送
 	addr := fmt.Sprintf("%s:%d", cfg.SMTPServer, cfg.SMTPPort)
