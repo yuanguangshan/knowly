@@ -86,8 +86,9 @@ type AIConfig struct {
 	Model         string `json:"model"`             // 模型名称，如 deepseek-chat、gpt-4o-mini
 	MinContentLen int    `json:"min_content_len"`   // 跳过 AI 的最小内容长度，默认 100
 	MaxContentLen int    `json:"max_content_len"`   // 跳过 AI 的最大内容长度，默认 10000
-	Timeout       int    `json:"timeout_sec"`       // HTTP 请求超时秒数，默认 60
-	Prompt        string `json:"prompt"`            // 自定义系统提示词，留空使用默认
+	Timeout        int    `json:"timeout_sec"`       // HTTP 请求超时秒数，默认 60
+	Prompt         string `json:"prompt"`            // 自定义系统提示词，留空使用默认
+	PromptTemplate string `json:"prompt_template"`   // 提示词模板名称：通用模式/代码模式/学术模式/极简模式
 }
 
 // AIPresetOption 服务商预设选项

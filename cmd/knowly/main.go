@@ -71,9 +71,13 @@ func main() {
 		if preset == "" {
 			preset = "custom"
 		}
-		promptMode := "自定义"
-		if cfg.AI.Prompt == "" {
-			promptMode = "默认"
+		promptMode := cfg.AI.PromptTemplate
+		if promptMode == "" {
+			if cfg.AI.Prompt == "" {
+				promptMode = "默认"
+			} else {
+				promptMode = "自定义"
+			}
 		}
 		log.Printf("[INFO] AI processing enabled (preset: %s, model: %s, endpoint: %s, prompt: %s)", preset, cfg.AI.Model, cfg.AI.Endpoint, promptMode)
 	}

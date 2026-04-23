@@ -1948,6 +1948,16 @@ async function loadAIConfig() {
     document.getElementById('aiModel').value = cfg.model || '';
     document.getElementById('aiPrompt').value = cfg.prompt || '';
     document.getElementById('aiPreset').value = cfg.preset || 'custom';
+    // 恢复提示词模板选中状态
+    if (cfg.prompt_template) {
+      const tmplOpts = document.getElementById('aiPromptTemplate').options;
+      for (let i = 0; i < tmplOpts.length; i++) {
+        if (tmplOpts[i].textContent === cfg.prompt_template) {
+          tmplOpts[i].selected = true;
+          break;
+        }
+      }
+    }
 
     const presetSel = document.getElementById('aiPreset');
     presetSel.innerHTML = '<option value="custom">自定义</option>';
@@ -1994,6 +2004,7 @@ async function saveAIConfig() {
     api_key: document.getElementById('aiApiKey').value,
     model: document.getElementById('aiModel').value,
     prompt: document.getElementById('aiPrompt').value,
+    prompt_template: document.getElementById('aiPromptTemplate').selectedOptions[0]?.textContent || '',
   };
   try {
     const res = await fetch('/api/config/ai', {
