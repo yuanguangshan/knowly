@@ -92,6 +92,134 @@ func stripMarkdown(md string) string {
 	return strings.TrimSpace(text)
 }
 
+// formatForKindle 将 Markdown 内容转换为适合 Kindle 阅读的纯文本格式
+// Kindle 对格式支持有限，使用简洁清晰的排版
+func formatForKindle(md string) string {
+	lines := strings.Split(md, "\n")
+	var result strings.Builder
+	inCodeBlock := false
+
+	for i, line := range lines {
+		trimmed := strings.TrimRight(line, " \t")
+		stripped := strings.TrimSpace(trimmed)
+
+		// 跳过 YAML frontmatter
+		if i == 0 && stripped == "---" {
+			for j := i + 1; j < len(lines); j++ {
+				if strings.TrimSpace(lines[j]) == "---" {
+					i = j
+					break
+				}
+			}
+			continue
+		}
+
+		// 处理代码块
+		if strings.HasPrefix(stripped, "```") {
+			inCodeBlock = !inCodeBlock
+			if inCodeBlock {
+				result.WriteString("\n[代码块]\n")
+			} else {
+				result.WriteString("[代码块结束]\n\n")
+			}
+			continue
+		}
+		if inCodeBlock {
+			result.WriteString(trimmed)
+			result.WriteString("\n")
+			continue
+		}
+
+		// 处理标题
+		if strings.HasPrefix(stripped, "#") {
+			level := 0
+			for _, c := range stripped {
+				if c == '#' {
+					level++
+				} else {
+					break
+				}
+			}
+			title := strings.TrimSpace(stripped[level:])
+			if title != "" {
+				result.WriteString("\n")
+				// 根据级别用不同方式突出显示
+				if level == 1 {
+					// 一级标题：全大写 + 粗体 + 更多空行
+					result.WriteString("\n*** ")
+					result.WriteString(strings.ToUpper(title))
+					result.WriteString(" ***\n\n")
+				} else if level == 2 {
+					// 二级标题：首字母大写 + 粗体
+					result.WriteString("*** ")
+					result.WriteString(title)
+					result.WriteString(" ***\n\n")
+				} else {
+					// 三级及以下：正常显示
+					result.WriteString(title)
+					result.WriteString("\n\n")
+				}
+			}
+			continue
+		}
+
+		// 处理引用块
+		if strings.HasPrefix(stripped, ">") {
+			quoteText := strings.TrimSpace(stripped[1:])
+			result.WriteString("  | ")
+			result.WriteString(quoteText)
+			result.WriteString("\n")
+			continue
+		}
+
+		// 处理无序列表
+		if strings.HasPrefix(stripped, "-") || strings.HasPrefix(stripped, "*") {
+			listText := strings.TrimSpace(stripped[1:])
+			result.WriteString("  * ")
+			result.WriteString(listText)
+			result.WriteString("\n")
+			continue
+		}
+
+		// 处理有序列表
+		if matched, _ := regexp.MatchString(`^\d+\.\s`, stripped); matched {
+			result.WriteString("  ")
+			result.WriteString(stripped)
+			result.WriteString("\n")
+			continue
+		}
+
+		// 处理水平分隔线
+		if stripped == "---" || stripped == "***" {
+			result.WriteString("\n---\n\n")
+			continue
+		}
+
+		// 处理空行
+		if stripped == "" {
+			result.WriteString("\n")
+			continue
+		}
+
+		// 处理普通段落
+		processed := trimmed
+		// 粗体用 *** 包围（Kindle 支持）
+		processed = regexp.MustCompile(`\*\*(.+?)\*\*`).ReplaceAllString(processed, "***$1***")
+		processed = regexp.MustCompile(`__(.+?)__`).ReplaceAllString(processed, "***$1***")
+		// 斜体用 _ 包围（Kindle 支持）
+		processed = regexp.MustCompile(`(?m)^\*(.+?)\*$`).ReplaceAllString(processed, "_$1_")
+		// 行内代码
+		processed = regexp.MustCompile("`(.+?)`").ReplaceAllString(processed, "'$1'")
+		// 链接
+		processed = regexp.MustCompile(`\[(.+?)\]\(.+?\)`).ReplaceAllString(processed, "$1")
+
+		result.WriteString(processed)
+		result.WriteString("\n")
+	}
+
+	return strings.TrimSpace(result.String())
+}
+
 // defaultTags 生成默认标签 YYYYMM
 func defaultTags() string {
 	return time.Now().Format("200601")
@@ -100,7 +228,7 @@ func defaultTags() string {
 // PublishBlog 发布博客
 func PublishBlog(cfg config.BlogConfig, contentMD string) error {
 	title := extractTitle(contentMD)
-	plainText := stripMarkdown(contentMD)
+	formattedText := stripMarkdown(contentMD)
 	tags := cfg.Tags
 	if tags == "" {
 		tags = defaultTags()
@@ -108,7 +236,7 @@ func PublishBlog(cfg config.BlogConfig, contentMD string) error {
 
 	body := map[string]any{
 		"title":      title,
-		"content":    plainText,
+		"content":    formattedText,
 		"content_md": contentMD,
 		"tags":       tags,
 		"targets":    []string{"blog"},
@@ -145,11 +273,11 @@ func PublishBlog(cfg config.BlogConfig, contentMD string) error {
 // PublishPodcast 发布播客
 func PublishPodcast(cfg config.PodcastConfig, contentMD string) error {
 	title := extractTitle(contentMD)
-	plainText := stripMarkdown(contentMD)
+	formattedText := stripMarkdown(contentMD)
 
 	body := map[string]any{
 		"title":      title,
-		"content":    plainText,
+		"content":    formattedText,
 		"content_md": contentMD,
 		"targets":    []string{"nas"},
 		"transform":  "read",
@@ -236,10 +364,10 @@ func PublishIMA(cfg config.IMAConfig, contentMD string) error {
 
 // PublishKindle 发送内容到 Kindle 个人文档服务
 func PublishKindle(cfg config.KindleConfig, contentMD string) error {
-	plainText := stripMarkdown(contentMD)
+	formattedText := formatForKindle(contentMD)
 
 	// 用内容前 50 个字符作为标题，去除特殊字符
-	titleRunes := []rune(plainText)
+	titleRunes := []rune(formattedText)
 	if len(titleRunes) > 50 {
 		titleRunes = titleRunes[:50]
 	}
@@ -285,7 +413,7 @@ func PublishKindle(cfg config.KindleConfig, contentMD string) error {
 	fmt.Fprintf(&buf, "Content-Disposition: attachment; filename*=%s\r\n\r\n", encodedFilename)
 
 	// Base64 编码附件内容
-	encoded := base64.StdEncoding.EncodeToString([]byte(plainText))
+	encoded := base64.StdEncoding.EncodeToString([]byte(formattedText))
 	for i := 0; i < len(encoded); i += 76 {
 		end := i + 76
 		if end > len(encoded) {
