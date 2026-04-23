@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/yuanguangshan/knowly/internal/config"
@@ -89,21 +90,23 @@ func (p *Processor) Process(ctx context.Context, content string) *Result {
 
 // TitleAndSummary 用于 AI 返回标题和摘要
 type TitleAndSummary struct {
-	Title    string `json:"title"`
-	Summary  string `json:"summary"`
+	Title           string   `json:"title"`
+	CandidateTitles []string `json:"candidate_titles,omitempty"` // 解析后的候选标题列表
+	Summary         string   `json:"summary"`
 }
 
-const titlePrompt = `你是一个内容标题和摘要生成助手。用户会给你一段文本内容，你需要：
-1. 为内容生成一个简洁、吸引人的标题（title，不超过30字）
-2. 为内容生成一段摘要（summary，150字以内）
+const titlePrompt = `你是一个专业的科技编辑。我将给你一段文本，你需要完成两项任务：
 
-注意：
-- 标题应该简洁明了，能够准确概括内容核心
-- 摘要应该突出内容的重点和价值
-- 避免使用日期、时间等作为标题
+1. **标题 (title)**：生成1-3个候选标题（用 | 分隔），要求：
+   - **核心价值**：突出内容最大的创新点、解决方案或利益。
+   - **具体生动**：避免空泛词汇，尽量包含关键名词（如 Kindle、NAS、知识管道）。
+   - **引人注目**：适合公众号、博客发表，但不要标题党。
+   - **风格参考**："一次复制，终身阅读：Knowly 如何将你的剪贴板直通 Kindle"、"Kindle 自动推送上线！让你的每个碎片灵感都能沉淀成册"。
+
+2. **摘要 (summary)**：控制在150字以内，用一句话概括核心亮点和用户价值。
 
 你必须严格以 JSON 格式回复，不要包含任何其他文字：
-{"title":"简洁标题","summary":"内容摘要"}`
+{"title":"候选标题1 | 候选标题2 | 候选标题3", "summary":"内容摘要"}`
 
 // GenerateTitleAndSummary 生成标题和摘要，失败返回 nil
 func (p *Processor) GenerateTitleAndSummary(ctx context.Context, content string) *TitleAndSummary {
@@ -119,6 +122,30 @@ func (p *Processor) GenerateTitleAndSummary(ctx context.Context, content string)
 		return nil
 	}
 
+	// 解析候选标题（用 | 分隔）
+	if result.Title != "" {
+		result.CandidateTitles = splitTitles(result.Title)
+		// 默认使用第一个标题
+		result.Title = result.CandidateTitles[0]
+	}
+
 	log.Printf("[INFO] AI generated title: %q, summary: %q", result.Title, result.Summary)
+	return result
+}
+
+// splitTitles 将用 | 分隔的标题字符串分割成列表
+func splitTitles(titleStr string) []string {
+	titles := strings.Split(titleStr, "|")
+	var result []string
+	for _, t := range titles {
+		trimmed := strings.TrimSpace(t)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	// 如果解析失败，至少返回原字符串
+	if len(result) == 0 && titleStr != "" {
+		return []string{titleStr}
+	}
 	return result
 }
