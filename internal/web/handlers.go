@@ -696,6 +696,87 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, results)
 }
 
+// handleTagAndPublish 添加标签并发布内容
+func (s *Server) handleTagAndPublish(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		ID     string   `json:"id"`
+		Tag    string   `json:"tag"`
+		Target string   `json:"target"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "无效的请求体", http.StatusBadRequest)
+		return
+	}
+	if req.ID == "" || req.Tag == "" || req.Target == "" {
+		jsonError(w, "缺少必要参数", http.StatusBadRequest)
+		return
+	}
+
+	// 验证目标是否有效
+	validTargets := map[string]bool{
+		"ima":     true,
+		"blog":    true,
+		"kindle":  true,
+		"podcast": true,
+	}
+	if !validTargets[req.Target] {
+		jsonError(w, "无效的发布目标", http.StatusBadRequest)
+		return
+	}
+
+	// 获取历史条目
+	entry, err := s.histStore.GetByID(req.ID)
+	if err != nil {
+		jsonError(w, fmt.Sprintf("找不到条目: %v", err), http.StatusNotFound)
+		return
+	}
+
+	// 添加标签
+	if err := s.histStore.UpdateTags(req.ID, []string{req.Tag}); err != nil {
+		jsonError(w, fmt.Sprintf("添加标签失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// 发布内容
+	var publishErr error
+	content := entry.Content
+	if content == "" && entry.NASPath != "" {
+		// 如果历史记录中没有完整内容，尝试从 NAS 读取
+		// 这里暂时使用空内容，后续可以扩展
+		content = ""
+	}
+
+	switch req.Target {
+	case "blog":
+		publishErr = publisher.PublishBlog(s.cfg.Blog, content)
+	case "podcast":
+		publishErr = publisher.PublishPodcast(s.cfg.Podcast, content)
+	case "ima":
+		publishErr = publisher.PublishIMA(s.cfg.IMA, content)
+	case "kindle":
+		publishErr = publisher.PublishKindle(s.cfg.Kindle, content)
+	}
+
+	result := map[string]interface{}{
+		"tag_added": true,
+		"target":    req.Target,
+	}
+
+	if publishErr != nil {
+		result["published"] = false
+		result["error"] = publishErr.Error()
+	} else {
+		result["published"] = true
+	}
+
+	jsonResp(w, result)
+}
+
 // handleStats 返回统计数据
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.histStore.Stats()

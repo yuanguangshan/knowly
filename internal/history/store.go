@@ -513,3 +513,95 @@ func (s *Store) AllTags() ([]TagCount, error) {
 
 	return result, nil
 }
+
+// UpdateTags 更新指定 ID 条目的标签
+func (s *Store) UpdateTags(id string, newTags []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := s.readAll()
+	if err != nil {
+		return err
+	}
+
+	// 查找并更新指定 ID 的条目
+	found := false
+	for i := range entries {
+		if entries[i].ID == id {
+			// 合并标签，去重
+			tagMap := make(map[string]bool)
+			for _, tag := range entries[i].Tags {
+				tagMap[tag] = true
+			}
+			for _, tag := range newTags {
+				tagMap[tag] = true
+			}
+			entries[i].Tags = make([]string, 0, len(tagMap))
+			for tag := range tagMap {
+				entries[i].Tags = append(entries[i].Tags, tag)
+			}
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("entry with id %s not found", id)
+	}
+
+	// 写入临时文件
+	tmpPath := s.path + ".tmp"
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+
+	writer := bufio.NewWriter(f)
+	for _, e := range entries {
+		data, err := json.Marshal(e)
+		if err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+		if _, err := writer.Write(append(data, '\n')); err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+	}
+
+	if err := writer.Flush(); err != nil {
+		f.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	f.Close()
+
+	// 原子替换
+	if err := os.Rename(tmpPath, s.path); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+
+	return nil
+}
+
+// GetByID 根据 ID 获取条目
+func (s *Store) GetByID(id string) (*Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := s.readAll()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, e := range entries {
+		if e.ID == id {
+			return &e, nil
+		}
+	}
+
+	return nil, fmt.Errorf("entry with id %s not found", id)
+}

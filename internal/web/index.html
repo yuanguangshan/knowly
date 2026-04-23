@@ -469,6 +469,41 @@ body {
 }
 .history-type.text { background: #1a3a5c; color: var(--info); }
 .history-type.image { background: #1a3c1a; color: var(--success); }
+.history-quick-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.quick-tag-btn {
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.quick-tag-btn:hover {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+.quick-tag-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.quick-tag-btn.success {
+  background: var(--success);
+  color: white;
+  border-color: var(--success);
+}
+.quick-tag-btn.error {
+  background: var(--error);
+  color: white;
+  border-color: var(--error);
+}
 .history-preview {
   font-size: 13px;
   color: var(--text-secondary);
@@ -1727,10 +1762,20 @@ async function loadHistory() {
         '<div class="history-header">' +
           '<span class="history-time">' + escHtml(e.timestamp || '') + '</span>' +
           '<span class="history-type ' + e.type + '">' + typeLabel + '</span>' +
+          '<div class="history-quick-actions">' +
+            '<button class="quick-tag-btn" data-id="' + escHtml(e.id) + '" data-tag="Ima" data-target="ima" title="添加 Ima 标签并发布">+ Ima</button>' +
+            '<button class="quick-tag-btn" data-id="' + escHtml(e.id) + '" data-tag="Blog" data-target="blog" title="添加 Blog 标签并发布">+ Blog</button>' +
+            '<button class="quick-tag-btn" data-id="' + escHtml(e.id) + '" data-tag="Kindle" data-target="kindle" title="添加 Kindle 标签并发布">+ Kindle</button>' +
+            '<button class="quick-tag-btn" data-id="' + escHtml(e.id) + '" data-tag="Podcast" data-target="podcast" title="添加 Podcast 标签并发布">+ Podcast</button>' +
+          '</div>' +
         '</div>' +
         '<div class="history-preview">' + escHtml(preview) + '</div>' +
         tagsHtml;
-      div.onclick = function() { toggleHistoryDetail(div, e); };
+      div.onclick = function(ev) {
+        // 如果点击的是快捷按钮，不触发详情展开
+        if (ev.target.classList.contains('quick-tag-btn')) return;
+        toggleHistoryDetail(div, e);
+      };
       list.appendChild(div);
     });
   } catch (e) { list.innerHTML = '<div class="empty-state">加载失败</div>'; }
@@ -1758,6 +1803,52 @@ function filterHistory(type) {
   event.target.classList.add('active');
   loadHistory();
 }
+
+// 快捷标签按钮点击处理（事件委托）
+document.addEventListener('click', async function(e) {
+  if (!e.target.classList.contains('quick-tag-btn')) return;
+
+  e.stopPropagation();
+  const btn = e.target;
+  const id = btn.dataset.id;
+  const tag = btn.dataset.tag;
+  const target = btn.dataset.target;
+
+  // 禁用按钮，防止重复点击
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = '处理中...';
+
+  try {
+    const result = await api('/api/tag-and-publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, tag, target })
+    });
+
+    if (result.published) {
+      btn.textContent = '✓ 已发布';
+      btn.classList.add('success');
+      // 重新加载历史列表以显示更新的标签
+      setTimeout(() => loadHistory(), 1000);
+    } else {
+      btn.textContent = '✗ 失败';
+      btn.classList.add('error');
+      console.error('发布失败:', result.error);
+    }
+  } catch (err) {
+    btn.textContent = '✗ 失败';
+    btn.classList.add('error');
+    console.error('请求失败:', err);
+  }
+
+  // 3秒后恢复按钮状态
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = originalText;
+    btn.classList.remove('success', 'error');
+  }, 3000);
+});
 
 // === Stats ===
 let publishersConfig = {};

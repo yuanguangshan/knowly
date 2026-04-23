@@ -86,6 +86,7 @@ func (s *Server) buildHandler() http.Handler {
 
 	// 发布 API
 	mux.HandleFunc("/api/publish", s.handlePublish)
+	mux.HandleFunc("/api/tag-and-publish", s.handleTagAndPublish)
 
 	// 统计 API
 	mux.HandleFunc("/api/stats", s.handleStats)
