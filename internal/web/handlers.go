@@ -393,6 +393,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"blog":    {"enabled": s.cfg.Blog.Enabled},
 		"podcast": {"enabled": s.cfg.Podcast.Enabled},
 		"ima":     {"enabled": s.cfg.IMA.Enabled && s.cfg.IMA.ClientID != "" && s.cfg.IMA.APIKey != ""},
+		"kindle":  {"enabled": s.cfg.Kindle.Enabled && s.cfg.Kindle.SenderEmail != "" && s.cfg.Kindle.SenderPassword != ""},
 	}
 
 	jsonResp(w, status)
@@ -679,6 +680,8 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 			err = publisher.PublishPodcast(s.cfg.Podcast, req.Content)
 		case "ima":
 			err = publisher.PublishIMA(s.cfg.IMA, req.Content)
+		case "kindle":
+			err = publisher.PublishKindle(s.cfg.Kindle, req.Content)
 		default:
 			results = append(results, publishResult{Target: target, Error: "未知目标"})
 			continue

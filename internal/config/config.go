@@ -16,6 +16,7 @@ type Config struct {
 	Blog         BlogConfig         `json:"blog"`
 	Podcast      PodcastConfig      `json:"podcast"`
 	IMA          IMAConfig          `json:"ima"`
+	Kindle       KindleConfig       `json:"kindle"`
 	AI           AIConfig           `json:"ai"`
 }
 
@@ -76,6 +77,15 @@ type IMAConfig struct {
 	ClientID string `json:"client_id"`
 	APIKey   string `json:"api_key"`
 	FolderID string `json:"folder_id"`
+}
+
+type KindleConfig struct {
+	Enabled        bool   `json:"enabled"`
+	SenderEmail    string `json:"sender_email"`
+	SenderPassword string `json:"sender_password"`
+	SMTPServer     string `json:"smtp_server"`
+	SMTPPort       int    `json:"smtp_port"`
+	KindleEmail    string `json:"kindle_email"`
 }
 
 type AIConfig struct {
@@ -236,6 +246,12 @@ func Load() (*Config, error) {
 	if config.IMA.APIURL == "" {
 		config.IMA.APIURL = "https://ima.qq.com/openapi/note/v1"
 	}
+	if config.Kindle.SMTPServer == "" {
+		config.Kindle.SMTPServer = "smtp.qq.com"
+	}
+	if config.Kindle.SMTPPort == 0 {
+		config.Kindle.SMTPPort = 465
+	}
 
 	// 补全 AI 默认值
 	if config.AI.Endpoint == "" {
@@ -336,6 +352,14 @@ func DefaultConfig() *Config {
 			ClientID: "",
 			APIKey:   "",
 			FolderID: "",
+		},
+		Kindle: KindleConfig{
+			Enabled:        false,
+			SenderEmail:    "",
+			SenderPassword: "",
+			SMTPServer:     "smtp.qq.com",
+			SMTPPort:       465,
+			KindleEmail:    "",
 		},
 		AI: AIConfig{
 			Enabled:       false,

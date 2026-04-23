@@ -2,11 +2,17 @@ package publisher
 
 import (
 	"bytes"
+	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
+	"mime/quotedprintable"
+	"net"
 	"net/http"
+	"net/smtp"
 	"regexp"
 	"strings"
 	"time"
@@ -185,6 +191,108 @@ func PublishIMA(cfg config.IMAConfig, contentMD string) error {
 	return nil
 }
 
+// PublishKindle 发送内容到 Kindle 个人文档服务
+func PublishKindle(cfg config.KindleConfig, contentMD string) error {
+	title := extractTitle(contentMD)
+	plainText := stripMarkdown(contentMD)
+
+	// 截断标题（最多 20 字符）
+	if len([]rune(title)) > 20 {
+		title = string([]rune(title)[:20])
+	}
+	filename := fmt.Sprintf("雨轩-%s.txt", title)
+
+	// 构建 MIME 邮件
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	// 设置 boundary
+	boundary := writer.Boundary()
+
+	// 手动构建 MIME 消息
+	buf.Reset()
+
+	// 邮件头
+	fmt.Fprintf(&buf, "From: %s\r\n", cfg.SenderEmail)
+	fmt.Fprintf(&buf, "To: %s\r\n", cfg.KindleEmail)
+	fmt.Fprintf(&buf, "Subject: %s\r\n", strings.TrimSuffix(filename, ".txt"))
+	fmt.Fprintf(&buf, "MIME-Version: 1.0\r\n")
+	fmt.Fprintf(&buf, "Content-Type: multipart/mixed; boundary=%s\r\n\r\n", boundary)
+
+	// 文本正文部分
+	fmt.Fprintf(&buf, "--%s\r\n", boundary)
+	fmt.Fprintf(&buf, "Content-Type: text/plain; charset=utf-8\r\n")
+	fmt.Fprintf(&buf, "Content-Transfer-Encoding: quoted-printable\r\n\r\n")
+	qp := quotedprintable.NewWriter(&buf)
+	qp.Write([]byte("Sent by knowly."))
+	qp.Close()
+	fmt.Fprintf(&buf, "\r\n")
+
+	// 附件部分
+	fmt.Fprintf(&buf, "--%s\r\n", boundary)
+	fmt.Fprintf(&buf, "Content-Type: text/plain; charset=utf-8; name=\"%s\"\r\n", filename)
+	fmt.Fprintf(&buf, "Content-Transfer-Encoding: base64\r\n")
+	fmt.Fprintf(&buf, "Content-Disposition: attachment; filename=\"%s\"\r\n\r\n", filename)
+
+	// Base64 编码附件内容
+	encoded := base64.StdEncoding.EncodeToString([]byte(plainText))
+	lineLen := 76
+	for i := 0; i < len(encoded); i += lineLen {
+		end := i + lineLen
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		fmt.Fprintf(&buf, "%s\r\n", encoded[i:end])
+	}
+
+	fmt.Fprintf(&buf, "--%s--\r\n", boundary)
+
+	// 通过 SMTP SSL 发送
+	addr := fmt.Sprintf("%s:%d", cfg.SMTPServer, cfg.SMTPPort)
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{ServerName: cfg.SMTPServer})
+	if err != nil {
+		return fmt.Errorf("kindle TLS connect failed: %w", err)
+	}
+
+	client, err := smtp.NewClient(conn, cfg.SMTPServer)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("kindle SMTP client failed: %w", err)
+	}
+
+	auth := smtp.PlainAuth("", cfg.SenderEmail, cfg.SenderPassword, cfg.SMTPServer)
+	if err := client.Auth(auth); err != nil {
+		client.Close()
+		return fmt.Errorf("kindle SMTP auth failed: %w", err)
+	}
+
+	if err := client.Mail(cfg.SenderEmail); err != nil {
+		client.Close()
+		return fmt.Errorf("kindle SMTP mail failed: %w", err)
+	}
+	if err := client.Rcpt(cfg.KindleEmail); err != nil {
+		client.Close()
+		return fmt.Errorf("kindle SMTP rcpt failed: %w", err)
+	}
+
+	wc, err := client.Data()
+	if err != nil {
+		client.Close()
+		return fmt.Errorf("kindle SMTP data failed: %w", err)
+	}
+	if _, err := wc.Write(buf.Bytes()); err != nil {
+		wc.Close()
+		client.Close()
+		return fmt.Errorf("kindle SMTP write failed: %w", err)
+	}
+	wc.Close()
+	client.Quit()
+
+	log.Printf("[INFO] Kindle sent: %s", filename)
+	return nil
+}
+
 // PublishIfNeeded 根据配置异步发布到所有已启用的渠道
 func PublishIfNeeded(cfg *config.Config, content string) {
 	if cfg.Blog.Enabled {
@@ -207,6 +315,14 @@ func PublishIfNeeded(cfg *config.Config, content string) {
 		go func() {
 			if err := PublishIMA(cfg.IMA, content); err != nil {
 				log.Printf("[ERROR] IMA publish failed: %v", err)
+			}
+		}()
+	}
+
+	if cfg.Kindle.Enabled && cfg.Kindle.SenderEmail != "" && cfg.Kindle.SenderPassword != "" {
+		go func() {
+			if err := PublishKindle(cfg.Kindle, content); err != nil {
+				log.Printf("[ERROR] Kindle publish failed: %v", err)
 			}
 		}()
 	}
