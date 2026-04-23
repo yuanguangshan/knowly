@@ -193,12 +193,19 @@ func PublishIMA(cfg config.IMAConfig, contentMD string) error {
 
 // PublishKindle 发送内容到 Kindle 个人文档服务
 func PublishKindle(cfg config.KindleConfig, contentMD string) error {
-	title := extractTitle(contentMD)
 	plainText := stripMarkdown(contentMD)
 
-	// 截断标题（最多 20 字符）
-	if len([]rune(title)) > 20 {
-		title = string([]rune(title)[:20])
+	// 用内容前 50 个字符作为标题，去除特殊字符
+	titleRunes := []rune(plainText)
+	if len(titleRunes) > 50 {
+		titleRunes = titleRunes[:50]
+	}
+	title := string(titleRunes)
+	// 去除文件名不安全字符
+	title = regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(title, "")
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = time.Now().Format("20060102-150405")
 	}
 	filename := fmt.Sprintf("雨轩-%s.txt", title)
 
