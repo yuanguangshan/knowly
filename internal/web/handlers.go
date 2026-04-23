@@ -834,3 +834,125 @@ func (s *Server) handleUpdateAIConfig(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[INFO] AI config updated (preset: %s, model: %s, endpoint: %s, prompt: %s)", newCfg.Preset, newCfg.Model, newCfg.Endpoint, promptMode)
 	jsonResp(w, map[string]string{"status": "saved"})
 }
+
+// handleConfig 处理完整配置的读取和更新（GET/PUT）
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetConfig(w, r)
+	case http.MethodPut:
+		s.handleUpdateConfig(w, r)
+	default:
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// maskField 脱敏字段：保留末4位
+func maskField(val string) string {
+	if len(val) > 4 {
+		return "****" + val[len(val)-4:]
+	} else if val != "" {
+		return "****"
+	}
+	return ""
+}
+
+// sensitiveFields 需要脱敏的字段列表
+var sensitiveFields = map[string]bool{
+	"api_key":          true,
+	"secret":           true,
+	"auth":             true,
+	"sender_password":  true,
+	"key_path":         false, // 路径不脱敏
+}
+
+// maskConfig 返回脱敏后的配置 JSON
+func maskConfig(cfg *config.Config) map[string]interface{} {
+	data, _ := json.Marshal(cfg)
+	var m map[string]interface{}
+	json.Unmarshal(data, &m)
+
+	maskSensitive(m)
+	return m
+}
+
+// maskSensitive 递归脱敏 map 中的敏感字段
+func maskSensitive(m map[string]interface{}) {
+	sensitive := map[string]bool{
+		"api_key": true, "secret": true, "auth": true,
+		"sender_password": true,
+	}
+	for k, v := range m {
+		if sensitive[k] {
+			if s, ok := v.(string); ok && s != "" {
+				m[k] = maskField(s)
+			}
+		} else if nested, ok := v.(map[string]interface{}); ok {
+			maskSensitive(nested)
+		}
+	}
+}
+
+// handleGetConfig 返回完整配置（敏感字段脱敏）
+func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	masked := maskConfig(s.cfg)
+	jsonResp(w, masked)
+}
+
+// handleUpdateConfig 更新完整配置
+func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
+	var newCfg config.Config
+	if err := json.NewDecoder(r.Body).Decode(&newCfg); err != nil {
+		jsonError(w, "无效的请求体", http.StatusBadRequest)
+		return
+	}
+
+	// 保留脱敏字段的原值
+	oldJSON, _ := json.Marshal(s.cfg)
+	newJSON, _ := json.Marshal(newCfg)
+	var oldMap, newMap map[string]interface{}
+	json.Unmarshal(oldJSON, &oldMap)
+	json.Unmarshal(newJSON, &newMap)
+	preserveMasked(oldMap, newMap)
+
+	// 反序列化回结构体
+	mergedJSON, _ := json.Marshal(newMap)
+	var merged config.Config
+	json.Unmarshal(mergedJSON, &merged)
+
+	// 展开路径
+	merged.SSH.KeyPath = config.ExpandPath(merged.SSH.KeyPath)
+	merged.SSH.BasePath = config.ExpandPath(merged.SSH.BasePath)
+
+	// 更新内存中的配置
+	*s.cfg = merged
+
+	// 持久化到磁盘
+	if err := config.Save(s.cfg); err != nil {
+		jsonError(w, fmt.Sprintf("保存配置失败: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[INFO] Config updated via web UI")
+	jsonResp(w, map[string]string{"status": "saved"})
+}
+
+// preserveMasked 保留被脱敏的字段原值
+func preserveMasked(old, new map[string]interface{}) {
+	sensitive := map[string]bool{
+		"api_key": true, "secret": true, "auth": true, "sender_password": true,
+	}
+	for k, v := range new {
+		if sensitive[k] {
+			if s, ok := v.(string); ok && strings.HasPrefix(s, "****") {
+				new[k] = old[k]
+			} else if s == "" {
+				new[k] = old[k]
+			}
+		} else if nested, ok := v.(map[string]interface{}); ok {
+			if oldNested, ok := old[k].(map[string]interface{}); ok {
+				preserveMasked(oldNested, nested)
+			}
+		}
+	}
+}

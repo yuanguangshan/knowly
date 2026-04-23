@@ -96,6 +96,9 @@ func (s *Server) buildHandler() http.Handler {
 	// AI 配置 API
 	mux.HandleFunc("/api/config/ai", s.handleAIConfig)
 
+		// 完整配置 API
+		mux.HandleFunc("/api/config", s.handleConfig)
+
 	// 构建处理链：Basic Auth -> 路由
 	handler := http.Handler(mux)
 	if s.cfg.Web.Auth != "" {

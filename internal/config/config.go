@@ -188,7 +188,7 @@ func GetConfigPath() string {
 }
 
 func SetConfigPath(path string) {
-	configPath = expandPath(path)
+	configPath = ExpandPath(path)
 }
 
 func GetLogPath() string {
@@ -203,7 +203,7 @@ func GetConfigDir() string {
 	return filepath.Dir(configPath)
 }
 
-func expandPath(path string) string {
+func ExpandPath(path string) string {
 	if len(path) > 0 && path[0] == '~' {
 		homeDir, err := os.UserHomeDir()
 		if err == nil {
@@ -230,8 +230,8 @@ func Load() (*Config, error) {
 	}
 
 	// 展开路径
-	config.SSH.KeyPath = expandPath(config.SSH.KeyPath)
-	config.SSH.BasePath = expandPath(config.SSH.BasePath)
+	config.SSH.KeyPath = ExpandPath(config.SSH.KeyPath)
+	config.SSH.BasePath = ExpandPath(config.SSH.BasePath)
 
 	// 补全默认 API URL
 	if config.Blog.APIURL == "" {

@@ -808,6 +808,66 @@ canvas {
   margin-top: 8px;
 }
 .ai-save-btn:hover { opacity: 0.9; }
+/* === Settings Sections === */
+.settings-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.settings-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--bg-hover);
+}
+.settings-card-header:hover { opacity: 0.9; }
+.settings-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.settings-card-toggle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: transform 0.2s;
+}
+.settings-card.collapsed .settings-card-toggle { transform: rotate(-90deg); }
+.settings-card-body {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-card.collapsed .settings-card-body { display: none; }
+.cfg-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cfg-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  min-width: 100px;
+  white-space: nowrap;
+}
+.cfg-input {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 13px;
+  width: 260px;
+  outline: none;
+}
+.cfg-input:focus { border-color: var(--accent); }
+select.cfg-input { width: 180px; }
+
 /* === Mobile responsive === */
 @media (max-width: 768px) {
   .header { padding: 10px 14px; }
@@ -893,7 +953,7 @@ canvas {
     <div class="sidebar-item" onclick="switchTab('archive')" id="tab-archive">📁 归档</div>
     <div class="sidebar-item" onclick="switchTab('history')" id="tab-history">📜 历史</div>
     <div class="sidebar-item" onclick="switchTab('stats')" id="tab-stats">📊 统计</div>
-    <div class="sidebar-item" onclick="switchTab('admin')" id="tab-admin">🔧 管理</div>
+    <div class="sidebar-item" onclick="switchTab('admin')" id="tab-admin">⚙️ 设置</div>
   </div>
 
   <div class="content">
@@ -1002,6 +1062,7 @@ canvas {
     <!-- 管理面板 -->
     <div class="tab-panel" id="panel-admin">
       <div class="admin-container">
+        <!-- 系统状态 -->
         <div class="admin-card">
           <div class="admin-card-title">系统状态</div>
           <div class="admin-info-row">
@@ -1024,53 +1085,167 @@ canvas {
             <span class="admin-label">总同步次数</span>
             <span class="admin-value" id="adminSyncs">-</span>
           </div>
-        </div>
-        <div class="admin-card">
-          <div class="admin-card-title">系统操作</div>
-          <div class="admin-actions">
+          <div class="admin-actions" style="margin-top:8px;">
             <button class="btn btn-restart" onclick="restartKnowly()">&#x21bb; 重启</button>
             <button class="btn btn-update" id="updateBtn" onclick="updateKnowly()">&#x2b06; 更新</button>
             <button class="btn btn-release" id="releaseBtn" onclick="releaseKnowly()">&#x1f680; 发布</button>
           </div>
         </div>
-        <div class="admin-card">
-          <div class="admin-card-title">AI 设置</div>
-          <div id="aiSettingsLoading" style="color:var(--text-secondary);font-size:13px;padding:8px 0;">加载中...</div>
-          <div id="aiSettingsForm" style="display:none;">
-            <div class="ai-form-row">
-              <span class="ai-form-label">启用 AI</span>
-              <input type="checkbox" id="aiEnabled" style="transform:scale(1.2);">
+
+        <div id="settingsLoading" style="color:var(--text-secondary);font-size:13px;padding:8px 0;">加载配置中...</div>
+        <div id="settingsForm" style="display:none;">
+          <button class="ai-save-btn" onclick="saveAllConfig()" style="width:100%;margin-bottom:12px;">保存所有设置</button>
+
+          <!-- SSH 连接 -->
+          <div class="settings-card">
+            <div class="settings-card-header" onclick="toggleCard(this)">
+              <span class="settings-card-title">SSH 连接</span>
+              <span class="settings-card-toggle">&#9660;</span>
             </div>
-            <div class="ai-form-row">
-              <span class="ai-form-label">服务商预设</span>
-              <select id="aiPreset" class="admin-select">
-                <option value="custom">自定义</option>
-              </select>
+            <div class="settings-card-body">
+              <div class="cfg-row"><span class="cfg-label">主机</span><input class="cfg-input" id="cfg-ssh-host"></div>
+              <div class="cfg-row"><span class="cfg-label">端口</span><input class="cfg-input" id="cfg-ssh-port"></div>
+              <div class="cfg-row"><span class="cfg-label">用户</span><input class="cfg-input" id="cfg-ssh-user"></div>
+              <div class="cfg-row"><span class="cfg-label">Key 路径</span><input class="cfg-input" id="cfg-ssh-key_path"></div>
+              <div class="cfg-row"><span class="cfg-label">归档路径</span><input class="cfg-input" id="cfg-ssh-base_path"></div>
+              <div class="cfg-row"><span class="cfg-label">文件名前缀长度</span><input class="cfg-input" type="number" id="cfg-ssh-filename_prefix_length"></div>
             </div>
-            <div class="ai-form-row">
-              <span class="ai-form-label">API 地址</span>
-              <input type="text" id="aiEndpoint" class="admin-input" placeholder="https://...">
-            </div>
-            <div class="ai-form-row">
-              <span class="ai-form-label">API Key</span>
-              <input type="password" id="aiApiKey" class="admin-input" placeholder="留空保持不变，输入新值则更新">
-            </div>
-            <div class="ai-form-row">
-              <span class="ai-form-label">模型</span>
-              <input type="text" id="aiModel" class="admin-input" placeholder="模型名称">
-            </div>
-            <div class="ai-form-row">
-              <span class="ai-form-label">提示词模板</span>
-              <select id="aiPromptTemplate" class="admin-select">
-                <option value="">通用模式（默认）</option>
-              </select>
-            </div>
-            <div class="ai-form-col">
-              <span class="ai-form-label">自定义提示词</span>
-              <textarea id="aiPrompt" class="admin-textarea" rows="6" placeholder="留空使用默认提示词"></textarea>
-            </div>
-            <button class="ai-save-btn" onclick="saveAIConfig()">保存 AI 设置</button>
           </div>
+
+          <!-- 剪贴板 -->
+          <div class="settings-card collapsed">
+            <div class="settings-card-header" onclick="toggleCard(this)">
+              <span class="settings-card-title">剪贴板</span>
+              <span class="settings-card-toggle">&#9660;</span>
+            </div>
+            <div class="settings-card-body">
+              <div class="cfg-row"><span class="cfg-label">最小长度</span><input class="cfg-input" type="number" id="cfg-clipboard-min_length"></div>
+              <div class="cfg-row"><span class="cfg-label">最大长度</span><input class="cfg-input" type="number" id="cfg-clipboard-max_length"></div>
+              <div class="cfg-row"><span class="cfg-label">轮询间隔(ms)</span><input class="cfg-input" type="number" id="cfg-clipboard-poll_interval_ms"></div>
+              <div class="cfg-row"><span class="cfg-label">排除关键词</span><input class="cfg-input" id="cfg-clipboard-exclude_words" placeholder="逗号分隔"></div>
+            </div>
+          </div>
+
+          <!-- 同步 -->
+          <div class="settings-card collapsed">
+            <div class="settings-card-header" onclick="toggleCard(this)">
+              <span class="settings-card-title">同步</span>
+              <span class="settings-card-toggle">&#9660;</span>
+            </div>
+            <div class="settings-card-body">
+              <div class="cfg-row"><span class="cfg-label">启用同步</span><input type="checkbox" id="cfg-sync-enabled" style="transform:scale(1.2);"></div>
+              <div class="cfg-row"><span class="cfg-label">最大重试</span><input class="cfg-input" type="number" id="cfg-sync-max_retries"></div>
+              <div class="cfg-row"><span class="cfg-label">重试延迟(ms)</span><input class="cfg-input" type="number" id="cfg-sync-retry_delay_ms"></div>
+            </div>
+          </div>
+
+          <!-- Web 界面 -->
+          <div class="settings-card collapsed">
+            <div class="settings-card-header" onclick="toggleCard(this)">
+              <span class="settings-card-title">Web 界面</span>
+              <span class="settings-card-toggle">&#9660;</span>
+            </div>
+            <div class="settings-card-body">
+              <div class="cfg-row"><span class="cfg-label">端口</span><input class="cfg-input" type="number" id="cfg-web-port"></div>
+              <div class="cfg-row"><span class="cfg-label">认证 (user:password)</span><input class="cfg-input" id="cfg-web-auth" placeholder="留空不启用"></div>
+            </div>
+          </div>
+
+          <!-- Relay 中继 -->
+          <div class="settings-card collapsed">
+            <div class="settings-card-header" onclick="toggleCard(this)">
+              <span class="settings-card-title">Relay 中继</span>
+              <span class="settings-card-toggle">&#9660;</span>
+            </div>
+            <div class="settings-card-body">
+              <div class="cfg-row"><span class="cfg-label">启用</span><input type="checkbox" id="cfg-relay-enabled" style="transform:scale(1.2);"></div>
+              <div class="cfg-row"><span class="cfg-label">Endpoint</span><input class="cfg-input" id="cfg-relay-endpoint"></div>
+              <div class="cfg-row"><span class="cfg-label">Secret</span><input class="cfg-input" id="cfg-relay-secret" placeholder="留空保持不变"></div>
+              <div class="cfg-row"><span class="cfg-label">拉取间隔(秒)</span><input class="cfg-input" type="number" id="cfg-relay-pull_interval_sec"></div>
+            </div>
+          </div>
+
+          <!-- Blog 发布 -->
+          <div class="settings-card collapsed">
+            <div class="settings-card-header" onclick="toggleCard(this)">
+              <span class="settings-card-title">Blog 发布</span>
+              <span class="settings-card-toggle">&#9660;</span>
+            </div>
+            <div class="settings-card-body">
+              <div class="cfg-row"><span class="cfg-label">启用</span><input type="checkbox" id="cfg-blog-enabled" style="transform:scale(1.2);"></div>
+              <div class="cfg-row"><span class="cfg-label">API URL</span><input class="cfg-input" id="cfg-blog-api_url"></div>
+              <div class="cfg-row"><span class="cfg-label">默认标签</span><input class="cfg-input" id="cfg-blog-tags"></div>
+            </div>
+          </div>
+
+          <!-- Podcast 播客 -->
+          <div class="settings-card collapsed">
+            <div class="settings-card-header" onclick="toggleCard(this)">
+              <span class="settings-card-title">Podcast 播客</span>
+              <span class="settings-card-toggle">&#9660;</span>
+            </div>
+            <div class="settings-card-body">
+              <div class="cfg-row"><span class="cfg-label">启用</span><input type="checkbox" id="cfg-podcast-enabled" style="transform:scale(1.2);"></div>
+              <div class="cfg-row"><span class="cfg-label">API URL</span><input class="cfg-input" id="cfg-podcast-api_url"></div>
+              <div class="cfg-row"><span class="cfg-label">App ID</span><input class="cfg-input" id="cfg-podcast-app_id"></div>
+            </div>
+          </div>
+
+          <!-- IMA 腾讯文档 -->
+          <div class="settings-card collapsed">
+            <div class="settings-card-header" onclick="toggleCard(this)">
+              <span class="settings-card-title">IMA 腾讯文档</span>
+              <span class="settings-card-toggle">&#9660;</span>
+            </div>
+            <div class="settings-card-body">
+              <div class="cfg-row"><span class="cfg-label">启用</span><input type="checkbox" id="cfg-ima-enabled" style="transform:scale(1.2);"></div>
+              <div class="cfg-row"><span class="cfg-label">API URL</span><input class="cfg-input" id="cfg-ima-api_url"></div>
+              <div class="cfg-row"><span class="cfg-label">Client ID</span><input class="cfg-input" id="cfg-ima-client_id"></div>
+              <div class="cfg-row"><span class="cfg-label">API Key</span><input class="cfg-input" id="cfg-ima-api_key" placeholder="留空保持不变"></div>
+              <div class="cfg-row"><span class="cfg-label">Folder ID</span><input class="cfg-input" id="cfg-ima-folder_id"></div>
+            </div>
+          </div>
+
+          <!-- Kindle 推送 -->
+          <div class="settings-card collapsed">
+            <div class="settings-card-header" onclick="toggleCard(this)">
+              <span class="settings-card-title">Kindle 推送</span>
+              <span class="settings-card-toggle">&#9660;</span>
+            </div>
+            <div class="settings-card-body">
+              <div class="cfg-row"><span class="cfg-label">启用</span><input type="checkbox" id="cfg-kindle-enabled" style="transform:scale(1.2);"></div>
+              <div class="cfg-row"><span class="cfg-label">发件邮箱</span><input class="cfg-input" id="cfg-kindle-sender_email"></div>
+              <div class="cfg-row"><span class="cfg-label">邮箱密码</span><input class="cfg-input" id="cfg-kindle-sender_password" placeholder="留空保持不变"></div>
+              <div class="cfg-row"><span class="cfg-label">SMTP 服务器</span><input class="cfg-input" id="cfg-kindle-smtp_server"></div>
+              <div class="cfg-row"><span class="cfg-label">SMTP 端口</span><input class="cfg-input" type="number" id="cfg-kindle-smtp_port"></div>
+              <div class="cfg-row"><span class="cfg-label">Kindle 邮箱</span><input class="cfg-input" id="cfg-kindle-kindle_email"></div>
+            </div>
+          </div>
+
+          <!-- AI 设置 -->
+          <div class="settings-card">
+            <div class="settings-card-header" onclick="toggleCard(this)">
+              <span class="settings-card-title">AI 设置</span>
+              <span class="settings-card-toggle">&#9660;</span>
+            </div>
+            <div class="settings-card-body">
+              <div class="cfg-row"><span class="cfg-label">启用 AI</span><input type="checkbox" id="cfg-ai-enabled" style="transform:scale(1.2);"></div>
+              <div class="cfg-row"><span class="cfg-label">服务商预设</span><select class="cfg-input" id="cfg-ai-preset"><option value="custom">自定义</option></select></div>
+              <div class="cfg-row"><span class="cfg-label">API 地址</span><input class="cfg-input" id="cfg-ai-endpoint" placeholder="https://..."></div>
+              <div class="cfg-row"><span class="cfg-label">API Key</span><input class="cfg-input" id="cfg-ai-api_key" placeholder="留空保持不变"></div>
+              <div class="cfg-row"><span class="cfg-label">模型</span><input class="cfg-input" id="cfg-ai-model"></div>
+              <div class="cfg-row"><span class="cfg-label">提示词模板</span><select class="cfg-input" id="cfg-ai-prompt_template"><option value="">通用模式（默认）</option></select></div>
+              <div class="cfg-row"><span class="cfg-label">最小内容长度</span><input class="cfg-input" type="number" id="cfg-ai-min_content_len"></div>
+              <div class="cfg-row"><span class="cfg-label">最大内容长度</span><input class="cfg-input" type="number" id="cfg-ai-max_content_len"></div>
+              <div class="cfg-row"><span class="cfg-label">超时(秒)</span><input class="cfg-input" type="number" id="cfg-ai-timeout_sec"></div>
+              <div style="margin-top:4px;">
+                <span class="cfg-label">自定义提示词</span>
+                <textarea class="admin-textarea" id="cfg-ai-prompt" rows="5" placeholder="留空使用默认提示词" style="margin-top:6px;"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <button class="ai-save-btn" onclick="saveAllConfig()" style="width:100%;margin-top:12px;">保存所有设置</button>
         </div>
       </div>
     </div>
@@ -1185,7 +1360,7 @@ function switchTab(tab) {
   if (tab === 'archive' && document.getElementById('selYear').options.length <= 1) loadYears();
   if (tab === 'history') { loadTags(); loadHistory(); }
   if (tab === 'stats') loadStats();
-  if (tab === 'admin') { loadAdminStatus(); loadAIConfig(); }
+  if (tab === 'admin') { loadAdminStatus(); loadAllConfig(); }
 }
 
 // === API Helper ===
@@ -1939,52 +2114,108 @@ async function loadAdminStatus() {
   } catch (e) {}
 }
 
-async function loadAIConfig() {
-  try {
-    const data = await api('/api/config/ai');
-    const cfg = data.config;
-    document.getElementById('aiSettingsLoading').style.display = 'none';
-    document.getElementById('aiSettingsForm').style.display = 'block';
-    document.getElementById('aiEnabled').checked = cfg.enabled;
-    document.getElementById('aiEndpoint').value = cfg.endpoint || '';
-    document.getElementById('aiApiKey').value = '';
-    document.getElementById('aiModel').value = cfg.model || '';
-    document.getElementById('aiPrompt').value = cfg.prompt || '';
-    document.getElementById('aiPreset').value = cfg.preset || 'custom';
-    // 恢复提示词模板选中状态
-    if (cfg.prompt_template) {
-      const tmplOpts = document.getElementById('aiPromptTemplate').options;
-      for (let i = 0; i < tmplOpts.length; i++) {
-        if (tmplOpts[i].textContent === cfg.prompt_template) {
-          tmplOpts[i].selected = true;
-          break;
-        }
-      }
-    }
+function toggleCard(header) {
+  header.parentElement.classList.toggle('collapsed');
+}
 
-    const presetSel = document.getElementById('aiPreset');
+async function loadAllConfig() {
+  try {
+    const [config, aiData] = await Promise.all([api('/api/config'), api('/api/config/ai')]);
+    const c = config;
+    document.getElementById('settingsLoading').style.display = 'none';
+    document.getElementById('settingsForm').style.display = 'block';
+
+    // SSH
+    setVal('cfg-ssh-host', c.ssh.host);
+    setVal('cfg-ssh-port', c.ssh.port);
+    setVal('cfg-ssh-user', c.ssh.user);
+    setVal('cfg-ssh-key_path', c.ssh.key_path);
+    setVal('cfg-ssh-base_path', c.ssh.base_path);
+    setVal('cfg-ssh-filename_prefix_length', c.ssh.filename_prefix_length);
+
+    // Clipboard
+    setVal('cfg-clipboard-min_length', c.clipboard.min_length);
+    setVal('cfg-clipboard-max_length', c.clipboard.max_length);
+    setVal('cfg-clipboard-poll_interval_ms', c.clipboard.poll_interval_ms);
+    setVal('cfg-clipboard-exclude_words', (c.clipboard.exclude_words || []).join(', '));
+
+    // Sync
+    setChecked('cfg-sync-enabled', c.sync.enabled);
+    setVal('cfg-sync-max_retries', c.sync.max_retries);
+    setVal('cfg-sync-retry_delay_ms', c.sync.retry_delay_ms);
+
+    // Web
+    setVal('cfg-web-port', c.web.port);
+    setVal('cfg-web-auth', ''); // always empty for security
+
+    // Relay
+    setChecked('cfg-relay-enabled', c.relay.enabled);
+    setVal('cfg-relay-endpoint', c.relay.endpoint);
+    setVal('cfg-relay-secret', '');
+    setVal('cfg-relay-pull_interval_sec', c.relay.pull_interval_sec);
+
+    // Blog
+    setChecked('cfg-blog-enabled', c.blog.enabled);
+    setVal('cfg-blog-api_url', c.blog.api_url);
+    setVal('cfg-blog-tags', c.blog.tags);
+
+    // Podcast
+    setChecked('cfg-podcast-enabled', c.podcast.enabled);
+    setVal('cfg-podcast-api_url', c.podcast.api_url);
+    setVal('cfg-podcast-app_id', c.podcast.app_id);
+
+    // IMA
+    setChecked('cfg-ima-enabled', c.ima.enabled);
+    setVal('cfg-ima-api_url', c.ima.api_url);
+    setVal('cfg-ima-client_id', c.ima.client_id);
+    setVal('cfg-ima-api_key', '');
+    setVal('cfg-ima-folder_id', c.ima.folder_id);
+
+    // Kindle
+    setChecked('cfg-kindle-enabled', c.kindle.enabled);
+    setVal('cfg-kindle-sender_email', c.kindle.sender_email);
+    setVal('cfg-kindle-sender_password', '');
+    setVal('cfg-kindle-smtp_server', c.kindle.smtp_server);
+    setVal('cfg-kindle-smtp_port', c.kindle.smtp_port);
+    setVal('cfg-kindle-kindle_email', c.kindle.kindle_email);
+
+    // AI (from dedicated endpoint which includes presets/templates)
+    const ai = aiData.config;
+    setChecked('cfg-ai-enabled', ai.enabled);
+    setVal('cfg-ai-endpoint', ai.endpoint);
+    setVal('cfg-ai-api_key', '');
+    setVal('cfg-ai-model', ai.model);
+    setVal('cfg-ai-prompt', ai.prompt || '');
+    setVal('cfg-ai-min_content_len', ai.min_content_len);
+    setVal('cfg-ai-max_content_len', ai.max_content_len);
+    setVal('cfg-ai-timeout_sec', ai.timeout_sec);
+
+    // AI preset dropdown
+    const presetSel = document.getElementById('cfg-ai-preset');
     presetSel.innerHTML = '<option value="custom">自定义</option>';
-    if (data.presets) {
-      for (const [key, val] of Object.entries(data.presets)) {
+    if (aiData.presets) {
+      for (const [key, val] of Object.entries(aiData.presets)) {
         const opt = document.createElement('option');
         opt.value = key;
         opt.textContent = val.label || key;
-        if (cfg.preset === key) opt.selected = true;
+        if (ai.preset === key) opt.selected = true;
         presetSel.appendChild(opt);
       }
     }
     presetSel.onchange = function() {
-      const p = data.presets && data.presets[this.value];
+      const p = aiData.presets && aiData.presets[this.value];
       if (p) {
-        document.getElementById('aiEndpoint').value = p.endpoint;
-        document.getElementById('aiModel').value = p.model;
+        document.getElementById('cfg-ai-endpoint').value = p.endpoint;
+        document.getElementById('cfg-ai-model').value = p.model;
       }
     };
+    setVal('cfg-ai-preset', ai.preset || 'custom');
 
-    const tmplSel = document.getElementById('aiPromptTemplate');
+    // AI prompt template dropdown
+    const tmplSel = document.getElementById('cfg-ai-prompt_template');
     tmplSel.innerHTML = '<option value="">通用模式（默认）</option>';
-    if (data.prompt_templates) {
-      for (const [key, val] of Object.entries(data.prompt_templates)) {
+    if (aiData.prompt_templates) {
+      for (const [key, val] of Object.entries(aiData.prompt_templates)) {
         const opt = document.createElement('option');
         opt.value = val;
         opt.textContent = key;
@@ -1992,37 +2223,76 @@ async function loadAIConfig() {
       }
     }
     tmplSel.onchange = function() {
-      if (this.value) {
-        document.getElementById('aiPrompt').value = this.value;
-      }
+      if (this.value) document.getElementById('cfg-ai-prompt').value = this.value;
     };
+    // Restore template selection
+    if (ai.prompt_template) {
+      const tmplOpts = tmplSel.options;
+      for (let i = 0; i < tmplOpts.length; i++) {
+        if (tmplOpts[i].textContent === ai.prompt_template) { tmplOpts[i].selected = true; break; }
+      }
+    }
   } catch (e) {}
 }
 
-async function saveAIConfig() {
+async function saveAllConfig() {
+  const excludeWords = document.getElementById('cfg-clipboard-exclude_words').value
+    .split(',').map(s => s.trim()).filter(Boolean);
   const body = {
-    enabled: document.getElementById('aiEnabled').checked,
-    preset: document.getElementById('aiPreset').value,
-    endpoint: document.getElementById('aiEndpoint').value,
-    api_key: document.getElementById('aiApiKey').value,
-    model: document.getElementById('aiModel').value,
-    prompt: document.getElementById('aiPrompt').value,
-    prompt_template: document.getElementById('aiPromptTemplate').selectedOptions[0]?.textContent || '',
+    ssh: {
+      host: getVal('cfg-ssh-host'), port: getVal('cfg-ssh-port'), user: getVal('cfg-ssh-user'),
+      key_path: getVal('cfg-ssh-key_path'), base_path: getVal('cfg-ssh-base_path'),
+      filename_prefix_length: getInt('cfg-ssh-filename_prefix_length')
+    },
+    clipboard: {
+      min_length: getInt('cfg-clipboard-min_length'), max_length: getInt('cfg-clipboard-max_length'),
+      poll_interval_ms: getInt('cfg-clipboard-poll_interval_ms'), exclude_words: excludeWords
+    },
+    sync: {
+      enabled: getChecked('cfg-sync-enabled'), max_retries: getInt('cfg-sync-max_retries'),
+      retry_delay_ms: getInt('cfg-sync-retry_delay_ms')
+    },
+    web: { enabled: true, port: getInt('cfg-web-port'), auth: getVal('cfg-web-auth') },
+    relay: {
+      enabled: getChecked('cfg-relay-enabled'), endpoint: getVal('cfg-relay-endpoint'),
+      secret: getVal('cfg-relay-secret'), pull_interval_sec: getInt('cfg-relay-pull_interval_sec')
+    },
+    blog: { enabled: getChecked('cfg-blog-enabled'), api_url: getVal('cfg-blog-api_url'), tags: getVal('cfg-blog-tags') },
+    podcast: { enabled: getChecked('cfg-podcast-enabled'), api_url: getVal('cfg-podcast-api_url'), app_id: getVal('cfg-podcast-app_id') },
+    ima: {
+      enabled: getChecked('cfg-ima-enabled'), api_url: getVal('cfg-ima-api_url'),
+      client_id: getVal('cfg-ima-client_id'), api_key: getVal('cfg-ima-api_key'), folder_id: getVal('cfg-ima-folder_id')
+    },
+    kindle: {
+      enabled: getChecked('cfg-kindle-enabled'), sender_email: getVal('cfg-kindle-sender_email'),
+      sender_password: getVal('cfg-kindle-sender_password'), smtp_server: getVal('cfg-kindle-smtp_server'),
+      smtp_port: getInt('cfg-kindle-smtp_port'), kindle_email: getVal('cfg-kindle-kindle_email')
+    },
+    ai: {
+      enabled: getChecked('cfg-ai-enabled'), preset: getVal('cfg-ai-preset'),
+      endpoint: getVal('cfg-ai-endpoint'), api_key: getVal('cfg-ai-api_key'),
+      model: getVal('cfg-ai-model'), prompt: getVal('cfg-ai-prompt'),
+      prompt_template: document.getElementById('cfg-ai-prompt_template').selectedOptions[0]?.textContent || '',
+      min_content_len: getInt('cfg-ai-min_content_len'), max_content_len: getInt('cfg-ai-max_content_len'),
+      timeout_sec: getInt('cfg-ai-timeout_sec')
+    }
   };
   try {
-    const res = await fetch('/api/config/ai', {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body)
+    const res = await fetch('/api/config', {
+      method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
     });
     const data = await res.json();
-    if (data.error) {
-      showToast('保存失败: ' + data.error);
-    } else {
-      showToast('AI 设置已保存');
-      loadAIConfig();
-    }
-  } catch (e) {
+    if (data.error) { showToast('保存失败: ' + data.error); }
+    else { showToast('设置已保存'); loadAllConfig(); }
+  } catch (e) { showToast('保存失败: ' + e.message); }
+}
+
+function setVal(id, val) { const el = document.getElementById(id); if (el) el.value = val ?? ''; }
+function getVal(id) { const el = document.getElementById(id); return el ? el.value : ''; }
+function getInt(id) { const el = document.getElementById(id); return el ? parseInt(el.value) || 0 : 0; }
+function setChecked(id, val) { const el = document.getElementById(id); if (el) el.checked = !!val; }
+function getChecked(id) { const el = document.getElementById(id); return el ? el.checked : false; }
+
     showToast('保存失败: ' + e.message);
   }
 }
