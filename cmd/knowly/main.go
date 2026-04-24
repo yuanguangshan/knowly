@@ -231,8 +231,6 @@ func handleImagePayload(client *ssh.Client, retryCfg retry.Config, v clipboard.I
 	log.Printf("[INFO] Synced & Archived (image): %s", nasPath)
 }
 
-
-
 // drainOutbox 尝试排空本地暂存队列，将积压条目同步到远端
 func drainOutbox(outboxStore *outbox.Store, client *ssh.Client, histStore *history.Store) {
 	if outboxStore.PendingCount() == 0 {
