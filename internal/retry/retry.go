@@ -18,18 +18,17 @@ func Do(ctx context.Context, cfg Config, fn func() error) error {
 	var lastErr error
 	for attempt := 0; attempt <= cfg.MaxRetries; attempt++ {
 		if attempt > 0 {
-			// Full Jitter：指数退避 + 0~delay 随机
+			// Full Jitter：等待时间 = rand(0, delay)
 			delay := cfg.BaseDelay * time.Duration(1<<uint(attempt-1))
 			if delay > cfg.MaxDelay {
 				delay = cfg.MaxDelay
 			}
-			jitter := time.Duration(rand.Float64() * float64(delay))
-			total := delay + jitter
+			wait := time.Duration(rand.Float64() * float64(delay))
 
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(total):
+			case <-time.After(wait):
 			}
 		}
 

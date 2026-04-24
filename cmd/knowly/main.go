@@ -185,105 +185,29 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 		MaxDelay:   30 * time.Second,
 	}
 
-	var nasPath string
-	var err error
-	var entryType string
-	var entryContent string
-	var aiTags []string
-	var meta *ssh.ContentMetadata
-
 	switch v := p.(type) {
 	case clipboard.TextPayload:
-		entryType = "text"
-		entryContent = v.Content
-
-		// AI 处理（在 retry 之前，只调用一次）
-		if aiProcessor != nil && aiProcessor.ShouldProcess(v.Content) {
-			aiCtx, aiCancel := context.WithTimeout(context.Background(), time.Duration(cfg.AI.Timeout)*time.Second)
-			aiResult := aiProcessor.Process(aiCtx, v.Content)
-			aiCancel()
-			if aiResult != nil {
-				aiTags = aiResult.Tags
-				meta = &ssh.ContentMetadata{
-					Tags:             aiResult.Tags,
-					Summary:          aiResult.Summary,
-					Score:            aiResult.Score,
-					OrganizedContent: aiResult.OrganizedContent,
-					Processed:        true,
-				}
-			}
-		}
-
-		err = retry.Do(context.Background(), retryCfg, func() error {
-			path, syncErr := client.SyncItem(v.Content, v.Timestamp, meta)
-			if syncErr == nil {
-				nasPath = path
-			}
-			return syncErr
-		})
+		// 文本同步委托给 syncText（公共逻辑）
+		syncText(client, cfg, v.Content, v.Timestamp, histStore, aiProcessor, outboxStore, "Clipboard")
 	case clipboard.ImagePayload:
-		entryType = "image"
-		entryContent = fmt.Sprintf("[IMAGE] %d bytes", len(v.Data))
-		err = retry.Do(context.Background(), retryCfg, func() error {
-			path, syncErr := client.SyncImage(v.Data, v.Timestamp)
-			if syncErr == nil {
-				nasPath = path
-			}
-			return syncErr
-		})
-	}
-
-	if err != nil {
-		log.Printf("[ERROR] Sync failed (%s): %v, saving to outbox", entryType, err)
-		// 强制断开僵死连接，确保下次操作触发全新重连
-		client.ForceReset()
-
-		// 回退到本地暂存，待 SSH 恢复后自动同步
-		pushToOutbox(outboxStore, p, aiTags, meta)
-		return
-	}
-
-	// nasPath 为空表示内容被去重跳过，不记录历史
-	if nasPath == "" {
-		log.Printf("[INFO] Duplicate skipped, no history entry")
-		return
-	}
-
-	// 同步成功 -> 记录历史（含 NASPath 和 Tags）
-	histStore.Append(history.Entry{
-		Content: entryContent,
-		Type:    entryType,
-		NASPath: nasPath,
-		Tags:    aiTags,
-	})
-	log.Printf("[INFO] Synced & Archived (%s): %s", entryType, nasPath)
-
-	// 文本内容同步成功后，异步推送到已启用的外部渠道（Blog/Podcast/IMA）
-	if entryType == "text" {
-		publisher.PublishIfNeeded(cfg, entryContent)
+		handleImagePayload(client, retryCfg, v, histStore, outboxStore)
 	}
 }
 
-// pushToOutbox 将失败的 payload 保存到本地暂存队列
-func pushToOutbox(outboxStore *outbox.Store, p clipboard.Payload, aiTags []string, meta *ssh.ContentMetadata) {
-	switch v := p.(type) {
-	case clipboard.TextPayload:
-		item := outbox.Item{
-			Type:      "text",
-			Content:   v.Content,
-			Timestamp: v.Timestamp,
-			Tags:      aiTags,
+// handleImagePayload 处理图片同步
+func handleImagePayload(client *ssh.Client, retryCfg retry.Config, v clipboard.ImagePayload, histStore *history.Store, outboxStore *outbox.Store) {
+	var nasPath string
+	err := retry.Do(context.Background(), retryCfg, func() error {
+		path, syncErr := client.SyncImage(v.Data, v.Timestamp)
+		if syncErr == nil {
+			nasPath = path
 		}
-		if meta != nil && meta.Processed {
-			item.Summary = meta.Summary
-			item.Score = meta.Score
-			item.OrganizedContent = meta.OrganizedContent
-			item.Processed = true
-		}
-		if err := outboxStore.Push(item); err != nil {
-			log.Printf("[ERROR] Failed to save text to outbox: %v", err)
-		}
-	case clipboard.ImagePayload:
+		return syncErr
+	})
+
+	if err != nil {
+		log.Printf("[ERROR] Image sync failed: %v, saving to outbox", err)
+		client.ForceReset()
 		if err := outboxStore.Push(outbox.Item{
 			Type:      "image",
 			Content:   base64.StdEncoding.EncodeToString(v.Data),
@@ -291,8 +215,23 @@ func pushToOutbox(outboxStore *outbox.Store, p clipboard.Payload, aiTags []strin
 		}); err != nil {
 			log.Printf("[ERROR] Failed to save image to outbox: %v", err)
 		}
+		return
 	}
+
+	if nasPath == "" {
+		log.Printf("[INFO] Image duplicate skipped")
+		return
+	}
+
+	histStore.Append(history.Entry{
+		Content: fmt.Sprintf("[IMAGE] %d bytes", len(v.Data)),
+		Type:    "image",
+		NASPath: nasPath,
+	})
+	log.Printf("[INFO] Synced & Archived (image): %s", nasPath)
 }
+
+
 
 // drainOutbox 尝试排空本地暂存队列，将积压条目同步到远端
 func drainOutbox(outboxStore *outbox.Store, client *ssh.Client, histStore *history.Store) {
@@ -355,15 +294,18 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 		return
 	}
 
+	syncText(client, cfg, content, time.Now(), histStore, aiProcessor, outboxStore, "Relay")
+}
+
+// syncText 公共文本同步逻辑（剪贴板和 Relay 共用）
+func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp time.Time, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store, source string) {
 	retryCfg := retry.Config{
 		MaxRetries: cfg.Sync.MaxRetries,
 		BaseDelay:  time.Duration(cfg.Sync.RetryDelay) * time.Millisecond,
 		MaxDelay:   30 * time.Second,
 	}
 
-	var nasPath string
-
-	// AI 处理（Relay 路径）
+	// AI 处理
 	var meta *ssh.ContentMetadata
 	var aiTags []string
 	if aiProcessor != nil && aiProcessor.ShouldProcess(content) {
@@ -382,8 +324,9 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 		}
 	}
 
+	var nasPath string
 	err := retry.Do(context.Background(), retryCfg, func() error {
-		path, syncErr := client.SyncItem(content, time.Now(), meta)
+		path, syncErr := client.SyncItem(content, timestamp, meta)
 		if syncErr == nil {
 			nasPath = path
 		}
@@ -391,37 +334,42 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 	})
 
 	if err != nil {
-		log.Printf("[ERROR] Relay sync failed: %v, saving to outbox", err)
-		// 强制断开僵死连接，确保下次操作触发全新重连
+		log.Printf("[ERROR] %s sync failed: %v, saving to outbox", source, err)
 		client.ForceReset()
-
-		// 回退到本地暂存
-		outboxStore.Push(outbox.Item{
+		// 保留完整 AI 元数据
+		item := outbox.Item{
 			Type:      "text",
 			Content:   content,
-			Timestamp: time.Now(),
+			Timestamp: timestamp,
 			Tags:      aiTags,
-		})
+		}
+		if meta != nil && meta.Processed {
+			item.Summary = meta.Summary
+			item.Score = meta.Score
+			item.OrganizedContent = meta.OrganizedContent
+			item.Processed = true
+		}
+		if err := outboxStore.Push(item); err != nil {
+			log.Printf("[ERROR] Failed to save to outbox: %v", err)
+		}
 		return
 	}
 
 	if nasPath == "" {
-		log.Printf("[INFO] Relay duplicate skipped")
+		log.Printf("[INFO] %s duplicate skipped", source)
 		return
 	}
 
-	preview := content
-	if len(preview) > 200 {
-		preview = preview[:200] + "..."
-	}
-
 	histStore.Append(history.Entry{
-		Content: preview,
+		Content: content,
 		Type:    "text",
 		NASPath: nasPath,
 		Tags:    aiTags,
 	})
-	log.Printf("[INFO] Relay synced & archived: %s", nasPath)
+	log.Printf("[INFO] %s synced & archived: %s", source, nasPath)
+
+	// 异步推送到已启用的外部渠道
+	publisher.PublishIfNeeded(cfg, content)
 }
 
 // pidFileLock 全局持有 PID 文件的文件锁，进程退出时自动释放

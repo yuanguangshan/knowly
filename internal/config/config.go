@@ -258,7 +258,7 @@ func Load() (*Config, error) {
 		config.AI.Endpoint = "https://aiproxy.want.biz/v1"
 	}
 	if config.AI.Model == "" {
-		config.AI.Model = "Assisant"
+		config.AI.Model = "Assistant"
 	}
 	if config.AI.MinContentLen == 0 {
 		config.AI.MinContentLen = 100
@@ -276,7 +276,7 @@ func Load() (*Config, error) {
 			if config.AI.Endpoint == "" || config.AI.Endpoint == "https://aiproxy.want.biz/v1" {
 				config.AI.Endpoint = p.Endpoint
 			}
-			if config.AI.Model == "" || config.AI.Model == "Assisant" {
+			if config.AI.Model == "" || config.AI.Model == "Assistant" {
 				config.AI.Model = p.Model
 			}
 		}
@@ -365,7 +365,7 @@ func DefaultConfig() *Config {
 			Enabled:       false,
 			Preset:        "custom",
 			Endpoint:      "https://aiproxy.want.biz/v1",
-			Model:         "Assisant",
+			Model:         "Assistant",
 			MinContentLen: 100,
 			MaxContentLen: 10000,
 			Timeout:       60,
