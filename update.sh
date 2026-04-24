@@ -22,6 +22,7 @@ echo "Starting knowly daemon..."
 knowly start
 
 echo "Committing and pushing..."
+gdox
 git add -A
 if git diff --cached --quiet; then
   echo "No changes to commit."
