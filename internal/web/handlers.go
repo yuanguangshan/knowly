@@ -785,15 +785,11 @@ func (s *Server) handleTagAndPublish(w http.ResponseWriter, r *http.Request) {
 
 	// 如果历史记录中只有预览内容，从 NAS 读取完整内容
 	if entry.NASPath != "" && s.sshClient != nil {
-		// 移除 NAS 路径前缀（如果有）
-		nasPath := strings.TrimPrefix(entry.NASPath, "/root/.knowly/workspace/")
-		nasPath = strings.TrimPrefix(nasPath, "/")
-
-		fullPath := filepath.Join(s.cfg.SSH.BasePath, nasPath)
-		data, err := s.sshClient.ReadFile(fullPath)
+		// NASPath 已经是完整绝对路径，直接读取
+		data, err := s.sshClient.ReadFile(entry.NASPath)
 		if err != nil {
 			// NAS 读取失败，使用预览内容
-			log.Printf("[WARN] Failed to read NAS file %s: %v, using preview content", fullPath, err)
+			log.Printf("[WARN] Failed to read NAS file %s: %v, using preview content", entry.NASPath, err)
 		} else {
 			content = string(data)
 		}
