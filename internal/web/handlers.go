@@ -208,6 +208,72 @@ func (s *Server) handleArchiveList(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, entries)
 }
 
+
+// handleArchiveToday 一次性返回归档初始化数据（年/月/日列表 + 当日文件）
+// 避免前端首次加载时串行 4 次 SSH 请求
+func (s *Server) handleArchiveToday(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+	year := fmt.Sprintf("%04d", now.Year())
+	month := fmt.Sprintf("%02d", int(now.Month()))
+	day := fmt.Sprintf("%02d", now.Day())
+
+	type archiveTodayResp struct {
+		Years   []ssh.DirEntry `json:"years"`
+		Months  []ssh.DirEntry `json:"months"`
+		Days    []ssh.DirEntry `json:"days"`
+		Files   []ssh.DirEntry `json:"files"`
+		Year    string         `json:"year"`
+		Month   string         `json:"month"`
+		Day     string         `json:"day"`
+	}
+
+	resp := archiveTodayResp{
+		Year:  year,
+		Month: month,
+		Day:   day,
+	}
+
+	basePath := s.cfg.SSH.BasePath
+
+	// 并行发起 SSH 请求
+	type listResult struct {
+		key     string
+		entries []ssh.DirEntry
+		err     error
+	}
+	ch := make(chan listResult, 4)
+
+	listAsync := func(key, relPath string) {
+		entries, err := s.sshClient.ListDir(filepath.Join(basePath, relPath))
+		ch <- listResult{key: key, entries: entries, err: err}
+	}
+
+	go listAsync("years", "")
+	go listAsync("months", year)
+	go listAsync("days", year+"/"+month)
+	go listAsync("files", year+"/"+month+"/"+day)
+
+	for i := 0; i < 4; i++ {
+		r := <-ch
+		if r.err != nil {
+			// 如果某级目录不存在（例如当天还没有归档），跳过
+			continue
+		}
+		switch r.key {
+		case "years":
+			resp.Years = r.entries
+		case "months":
+			resp.Months = r.entries
+		case "days":
+			resp.Days = r.entries
+		case "files":
+			resp.Files = r.entries
+		}
+	}
+
+	jsonResp(w, resp)
+}
+
 // handleArchiveFile 读取归档文件内容
 func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
 	relPath := r.URL.Query().Get("path")
@@ -276,12 +342,27 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	limitStr := r.URL.Query().Get("limit")
 	typeFilter := r.URL.Query().Get("type")
 	tagFilter := r.URL.Query().Get("tag")
+	afterStr := r.URL.Query().Get("after")
 	limit := 50
 	if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
 		limit = n
 	}
 
-	entries, err := s.histStore.Recent(limit)
+	var entries []history.Entry
+	var err error
+
+	if afterStr != "" {
+		// 分页：加载指定时间戳之前的条目
+		afterTime, parseErr := time.Parse("2006-01-02 15:04:05", afterStr)
+		if parseErr != nil {
+			jsonError(w, "无效的 after 参数格式", http.StatusBadRequest)
+			return
+		}
+		entries, err = s.histStore.RecentAfter(afterTime, limit)
+	} else {
+		entries, err = s.histStore.Recent(limit)
+	}
+
 	if err != nil {
 		jsonError(w, fmt.Sprintf("无法读取历史: %v", err), http.StatusInternalServerError)
 		return

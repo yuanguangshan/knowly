@@ -45,6 +45,9 @@ type Store struct {
 	maxEntries int
 	count      int  // 已追踪的条目数
 	counted    bool // 是否已统计过
+
+	tagCache      map[string]int // 标签计数缓存，避免每次 AllTags 全量扫描
+	tagCacheBuilt bool            // 标签缓存是否已构建
 }
 
 // NewStore 创建历史存储实例
@@ -52,6 +55,7 @@ func NewStore(dir string) *Store {
 	return &Store{
 		path:       filepath.Join(dir, "history.jsonl"),
 		maxEntries: defaultMaxEntries,
+		tagCache:   make(map[string]int),
 	}
 }
 
@@ -60,6 +64,7 @@ func NewStoreWithLimit(dir string, maxEntries int) *Store {
 	return &Store{
 		path:       filepath.Join(dir, "history.jsonl"),
 		maxEntries: maxEntries,
+		tagCache:   make(map[string]int),
 	}
 }
 
@@ -124,6 +129,13 @@ func (s *Store) Append(entry Entry) error {
 		}
 	}
 
+	// 增量更新标签缓存
+	if s.tagCacheBuilt {
+		for _, tag := range entry.Tags {
+			s.tagCache[tag]++
+		}
+	}
+
 	return nil
 }
 
@@ -177,6 +189,16 @@ func (s *Store) compact() error {
 	}
 
 	s.count = len(keep)
+
+	// compact 后重建标签缓存
+	s.tagCache = make(map[string]int)
+	for _, e := range keep {
+		for _, tag := range e.Tags {
+			s.tagCache[tag]++
+		}
+	}
+	s.tagCacheBuilt = true
+
 	log.Printf("[INFO] History compacted: %d entries remaining", len(keep))
 	return nil
 }
@@ -346,6 +368,33 @@ func (s *Store) recentFallback(n int) ([]Entry, error) {
 	return entries, nil
 }
 
+// RecentAfter 返回指定时间戳之前的 n 条记录（倒序），用于分页加载
+func (s *Store) RecentAfter(before time.Time, n int) ([]Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 需要读取足够多的条目来过滤出 before 之前的
+	// 读取 maxEntries 条以确保有足够数据
+	entries, err := s.readRecent(s.maxEntries)
+	if err != nil {
+		entries, err = s.recentFallback(s.maxEntries)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var result []Entry
+	for _, e := range entries {
+		if !e.Timestamp.After(before) && !e.Timestamp.Equal(before) {
+			result = append(result, e)
+			if len(result) >= n {
+				break
+			}
+		}
+	}
+	return result, nil
+}
+
 // WeekCount 每周统计
 type WeekCount struct {
 	Label      string `json:"label"`
@@ -484,25 +533,37 @@ type TagCount struct {
 	Count int    `json:"count"`
 }
 
+// buildTagCache 构建标签缓存（调用方需持有 s.mu）
+func (s *Store) buildTagCache() error {
+	entries, err := s.readAll()
+	if err != nil {
+		return err
+	}
+
+	s.tagCache = make(map[string]int)
+	for _, e := range entries {
+		for _, tag := range e.Tags {
+			s.tagCache[tag]++
+		}
+	}
+	s.tagCacheBuilt = true
+	return nil
+}
+
 // AllTags 返回所有去重标签及出现次数，按次数降序排列
+// 使用内存缓存，首次调用后不再全量扫描文件
 func (s *Store) AllTags() ([]TagCount, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	entries, err := s.readAll()
-	if err != nil {
-		return nil, err
-	}
-
-	countMap := make(map[string]int)
-	for _, e := range entries {
-		for _, tag := range e.Tags {
-			countMap[tag]++
+	if !s.tagCacheBuilt {
+		if err := s.buildTagCache(); err != nil {
+			return nil, err
 		}
 	}
 
-	result := make([]TagCount, 0, len(countMap))
-	for tag, count := range countMap {
+	result := make([]TagCount, 0, len(s.tagCache))
+	for tag, count := range s.tagCache {
 		result = append(result, TagCount{Tag: tag, Count: count})
 	}
 
@@ -533,6 +594,13 @@ func (s *Store) UpdateTags(id string, newTags []string) error {
 			for _, tag := range entries[i].Tags {
 				tagMap[tag] = true
 			}
+
+			// 记录旧标签用于缓存更新
+			oldTags := make(map[string]bool)
+			for _, tag := range entries[i].Tags {
+				oldTags[tag] = true
+			}
+
 			for _, tag := range newTags {
 				tagMap[tag] = true
 			}
@@ -541,6 +609,15 @@ func (s *Store) UpdateTags(id string, newTags []string) error {
 				entries[i].Tags = append(entries[i].Tags, tag)
 			}
 			found = true
+
+			// 增量更新标签缓存
+			if s.tagCacheBuilt {
+				for _, tag := range newTags {
+					if !oldTags[tag] {
+						s.tagCache[tag]++
+					}
+				}
+			}
 			break
 		}
 	}

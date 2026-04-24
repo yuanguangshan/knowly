@@ -76,6 +76,7 @@ func (s *Server) buildHandler() http.Handler {
 
 	// 归档 API
 	mux.HandleFunc("/api/archive/list", s.handleArchiveList)
+	mux.HandleFunc("/api/archive/today", s.handleArchiveToday)
 	mux.HandleFunc("/api/archive/file", s.handleArchiveFile)
 	mux.HandleFunc("/api/archive/download", s.handleArchiveDownload)
 
