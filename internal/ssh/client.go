@@ -218,9 +218,18 @@ func (c *Client) connectLocked() error {
 	addr := fmt.Sprintf("%s:%s", c.config.Host, c.config.Port)
 
 	// 优先直连，若失败则通过 nc 中转（绕过第三方网络扩展拦截）
-	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	var conn net.Conn
+	for attempt := 0; attempt < 3; attempt++ {
+		conn, err = net.DialTimeout("tcp", addr, 5*time.Second)
+		if err == nil {
+			break
+		}
+		if attempt < 2 {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
 	if err != nil {
-		log.Printf("[WARN] Direct TCP dial failed (%v), falling back to nc transport", err)
+		log.Printf("[WARN] Direct TCP dial failed after retries (%v), falling back to nc transport", err)
 		conn, err = dialViaNC(c.config.Host, c.config.Port)
 		if err != nil {
 			return fmt.Errorf("failed to dial (direct and nc fallback): %w", err)
