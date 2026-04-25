@@ -8,9 +8,12 @@ func TestAppend(t *testing.T) {
 	dir := t.TempDir()
 	s := NewStore(dir)
 
-	err := s.Append(Entry{Content: "hello world", Type: "text"})
+	id, err := s.Append(Entry{Content: "hello world", Type: "text"})
 	if err != nil {
 		t.Fatalf("Append failed: %v", err)
+	}
+	if id == "" {
+		t.Error("Append should return non-empty ID")
 	}
 
 	entries, err := s.Recent(10)
@@ -34,7 +37,7 @@ func TestRecent(t *testing.T) {
 
 	// 追加 10 条
 	for i := 0; i < 10; i++ {
-		s.Append(Entry{Content: string(rune('a' + i)), Type: "text"})
+		_, _ = s.Append(Entry{Content: string(rune('a' + i)), Type: "text"})
 	}
 
 	// 取最近 3 条
@@ -72,9 +75,9 @@ func TestFind(t *testing.T) {
 	dir := t.TempDir()
 	s := NewStore(dir)
 
-	s.Append(Entry{Content: "first", Type: "text"})
-	s.Append(Entry{Content: "second", Type: "text"})
-	s.Append(Entry{Content: "third", Type: "text"})
+	_, _ = s.Append(Entry{Content: "first", Type: "text"})
+	_, _ = s.Append(Entry{Content: "second", Type: "text"})
+	_, _ = s.Append(Entry{Content: "third", Type: "text"})
 
 	// 获取所有条目来拿到 ID
 	entries, _ := s.Recent(10)
@@ -113,7 +116,7 @@ func TestCompaction(t *testing.T) {
 
 	// 追加 21 条（第 21 条触发 compact，保留 10 条）
 	for i := 0; i < 21; i++ {
-		if err := s.Append(Entry{Content: string(rune('A' + i)), Type: "text"}); err != nil {
+		if _, err := s.Append(Entry{Content: string(rune('A' + i)), Type: "text"}); err != nil {
 			t.Fatalf("Append %d failed: %v", i, err)
 		}
 	}

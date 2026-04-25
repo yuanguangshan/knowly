@@ -882,9 +882,14 @@ func (s *Server) handleTagAndPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 调用 AI 生成标题和摘要
+	// 优先使用同步时预生成的标题/摘要，避免重复 AI 调用
 	var aiTitle, aiSummary string
-	if s.aiProcessor != nil {
+	if entry.PublishTitle != "" {
+		aiTitle = entry.PublishTitle
+		aiSummary = entry.PublishSummary
+		log.Printf("[INFO] Using cached publish title for %s", req.ID)
+	} else if s.aiProcessor != nil {
+		// 回退：旧数据没有预生成标题时才调 AI
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
 

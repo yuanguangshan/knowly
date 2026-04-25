@@ -36,6 +36,9 @@ type Entry struct {
 	Timestamp time.Time `json:"timestamp"`
 	NASPath   string    `json:"nas_path"`  // 可选，指向完整归档文件路径
 	Tags      []string  `json:"tags"`      // AI 生成的标签
+	// 同步时异步预生成的发布标题/摘要，手动发布时直接使用避免重复 AI 调用
+	PublishTitle   string `json:"publish_title,omitempty"`
+	PublishSummary string `json:"publish_summary,omitempty"`
 }
 
 // Store 历史存储
@@ -90,8 +93,8 @@ func (s *Store) ensureCount() {
 	}
 }
 
-// Append 线程安全地追加一条记录
-func (s *Store) Append(entry Entry) error {
+// Append 线程安全地追加一条记录，返回生成的 entry ID
+func (s *Store) Append(entry Entry) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -100,7 +103,7 @@ func (s *Store) Append(entry Entry) error {
 
 	f, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer f.Close()
 
@@ -114,11 +117,11 @@ func (s *Store) Append(entry Entry) error {
 
 	data, err := json.Marshal(entry)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if _, err := f.Write(append(data, '\n')); err != nil {
-		return err
+		return "", err
 	}
 
 	// 跟踪条目数，超过阈值时压缩
@@ -136,7 +139,7 @@ func (s *Store) Append(entry Entry) error {
 		}
 	}
 
-	return nil
+	return entry.ID, nil
 }
 
 // compact 保留最近 maxEntries 条记录，原子写回
@@ -662,6 +665,61 @@ func (s *Store) UpdateTags(id string, newTags []string) error {
 	}
 
 	return nil
+}
+
+// UpdatePublishMeta 更新指定条目的预生成发布标题和摘要
+func (s *Store) UpdatePublishMeta(id, title, summary string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := s.readAll()
+	if err != nil {
+		return err
+	}
+
+	found := false
+	for i := range entries {
+		if entries[i].ID == id {
+			entries[i].PublishTitle = title
+			entries[i].PublishSummary = summary
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("entry with id %s not found", id)
+	}
+
+	tmpPath := s.path + ".tmp"
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+
+	writer := bufio.NewWriter(f)
+	for _, e := range entries {
+		data, err := json.Marshal(e)
+		if err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+		if _, err := writer.Write(append(data, '\n')); err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+	}
+
+	if err := writer.Flush(); err != nil {
+		f.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	f.Close()
+
+	return os.Rename(tmpPath, s.path)
 }
 
 // GetByID 根据 ID 获取条目

@@ -233,7 +233,7 @@ func handleImagePayload(client *ssh.Client, retryCfg retry.Config, v clipboard.I
 		Content: fmt.Sprintf("[IMAGE] %d bytes", len(v.Data)),
 		Type:    "image",
 		NASPath: nasPath,
-	})
+	}) // ignore returned ID for image entries
 	log.Printf("[INFO] Synced & Archived (image): %s", nasPath)
 }
 
@@ -370,13 +370,27 @@ func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp 
 		return
 	}
 
-	histStore.Append(history.Entry{
+	entryID, _ := histStore.Append(history.Entry{
 		Content: content,
 		Type:    "text",
 		NASPath: nasPath,
 		Tags:    aiTags,
 	})
 	log.Printf("[INFO] %s synced & archived: %s", source, nasPath)
+
+	// 异步预生成发布标题/摘要，手动发布时直接使用
+	if aiProcessor != nil && aiProcessor.ShouldProcess(content) && entryID != "" {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			result := aiProcessor.GenerateTitleAndSummary(ctx, content)
+			if result != nil {
+				if err := histStore.UpdatePublishMeta(entryID, result.Title, result.Summary); err != nil {
+					log.Printf("[WARN] Failed to cache publish meta for %s: %v", entryID, err)
+				}
+			}
+		}()
+	}
 
 	// 异步推送到已启用的外部渠道
 	publisher.PublishIfNeeded(cfg, content)
