@@ -285,6 +285,8 @@ func drainOutbox(outboxStore *outbox.Store, client *ssh.Client, histStore *histo
 
 // syncAndArchiveText 处理来自 Relay 的文本同步
 func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source string, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store, mon *clipboard.Monitor) {
+	start := time.Now()
+
 	// 本地去重：如果内存中已存在相同内容，直接跳过
 	if mon.IsDuplicate(content) {
 		log.Printf("[INFO] Relay content skipped: duplicate (in-memory)")
@@ -310,9 +312,11 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 	if fetcher.IsURL(content) {
 		urlStr := fetcher.ExtractURL(content)
 		log.Printf("[INFO] Relay fetching URL: %s", urlStr)
+		urlStart := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		info, err := fetcher.FetchPage(ctx, urlStr)
 		cancel()
+		log.Printf("[INFO] Relay URL fetched in %.1fs", time.Since(urlStart).Seconds())
 		if err == nil && info != nil {
 			var enhanced strings.Builder
 			enhanced.WriteString(content)
@@ -324,7 +328,6 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 			}
 			if enhanced.Len() > len(content) {
 				content = enhanced.String()
-				log.Printf("[INFO] Relay URL enhanced with title/content")
 			}
 		} else {
 			log.Printf("[DEBUG] Relay URL fetch failed: %v", err)
@@ -332,6 +335,8 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 	}
 
 	syncText(client, cfg, content, time.Now(), histStore, aiProcessor, outboxStore, "Relay")
+
+	log.Printf("[INFO] Relay total processing time: %.1fs", time.Since(start).Seconds())
 }
 
 // syncText 公共文本同步逻辑（剪贴板和 Relay 共用）
@@ -346,10 +351,12 @@ func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp 
 	var meta *ssh.ContentMetadata
 	var aiTags []string
 	if aiProcessor != nil && aiProcessor.ShouldProcess(content) {
+		aiStart := time.Now()
 		log.Printf("[INFO] %s AI processing started (len=%d)", source, len(content))
 		aiCtx, aiCancel := context.WithTimeout(context.Background(), time.Duration(cfg.AI.Timeout)*time.Second)
 		aiResult := aiProcessor.Process(aiCtx, content)
 		aiCancel()
+		log.Printf("[INFO] %s AI processing done in %.1fs", source, time.Since(aiStart).Seconds())
 		if aiResult != nil {
 			aiTags = aiResult.Tags
 			meta = &ssh.ContentMetadata{
