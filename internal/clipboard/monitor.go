@@ -279,11 +279,12 @@ func (m *Monitor) saveStatus() {
 func (m *Monitor) enhanceAndSend(content string, hash string) {
 	enhanced := content
 	if fetcher.IsURL(content) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		urlStr := fetcher.ExtractURL(content)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
 		// 获取页面标题和内容
-		info, err := fetcher.FetchPage(ctx, content)
+		info, err := fetcher.FetchPage(ctx, urlStr)
 		if err == nil && info != nil {
 			if info.Title != "" && info.Content != "" {
 				enhanced = fmt.Sprintf("%s\n\n# %s\n\n%s", content, info.Title, info.Content)

@@ -82,10 +82,20 @@ func fetchHTML(ctx context.Context, url string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// 设置完整的 User-Agent 和必要的请求头，模拟浏览器访问
+	// 设置完整的 User-Agent 和极其逼真的请求头，模拟真实浏览器访问
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("Upgrade-Insecure-Requests", "1")
+	req.Header.Set("Sec-Fetch-Dest", "document")
+	req.Header.Set("Sec-Fetch-Mode", "navigate")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	req.Header.Set("Sec-Fetch-User", "?1")
+	req.Header.Set("Cache-Control", "max-age=0")
+
+	// 针对严格的反爬虫平台：把 Referer 设置为它自己，假装是从站内点击进去的
+	req.Header.Set("Referer", url)
 
 	// 发送请求
 	resp, err := client.Do(req)
@@ -219,8 +229,12 @@ func ExtractURL(text string) string {
 	return matches
 }
 
-// IsURL 检查文本是否是 URL
+// IsURL 检查文本本身是否是一个纯粹的 URL
 func IsURL(text string) bool {
 	trimmed := strings.TrimSpace(text)
-	return URLRegex.MatchString(trimmed) && len(trimmed) < 200
+	if len(trimmed) > 2000 {
+		return false
+	}
+	matched := URLRegex.FindString(trimmed)
+	return matched != "" && matched == trimmed
 }
