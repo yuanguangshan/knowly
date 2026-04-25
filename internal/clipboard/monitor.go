@@ -171,6 +171,11 @@ func (m *Monitor) isDuplicate(hash string) bool {
 	return hash == m.lastHash
 }
 
+// IsDuplicate 公开的去重检查，供 relay 等外部调用者使用
+func (m *Monitor) IsDuplicate(content string) bool {
+	return m.isDuplicate(hashStr(content))
+}
+
 func (m *Monitor) readPayload() (Payload, error) {
 	// 1. 优先图片
 	img := xclip.Read(xclip.FmtImage)

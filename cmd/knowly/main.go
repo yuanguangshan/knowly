@@ -148,7 +148,7 @@ func main() {
 			time.Duration(cfg.Relay.Interval)*time.Second,
 			func(content string) {
 				// Relay 内容也走统一的同步+归档流程
-				go syncAndArchiveText(client, cfg, content, "relay", histStore, aiProcessor, outboxStore)
+				go syncAndArchiveText(client, cfg, content, "relay", histStore, aiProcessor, outboxStore, mon)
 			},
 		)
 		puller.Start()
@@ -278,7 +278,13 @@ func drainOutbox(outboxStore *outbox.Store, client *ssh.Client, histStore *histo
 }
 
 // syncAndArchiveText 处理来自 Relay 的文本同步
-func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source string, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store) {
+func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source string, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store, mon *clipboard.Monitor) {
+	// 本地去重：如果内存中已存在相同内容，直接跳过
+	if mon.IsDuplicate(content) {
+		log.Printf("[INFO] Relay content skipped: duplicate (in-memory)")
+		return
+	}
+
 	// Relay 内容同样需要经过过滤检查
 	if r := clipboard.ShouldFilterDetail(content, cfg.Clipboard.MinLength, cfg.Clipboard.MaxLength, cfg.Clipboard.ExcludeWords); r.Filtered {
 		switch r.Reason {
