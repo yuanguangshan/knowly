@@ -42,6 +42,9 @@ type ContentMetadata struct {
 // whitespaceRegex 预编译的正则表达式
 var whitespaceRegex = regexp.MustCompile(`\s+`)
 
+// markdownTitleRegex 用于提取 Markdown 一级标题 (# 标题)
+var markdownTitleRegex = regexp.MustCompile(`(?m)^#\s+([^\n]+)`)
+
 type Config struct {
 	Host                 string
 	Port                 string
@@ -523,14 +526,28 @@ func (c *Client) SyncItem(content string, timestamp time.Time, meta *ContentMeta
 
 // extractContentPrefix 提取内容的前 n 个字符，清理特殊字符
 func extractContentPrefix(content string, n int) string {
-	// 清理内容：移除空白字符、换行等
+	// 优先尝试从内容中提取 Markdown 一级标题 (# 标题)
+	if matches := markdownTitleRegex.FindStringSubmatch(content); len(matches) >= 2 {
+		title := strings.TrimSpace(matches[1])
+		if title != "" {
+			// 使用标题作为文件名前缀
+			return sanitizePrefix(title, n)
+		}
+	}
+
+	// 回退到原始逻辑：使用内容前缀
 	content = strings.TrimSpace(content)
 	content = whitespaceRegex.ReplaceAllString(content, " ")
 
-	// 提取前 n 个字符
-	runes := []rune(content)
-	if len(runes) > n {
-		runes = runes[:n]
+	return sanitizePrefix(content, n)
+}
+
+// sanitizePrefix 清理前缀字符串，保留有效字符并限制长度
+func sanitizePrefix(s string, maxLen int) string {
+	// 提取前 maxLen 个字符
+	runes := []rune(s)
+	if len(runes) > maxLen {
+		runes = runes[:maxLen]
 	}
 
 	// 只保留字母、数字、中文和常见符号
