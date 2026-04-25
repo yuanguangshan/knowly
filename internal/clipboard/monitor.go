@@ -71,7 +71,8 @@ func ShouldFilter(content string, minLength, maxLength int, excludeWords []strin
 
 // ShouldFilterDetail 返回详细的过滤结果，包含具体原因
 func ShouldFilterDetail(content string, minLength, maxLength int, excludeWords []string) FilterReason {
-	if len(content) < minLength {
+	// 如果是符合条件的短链接，不受最小长度限制
+	if !fetcher.IsURL(content) && len(content) < minLength {
 		return FilterReason{Filtered: true, Reason: "length_too_short"}
 	}
 	if len(content) > maxLength {
