@@ -257,6 +257,7 @@ func (s *Server) handleArchiveToday(w http.ResponseWriter, r *http.Request) {
 		r := <-ch
 		if r.err != nil {
 			// 如果某级目录不存在（例如当天还没有归档），跳过
+			log.Printf("[DEBUG] archiveToday: %s list failed: %v", r.key, r.err)
 			continue
 		}
 		switch r.key {

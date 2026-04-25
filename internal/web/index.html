@@ -1533,6 +1533,44 @@ async function loadYears() {
   }
 }
 
+async function loadMonths() {
+  const year = document.getElementById('selYear').value;
+  const selMonth = document.getElementById('selMonth');
+  const selDay = document.getElementById('selDay');
+  selMonth.innerHTML = '<option value="">月份</option>';
+  selMonth.disabled = true;
+  selDay.innerHTML = '<option value="">日期</option>';
+  selDay.disabled = true;
+  document.getElementById('fileList').innerHTML = '<div class="empty-state">请选择日期查看文件</div>';
+  clearPreview();
+  if (!year) return;
+  try {
+    const entries = await api('/api/archive/list?path=' + year);
+    selMonth.disabled = false;
+    entries.filter(e => e.is_dir).sort((a, b) => b.name.localeCompare(a.name)).forEach(e => {
+      selMonth.innerHTML += '<option value="' + e.name + '">' + e.name + ' 月</option>';
+    });
+  } catch (e) {}
+}
+
+async function loadDays() {
+  const year = document.getElementById('selYear').value;
+  const month = document.getElementById('selMonth').value;
+  const selDay = document.getElementById('selDay');
+  selDay.innerHTML = '<option value="">日期</option>';
+  selDay.disabled = true;
+  document.getElementById('fileList').innerHTML = '<div class="empty-state">请选择日期查看文件</div>';
+  clearPreview();
+  if (!month) return;
+  try {
+    const entries = await api('/api/archive/list?path=' + year + '/' + month);
+    selDay.disabled = false;
+    entries.filter(e => e.is_dir).sort((a, b) => b.name.localeCompare(a.name)).forEach(e => {
+      selDay.innerHTML += '<option value="' + e.name + '">' + e.name + ' 日</option>';
+    });
+  } catch (e) {}
+}
+
 function renderFileList(entries, path) {
   const list = document.getElementById('fileList');
   const files = entries.filter(e => !e.is_dir).sort((a, b) => b.name.localeCompare(a.name));
