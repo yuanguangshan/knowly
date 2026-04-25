@@ -508,8 +508,9 @@ body {
   font-size: 13px;
   color: var(--text-secondary);
   margin-top: 4px;
+  white-space: pre-wrap;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -1757,9 +1758,8 @@ async function loadHistory(append) {
         const div = document.createElement('div');
         div.className = 'history-item';
         const typeLabel = e.type === 'text' ? '文本' : '图片';
-        const raw = (e.content || '').replace(/\n/g, ' ');
-        const chars = [...raw];
-        const preview = chars.slice(0, 100).join('') + (chars.length > 100 ? '...' : '');
+        const lines = (e.content || '').split('\n').filter(l => l.trim());
+        const preview = lines.slice(0, 3).join('\n') + (lines.length > 3 ? '\n...' : '');
         let tagsHtml = '';
         if (e.tags && e.tags.length) {
           tagsHtml = '<span class="history-tags">' + e.tags.map(t => '<span class="htag">#' + escHtml(t) + '</span>').join('') + '</span>';
