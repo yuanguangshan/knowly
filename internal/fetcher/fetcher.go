@@ -28,6 +28,11 @@ var (
 	articleRegex = regexp.MustCompile(`(?is)<article[^>]*>(.*?)</article>`)
 	mainRegex    = regexp.MustCompile(`(?is)<main[^>]*>(.*?)</main>`)
 	contentRegex = regexp.MustCompile(`(?is)<div[^>]*(?:class|id)\s*=\s*["'][^"']*(?:content|article|post|entry|text|body)[^"']*["'][^>]*>(.*?)</div>`)
+
+	// 微信专项提取正则
+	wechatTitleRegex   = regexp.MustCompile(`(?is)title:\s*JsDecode\(['"](.*?)['"]\)`)
+	wechatContentRegex = regexp.MustCompile(`(?is)content_noencode:\s*JsDecode\(['"](.*?)['"]\)`)
+	wechatHexRegex     = regexp.MustCompile(`\\x([a-fA-F0-9]{2})`)
 )
 
 // PageInfo 包含页面标题和正文内容
@@ -122,11 +127,23 @@ func fetchHTML(ctx context.Context, url string) ([]byte, error) {
 // extractTitle 从 HTML 中提取标题
 func extractTitle(html string) string {
 	matches := titleRegex.FindStringSubmatch(html)
-	if len(matches) < 2 {
+	var title string
+	if len(matches) >= 2 {
+		title = matches[1]
+	}
+
+	// 微信专项：即使有了标题也检查下，微信的 <title> 经常是空的
+	if strings.TrimSpace(title) == "" {
+		if wm := wechatTitleRegex.FindStringSubmatch(html); len(wm) >= 2 {
+			title = decodeWechatHex(wm[1])
+		}
+	}
+
+	if title == "" {
 		return ""
 	}
 
-	title := strings.TrimSpace(matches[1])
+	title = strings.TrimSpace(title)
 	// 移除 HTML 实体和多余空白（包括换行符）
 	title = whitespaceRegex.ReplaceAllString(title, " ")
 	title = strings.TrimSpace(title)
@@ -141,7 +158,15 @@ func extractTitle(html string) string {
 
 // extractContent 从 HTML 中提取正文内容
 func extractContent(html string) string {
-	// 尝试从语义化标签中提取正文
+	// 1. 尝试微信专项提取（微信正文常在 JS 中）
+	if wm := wechatContentRegex.FindStringSubmatch(html); len(wm) >= 2 {
+		decoded := decodeWechatHex(wm[1])
+		if len(decoded) > 100 { // 确保提取到的是有意义的内容
+			return cleanHTML(decoded)
+		}
+	}
+
+	// 2. 尝试从语义化标签中提取正文
 	var bodyHTML string
 
 	// 按优先级尝试提取正文区域
@@ -221,6 +246,15 @@ func cleanHTML(html string) string {
 	}
 
 	return strings.TrimSpace(strings.Join(cleaned, "\n"))
+}
+
+// decodeWechatHex 解码微信 JS 中的 \xNN 转义字符
+func decodeWechatHex(s string) string {
+	return wechatHexRegex.ReplaceAllStringFunc(s, func(m string) string {
+		var hexVal rune
+		fmt.Sscanf(m[2:], "%x", &hexVal)
+		return string(hexVal)
+	})
 }
 
 // ExtractURL 从文本中提取第一个 URL

@@ -77,11 +77,11 @@ func TestIsURL(t *testing.T) {
 		{
 			name:     "URL with spaces",
 			input:    "https://example.com with text",
-			expected: true, // IsURL 只检查是否包含 URL，不检查前后文本
+			expected: false, // 现在要求完全匹配 URL，带其他文本应该返回 false
 		},
 		{
 			name:     "too long to be URL",
-			input:    "https://example.com/" + string(make([]byte, 300)),
+			input:    "https://example.com/" + strings.Repeat("a", 2001),
 			expected: false,
 		},
 	}
@@ -219,4 +219,28 @@ func TestCleanHTML(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWechatExtraction(t *testing.T) {
+	wechatHTML := `
+		<script>
+			window.cgiDataNew = {
+				title: JsDecode('WeChat Title'),
+				content_noencode: JsDecode('\x3cp\x3eHello WeChat! This is a long enough content to pass the 100 characters threshold that we set in the extractContent function for the WeChat specific extraction logic. Repeating to make it longer: Hello WeChat! This is a long enough content to pass the 100 characters threshold.\x3c/p\x3e')
+			};
+		</script>
+	`
+	t.Run("wechat title", func(t *testing.T) {
+		result := extractTitle(wechatHTML)
+		if result != "WeChat Title" {
+			t.Errorf("extractTitle() = %v, want WeChat Title", result)
+		}
+	})
+
+	t.Run("wechat content", func(t *testing.T) {
+		result := extractContent(wechatHTML)
+		if !strings.Contains(result, "Hello WeChat") {
+			t.Errorf("extractContent() = %v, want it to contain Hello WeChat", result)
+		}
+	})
 }
