@@ -18,6 +18,7 @@ type Config struct {
 	IMA          IMAConfig          `json:"ima"`
 	Kindle       KindleConfig       `json:"kindle"`
 	AI           AIConfig           `json:"ai"`
+	WebReader    WebReaderConfig    `json:"web_reader"`
 }
 
 type SSHConfig struct {
@@ -99,6 +100,10 @@ type AIConfig struct {
 	Timeout        int    `json:"timeout_sec"`       // HTTP 请求超时秒数，默认 60
 	Prompt         string `json:"prompt"`            // 自定义系统提示词，留空使用默认
 	PromptTemplate string `json:"prompt_template"`   // 提示词模板名称：通用模式/代码模式/学术模式/极简模式
+}
+
+type WebReaderConfig struct {
+	APIKey string `json:"api_key"` // 智谱 web_reader API Key
 }
 
 // AIPresetOption 服务商预设选项

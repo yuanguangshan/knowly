@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -43,6 +44,17 @@ type PageInfo struct {
 
 // FetchPage 从 URL 抓取页面标题和正文内容
 func FetchPage(ctx context.Context, url string) (*PageInfo, error) {
+	// 知乎链接使用 web_reader 获取
+	if isZhihuURL(url) && webReaderAPIKey != "" {
+		info, err := fetchViaWebReader(ctx, url)
+		if err != nil {
+			// web_reader 失败时回退到普通抓取
+			log.Printf("[WARN] web_reader failed for zhihu, fallback to direct fetch: %v", err)
+		} else if info != nil && (info.Title != "" || info.Content != "") {
+			return info, nil
+		}
+	}
+
 	body, err := fetchHTML(ctx, url)
 	if err != nil {
 		return nil, err

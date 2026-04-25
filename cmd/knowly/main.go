@@ -16,6 +16,7 @@ import (
 	"github.com/yuanguangshan/knowly/internal/ai"
 	"github.com/yuanguangshan/knowly/internal/clipboard"
 	"github.com/yuanguangshan/knowly/internal/config"
+	"github.com/yuanguangshan/knowly/internal/fetcher"
 	"github.com/yuanguangshan/knowly/internal/history"
 	"github.com/yuanguangshan/knowly/internal/outbox"
 	"github.com/yuanguangshan/knowly/internal/publisher"
@@ -45,6 +46,11 @@ func main() {
 	}
 	if cfg.Clipboard.MinLength == 0 {
 		cfg.Clipboard.MinLength = 100
+	}
+
+	// 初始化 web_reader（用于知乎等需要 JS 渲染的页面）
+	if cfg.WebReader.APIKey != "" {
+		fetcher.SetWebReaderAPIKey(cfg.WebReader.APIKey)
 	}
 
 	// 处理 --status

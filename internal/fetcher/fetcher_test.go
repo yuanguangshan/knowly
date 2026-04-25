@@ -244,3 +244,41 @@ func TestWechatExtraction(t *testing.T) {
 		}
 	})
 }
+
+func TestIsZhihuURL(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want bool
+	}{
+		{"zhihu question", "https://www.zhihu.com/question/123/answer/456", true},
+		{"zhihu zhuanlan", "https://zhuanlan.zhihu.com/p/123456", true},
+		{"zhihu column", "https://www.zhihu.com/column/test", true},
+		{"weixin", "https://mp.weixin.qq.com/s/xxx", false},
+		{"github", "https://github.com/test/repo", false},
+		{"bilibili", "https://www.bilibili.com/video/xxx", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isZhihuURL(tt.url); got != tt.want {
+				t.Errorf("isZhihuURL(%q) = %v, want %v", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractFromMarkdown(t *testing.T) {
+	markdown := "# 如何学习 Go 语言\n\nGo 语言是一门现代化的编程语言。\n\n## 安装\n\n首先下载 Go...\n\n## 总结\n\n开始学习吧。"
+
+	info := extractFromMarkdown(markdown)
+
+	if info.Title != "如何学习 Go 语言" {
+		t.Errorf("Title = %q, want %q", info.Title, "如何学习 Go 语言")
+	}
+	if !strings.Contains(info.Content, "Go 语言是一门现代化的编程语言") {
+		t.Errorf("Content should contain body text")
+	}
+	if strings.Contains(info.Content, "# 如何学习 Go 语言") {
+		t.Errorf("Content should not contain the title heading")
+	}
+}
