@@ -1,6 +1,7 @@
 package fetcher
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -133,6 +134,88 @@ func TestExtractTitle(t *testing.T) {
 			result := extractTitle(tt.input)
 			if result != tt.expected {
 				t.Errorf("extractTitle() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExtractContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		contains string // 验证结果中包含此字符串
+	}{
+		{
+			name:     "article tag",
+			input:    `<html><body><article><p>Article content here</p></article></body></html>`,
+			contains: "Article content here",
+		},
+		{
+			name:     "main tag",
+			input:    `<html><body><main><p>Main content here</p></main></body></html>`,
+			contains: "Main content here",
+		},
+		{
+			name:     "content div",
+			input:    `<html><body><div class="post-content"><p>Post content</p></div></body></html>`,
+			contains: "Post content",
+		},
+		{
+			name:     "strips scripts and styles",
+			input:    `<html><body><article><script>alert('x')</script><p>Real content</p><style>.x{color:red}</style></article></body></html>`,
+			contains: "Real content",
+		},
+		{
+			name:     "fallback to body",
+			input:    `<html><body><p>Body content</p></body></html>`,
+			contains: "Body content",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractContent(tt.input)
+			if !strings.Contains(result, tt.contains) {
+				t.Errorf("extractContent() = %q, want it to contain %q", result, tt.contains)
+			}
+		})
+	}
+}
+
+func TestCleanHTML(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		contains string
+		excludes string
+	}{
+		{
+			name:     "removes script tags",
+			input:    `<p>Hello</p><script>var x = 1;</script><p>World</p>`,
+			contains: "Hello",
+			excludes: "var x",
+		},
+		{
+			name:     "removes style tags",
+			input:    `<p>Hello</p><style>.x { color: red; }</style><p>World</p>`,
+			contains: "Hello",
+			excludes: "color",
+		},
+		{
+			name:     "decodes HTML entities",
+			input:    `<p>Tom &amp; Jerry &lt;3&gt;</p>`,
+			contains: "Tom & Jerry",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := cleanHTML(tt.input)
+			if !strings.Contains(result, tt.contains) {
+				t.Errorf("cleanHTML() = %q, want it to contain %q", result, tt.contains)
+			}
+			if tt.excludes != "" && strings.Contains(result, tt.excludes) {
+				t.Errorf("cleanHTML() = %q, should NOT contain %q", result, tt.excludes)
 			}
 		})
 	}

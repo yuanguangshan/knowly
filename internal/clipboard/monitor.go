@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	xclip "golang.design/x/clipboard"
 	"github.com/yuanguangshan/knowly/internal/fetcher"
+	xclip "golang.design/x/clipboard"
 )
 
 // 统一载荷接口
@@ -36,13 +36,13 @@ type ImagePayload struct {
 	hash      string
 }
 
-func (TextPayload) isPayload()  {}
-func (ImagePayload) isPayload() {}
-func (t TextPayload) Hash() string { return t.hash }
-func (i ImagePayload) Hash() string { return i.hash }
-func (TextPayload) Type() string  { return "text" }
-func (ImagePayload) Type() string { return "image" }
-func (t TextPayload) Preview() string { return t.Content }
+func (TextPayload) isPayload()         {}
+func (ImagePayload) isPayload()        {}
+func (t TextPayload) Hash() string     { return t.hash }
+func (i ImagePayload) Hash() string    { return i.hash }
+func (TextPayload) Type() string       { return "text" }
+func (ImagePayload) Type() string      { return "image" }
+func (t TextPayload) Preview() string  { return t.Content }
 func (i ImagePayload) Preview() string { return "[IMAGE]" }
 
 // hash 辅助函数
@@ -278,16 +278,24 @@ func (m *Monitor) saveStatus() {
 func (m *Monitor) enhanceAndSend(content string, hash string) {
 	enhanced := content
 	if fetcher.IsURL(content) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		// 直接调用，FetchTitle 已支持 context
-		title, err := fetcher.FetchTitle(ctx, content)
-		if err == nil && title != "" {
-			enhanced = fmt.Sprintf("%s\n\n%s", content, title)
-			log.Printf("[INFO] Fetched title for URL")
+		// 获取页面标题和内容
+		info, err := fetcher.FetchPage(ctx, content)
+		if err == nil && info != nil {
+			if info.Title != "" && info.Content != "" {
+				enhanced = fmt.Sprintf("%s\n\n# %s\n\n%s", content, info.Title, info.Content)
+				log.Printf("[INFO] Fetched title and content for URL")
+			} else if info.Title != "" {
+				enhanced = fmt.Sprintf("%s\n\n# %s", content, info.Title)
+				log.Printf("[INFO] Fetched title for URL")
+			} else if info.Content != "" {
+				enhanced = fmt.Sprintf("%s\n\n%s", content, info.Content)
+				log.Printf("[INFO] Fetched content for URL")
+			}
 		} else {
-			log.Printf("[DEBUG] Failed to fetch title: %v", err)
+			log.Printf("[DEBUG] Failed to fetch page: %v", err)
 		}
 	}
 
