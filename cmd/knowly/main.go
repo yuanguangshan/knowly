@@ -309,6 +309,7 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 	// Relay 路径也需要 URL 增强（与剪贴板 enhanceAndSend 一致）
 	if fetcher.IsURL(content) {
 		urlStr := fetcher.ExtractURL(content)
+		log.Printf("[INFO] Relay fetching URL: %s", urlStr)
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		info, err := fetcher.FetchPage(ctx, urlStr)
 		cancel()
@@ -345,6 +346,7 @@ func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp 
 	var meta *ssh.ContentMetadata
 	var aiTags []string
 	if aiProcessor != nil && aiProcessor.ShouldProcess(content) {
+		log.Printf("[INFO] %s AI processing started (len=%d)", source, len(content))
 		aiCtx, aiCancel := context.WithTimeout(context.Background(), time.Duration(cfg.AI.Timeout)*time.Second)
 		aiResult := aiProcessor.Process(aiCtx, content)
 		aiCancel()
