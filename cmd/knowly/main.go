@@ -146,6 +146,10 @@ func main() {
 	drainTicker := time.NewTicker(5 * time.Minute)
 	defer drainTicker.Stop()
 
+	// 周期性日志轮转检查（每 10 分钟）
+	logRotateTicker := time.NewTicker(10 * time.Minute)
+	defer logRotateTicker.Stop()
+
 	// 5. 启动 Relay 拉取器（如果启用）
 	if cfg.Relay.Enabled && cfg.Relay.Endpoint != "" {
 		puller := relay.NewPuller(
@@ -179,6 +183,8 @@ func main() {
 			go handlePayload(client, cfg, payload, histStore, aiProcessor, outboxStore)
 		case <-drainTicker.C:
 			go drainOutbox(outboxStore, client, histStore)
+		case <-logRotateTicker.C:
+			go rotateLogIfNeeded(client, cfg)
 		}
 	}
 }
@@ -482,6 +488,39 @@ func redirectLogsToFile() {
 	os.Stdout = f
 	os.Stderr = f
 	log.SetOutput(f)
+}
+
+// rotateLogIfNeeded 检查日志文件大小，超过 10MB 则归档到 NAS 并截断
+func rotateLogIfNeeded(sshClient *ssh.Client, cfg *config.Config) {
+	logPath := config.GetLogPath()
+	info, err := os.Stat(logPath)
+	if err != nil || info.Size() < 10*1024*1024 {
+		return
+	}
+
+	// 归档文件名：knowly_20260426_153040.log
+	now := time.Now()
+	archiveName := fmt.Sprintf("knowly_%s.log", now.Format("20060102_150405"))
+	remoteDir := filepath.Join(cfg.SSH.BasePath, "_logs")
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		log.Printf("[WARN] Log rotate: failed to read log: %v", err)
+		return
+	}
+
+	if err := sshClient.WriteFile(filepath.Join(remoteDir, archiveName), string(data)); err != nil {
+		log.Printf("[WARN] Log rotate: failed to upload to NAS: %v", err)
+		return
+	}
+
+	// 截断本地日志文件
+	if err := os.Truncate(logPath, 0); err != nil {
+		log.Printf("[WARN] Log rotate: failed to truncate: %v", err)
+		return
+	}
+
+	log.Printf("[INFO] Log rotated: %s → NAS %s", archiveName, remoteDir)
 }
 
 // removePidFile 删除 PID 文件并释放文件锁
