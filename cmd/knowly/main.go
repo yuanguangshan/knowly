@@ -304,6 +304,30 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 		return
 	}
 
+	// Relay 路径也需要 URL 增强（与剪贴板 enhanceAndSend 一致）
+	if fetcher.IsURL(content) {
+		urlStr := fetcher.ExtractURL(content)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		info, err := fetcher.FetchPage(ctx, urlStr)
+		cancel()
+		if err == nil && info != nil {
+			var enhanced strings.Builder
+			enhanced.WriteString(content)
+			if info.Title != "" {
+				enhanced.WriteString("\n\n# " + info.Title)
+			}
+			if info.Content != "" {
+				enhanced.WriteString("\n\n" + info.Content)
+			}
+			if enhanced.Len() > len(content) {
+				content = enhanced.String()
+				log.Printf("[INFO] Relay URL enhanced with title/content")
+			}
+		} else {
+			log.Printf("[DEBUG] Relay URL fetch failed: %v", err)
+		}
+	}
+
 	syncText(client, cfg, content, time.Now(), histStore, aiProcessor, outboxStore, "Relay")
 }
 
