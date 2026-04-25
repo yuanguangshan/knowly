@@ -1,6 +1,6 @@
 {
   "name": "knowly",
-  "version": "6.35.0",
+  "version": "6.36.0",
   "description": "Knowledge Async - Clipboard monitor and sync to remote server via SSH",
   "main": "index.js",
   "bin": {
