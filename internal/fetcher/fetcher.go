@@ -285,11 +285,12 @@ func IsPDFURL(ctx context.Context, url string) bool {
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
-	// 强制 HTTP/1.1，避免部分服务器 HTTP/2 HEAD 响应不规范导致的 protocol error
+	// 强制 HTTP/1.1 + 禁用连接复用，避免 HTTP/2 protocol error 和 idle channel 乱响应
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
-			TLSNextProto: make(map[string]func(string, *tls.Conn) http.RoundTripper),
+			DisableKeepAlives: true,
+			TLSNextProto:      make(map[string]func(string, *tls.Conn) http.RoundTripper),
 		},
 	}
 	resp, err := client.Do(req)
