@@ -60,7 +60,7 @@ func (p *Puller) pull() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("X-Auth-Key", p.secret)
+	req.Header.Set("SECRET_KEY", p.secret)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
