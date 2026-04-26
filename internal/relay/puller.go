@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -38,46 +39,59 @@ func (p *Puller) Start() {
 				log.Println("[INFO] Relay puller stopped")
 				return
 			case <-ticker.C:
-				content, err := p.pull()
+				contents, err := p.pull()
 				if err != nil {
 					log.Printf("[DEBUG] Relay pull failed: %v", err)
 					continue
 				}
-				if content != "" {
-					log.Printf("[INFO] Relay content received (length: %d)", len(content))
-					p.callback(content)
+				for _, content := range contents {
+					if content != "" {
+						log.Printf("[INFO] Relay content received (length: %d)", len(content))
+						p.callback(content)
+					}
 				}
 			}
 		}
 	}()
 }
 
-func (p *Puller) pull() (string, error) {
+func (p *Puller) pull() ([]string, error) {
 	req, err := http.NewRequest("GET", p.endpoint, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	req.Header.Set("X-Auth-Key", p.secret)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNoContent {
-		return "", nil
+		return nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(body), nil
+
+	raw := string(body)
+	if raw == "" {
+		return nil, nil
+	}
+
+	// 队列模式：服务端返回 JSON 数组 ["content1", "content2", ...]
+	var result []string
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("invalid JSON response: %w", err)
+	}
+	return result, nil
 }
 
 func (p *Puller) Stop() {
