@@ -301,7 +301,11 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 
 	// Relay 内容同样需要经过过滤检查
 	isURL := fetcher.IsURL(content)
-	log.Printf("[DEBUG] Relay content: len=%d isURL=%v repr=%q", len(content), isURL, content)
+	preview := content
+	if len(preview) > 50 {
+		preview = preview[:50] + "..."
+	}
+	log.Printf("[DEBUG] Relay content: len=%d isURL=%v repr=%q", len(content), isURL, preview)
 	if r := clipboard.ShouldFilterDetail(content, cfg.Clipboard.MinLength, cfg.Clipboard.MaxLength, cfg.Clipboard.ExcludeWords); r.Filtered {
 		switch r.Reason {
 		case "exclude_word":
