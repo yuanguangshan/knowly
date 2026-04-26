@@ -57,7 +57,7 @@ func (p *Puller) Start() {
 }
 
 func (p *Puller) pull() ([]string, error) {
-	req, err := http.NewRequest("GET", p.baseURL+"/pull", nil)
+	req, err := http.NewRequest("GET", p.baseURL+"/pull?queue=queue_general", nil)
 	if err != nil {
 		return nil, err
 	}
