@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,7 +11,7 @@ import (
 )
 
 type Puller struct {
-	endpoint string
+	baseURL  string
 	secret   string
 	interval time.Duration
 	stopChan chan struct{}
@@ -19,7 +20,7 @@ type Puller struct {
 
 func NewPuller(endpoint, secret string, interval time.Duration, callback func(string)) *Puller {
 	return &Puller{
-		endpoint: endpoint + "/pull",
+		baseURL:  endpoint,
 		secret:   secret,
 		interval: interval,
 		stopChan: make(chan struct{}),
@@ -31,7 +32,7 @@ func (p *Puller) Start() {
 	go func() {
 		ticker := time.NewTicker(p.interval)
 		defer ticker.Stop()
-		log.Println("[INFO] Relay puller started, endpoint:", p.endpoint)
+		log.Println("[INFO] Relay puller started, endpoint:", p.baseURL)
 
 		for {
 			select {
@@ -56,7 +57,7 @@ func (p *Puller) Start() {
 }
 
 func (p *Puller) pull() ([]string, error) {
-	req, err := http.NewRequest("GET", p.endpoint, nil)
+	req, err := http.NewRequest("GET", p.baseURL+"/pull", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +93,35 @@ func (p *Puller) pull() ([]string, error) {
 		return nil, fmt.Errorf("invalid JSON response: %w", err)
 	}
 	return result, nil
+}
+
+// Push 将处理后的内容推送到 relay 结果队列（广播给所有客户端）
+func (p *Puller) Push(content string) error {
+	payload, err := json.Marshal(map[string]string{"content": content})
+	if err != nil {
+		return fmt.Errorf("marshal push payload: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", p.baseURL+"/push", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Auth-Key", p.secret)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("push failed with status: %d", resp.StatusCode)
+	}
+
+	log.Printf("[INFO] Relay push OK (length: %d)", len(content))
+	return nil
 }
 
 func (p *Puller) Stop() {

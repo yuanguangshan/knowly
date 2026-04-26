@@ -152,13 +152,21 @@ func main() {
 
 	// 5. 启动 Relay 拉取器（如果启用）
 	if cfg.Relay.Enabled && cfg.Relay.Endpoint != "" {
-		puller := relay.NewPuller(
+		var puller *relay.Puller
+		puller = relay.NewPuller(
 			cfg.Relay.Endpoint,
 			cfg.Relay.Secret,
 			time.Duration(cfg.Relay.Interval)*time.Second,
 			func(content string) {
-				// Relay 内容也走统一的同步+归档流程
-				go syncAndArchiveText(client, cfg, content, "relay", histStore, aiProcessor, outboxStore, mon)
+				// Relay 内容也走统一的同步+归档流程，处理完后推送结果
+				go func() {
+					enhanced := syncAndArchiveText(client, cfg, content, "relay", histStore, aiProcessor, outboxStore, mon)
+					if enhanced != "" {
+						if err := puller.Push(enhanced); err != nil {
+							log.Printf("[WARN] Relay push back failed: %v", err)
+						}
+					}
+				}()
 			},
 		)
 		puller.Start()
@@ -331,13 +339,13 @@ func drainOutbox(outboxStore *outbox.Store, client *ssh.Client, histStore *histo
 }
 
 // syncAndArchiveText 处理来自 Relay 的文本同步
-func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source string, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store, mon *clipboard.Monitor) {
+func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source string, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store, mon *clipboard.Monitor) string {
 	start := time.Now()
 
 	// 本地去重：如果内存中已存在相同内容，直接跳过
 	if mon.IsDuplicate(content) {
 		log.Printf("[INFO] Relay content skipped: duplicate (in-memory)")
-		return
+		return ""
 	}
 
 	// Relay 内容同样需要经过过滤检查
@@ -356,7 +364,7 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 		case "length_too_long":
 			log.Printf("[INFO] Relay content filtered: too long (%d > %d)", len(content), cfg.Clipboard.MaxLength)
 		}
-		return
+		return ""
 	}
 
 	// Relay 路径也需要 URL 增强（与剪贴板 enhanceAndSend 一致）
@@ -370,7 +378,7 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 		if isPDF {
 			syncPDF(client, cfg, urlStr, time.Now(), histStore, outboxStore, "Relay")
 			log.Printf("[INFO] Relay total processing time: %.1fs", time.Since(start).Seconds())
-			return
+			return ""
 		}
 
 		log.Printf("[INFO] Relay fetching URL: %s", urlStr)
@@ -399,6 +407,7 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 	syncText(client, cfg, content, time.Now(), histStore, aiProcessor, outboxStore, "Relay")
 
 	log.Printf("[INFO] Relay total processing time: %.1fs", time.Since(start).Seconds())
+	return content
 }
 
 // syncText 公共文本同步逻辑（剪贴板和 Relay 共用）
