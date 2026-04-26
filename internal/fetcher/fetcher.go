@@ -2,6 +2,7 @@ package fetcher
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -284,11 +285,11 @@ func IsPDFURL(ctx context.Context, url string) bool {
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
-	// 使用 HTTP/1.1 避免部分服务器 HTTP/2 HEAD 响应不规范导致的 protocol error
+	// 强制 HTTP/1.1，避免部分服务器 HTTP/2 HEAD 响应不规范导致的 protocol error
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
-			ForceAttemptHTTP2: false,
+			TLSNextProto: make(map[string]func(string, *tls.Conn) http.RoundTripper),
 		},
 	}
 	resp, err := client.Do(req)
