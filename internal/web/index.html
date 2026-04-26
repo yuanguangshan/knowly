@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Knowly</title>
+<script>var REFRESH_SEC = {{.RefreshSec}};</script>
 <style>
 :root {
   --bg-primary: #1a1a2e;
@@ -1387,8 +1388,25 @@ let selectedFileItem = null;
 let eventSource = null;
 
 // === Tab ===
+var autoRefreshTimer = null;
+
+function stopAutoRefresh() {
+  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+}
+
+function startAutoRefresh(tab) {
+  stopAutoRefresh();
+  if (!REFRESH_SEC || REFRESH_SEC <= 0) return;
+  var fn = null;
+  if (tab === 'archive') fn = function() { loadYears(); };
+  else if (tab === 'history') fn = function() { loadTags(); loadHistory(); };
+  else if (tab === 'stats') fn = loadStats;
+  if (fn) autoRefreshTimer = setInterval(fn, REFRESH_SEC * 1000);
+}
+
 function switchTab(tab) {
   currentTab = tab;
+  stopAutoRefresh();
   document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
@@ -1400,6 +1418,7 @@ function switchTab(tab) {
   if (tab === 'history') { loadTags(); loadHistory(); }
   if (tab === 'stats') loadStats();
   if (tab === 'admin') { loadAdminStatus(); loadAllConfig(); }
+  startAutoRefresh(tab);
 }
 
 // === API Helper ===

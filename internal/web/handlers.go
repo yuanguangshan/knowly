@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"net/http"
@@ -31,7 +32,14 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	w.Write(indexHTML)
+	tmpl, err := template.New("index").Parse(string(indexHTML))
+	if err != nil {
+		http.Error(w, "template error", http.StatusInternalServerError)
+		return
+	}
+	tmpl.Execute(w, map[string]interface{}{
+		"RefreshSec": s.cfg.Web.RefreshSec,
+	})
 }
 
 // jsonResp 写入 JSON 响应
