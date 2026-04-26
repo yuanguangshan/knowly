@@ -199,6 +199,17 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 
 	switch v := p.(type) {
 	case clipboard.TextPayload:
+		// PDF URL 走专门的下载保存流程
+		if fetcher.IsURL(v.Content) {
+			urlStr := fetcher.ExtractURL(v.Content)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			isPDF := fetcher.IsPDFURL(ctx, urlStr)
+			cancel()
+			if isPDF {
+				syncPDF(client, cfg, urlStr, v.Timestamp, histStore, outboxStore, "Clipboard")
+				return
+			}
+		}
 		// 文本同步委托给 syncText（公共逻辑）
 		syncText(client, cfg, v.Content, v.Timestamp, histStore, aiProcessor, outboxStore, "Clipboard")
 	case clipboard.ImagePayload:
@@ -241,6 +252,36 @@ func handleImagePayload(client *ssh.Client, retryCfg retry.Config, v clipboard.I
 		NASPath: nasPath,
 	}) // ignore returned ID for image entries
 	log.Printf("[INFO] Synced & Archived (image): %s", nasPath)
+}
+
+// syncPDF 下载 PDF 并保存到 NAS
+func syncPDF(client *ssh.Client, cfg *config.Config, urlStr string, timestamp time.Time, histStore *history.Store, outboxStore *outbox.Store, source string) {
+	log.Printf("[INFO] %s PDF detected: %s", source, urlStr)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	data, err := fetcher.FetchPDF(ctx, urlStr)
+	if err != nil {
+		log.Printf("[ERROR] %s PDF download failed: %v", source, err)
+		return
+	}
+
+	log.Printf("[INFO] %s PDF downloaded (%d bytes)", source, len(data))
+
+	nasPath, err := client.SyncPDF(data, timestamp, urlStr)
+	if err != nil {
+		log.Printf("[ERROR] %s PDF sync failed: %v", source, err)
+		client.ForceReset()
+		return
+	}
+
+	histStore.Append(history.Entry{
+		Content: fmt.Sprintf("[PDF] %s", urlStr),
+		Type:    "pdf",
+		NASPath: nasPath,
+	})
+	log.Printf("[INFO] %s PDF synced & archived: %s", source, nasPath)
 }
 
 // drainOutbox 尝试排空本地暂存队列，将积压条目同步到远端
@@ -321,6 +362,17 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 	// Relay 路径也需要 URL 增强（与剪贴板 enhanceAndSend 一致）
 	if fetcher.IsURL(content) {
 		urlStr := fetcher.ExtractURL(content)
+
+		// PDF URL 直接下载保存到 NAS
+		pdfCtx, pdfCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		isPDF := fetcher.IsPDFURL(pdfCtx, urlStr)
+		pdfCancel()
+		if isPDF {
+			syncPDF(client, cfg, urlStr, time.Now(), histStore, outboxStore, "Relay")
+			log.Printf("[INFO] Relay total processing time: %.1fs", time.Since(start).Seconds())
+			return
+		}
+
 		log.Printf("[INFO] Relay fetching URL: %s", urlStr)
 		urlStart := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

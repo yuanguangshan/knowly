@@ -688,6 +688,47 @@ func (c *Client) imageExistsByHash(relPath, hashPrefix string) bool {
 	return strings.TrimSpace(string(output)) != ""
 }
 
+// SyncPDF 同步 PDF 文件到 NAS
+func (c *Client) SyncPDF(data []byte, timestamp time.Time, url string) (string, error) {
+	year := timestamp.Format("2006")
+	month := timestamp.Format("01")
+	day := timestamp.Format("02")
+	timeStr := timestamp.Format("150405")
+
+	// 从 URL 提取文件名
+	fileName := extractPDFFileName(url, timeStr)
+	relPath := filepath.Join(year, month, day)
+
+	// 创建目录
+	if err := c.MkdirAll(filepath.Join(c.config.BasePath, relPath)); err != nil {
+		return "", fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	fullPath := filepath.Join(c.config.BasePath, relPath, fileName)
+
+	// 写入 PDF
+	if err := c.WriteBinary(fullPath, data); err != nil {
+		return "", fmt.Errorf("failed to write PDF: %w", err)
+	}
+
+	log.Printf("[INFO] Synced PDF to remote: %s", fullPath)
+	return fullPath, nil
+}
+
+// extractPDFFileName 从 URL 提取 PDF 文件名，fallback 到时间戳
+func extractPDFFileName(urlStr, timeStr string) string {
+	// 去掉 query string
+	path := strings.SplitN(urlStr, "?", 2)[0]
+	// 取最后一段路径
+	parts := strings.Split(path, "/")
+	last := parts[len(parts)-1]
+	// 确保有 .pdf 后缀
+	if strings.HasSuffix(strings.ToLower(last), ".pdf") && len(last) > 5 {
+		return fmt.Sprintf("%s_%s", timeStr, last)
+	}
+	return fmt.Sprintf("%s.pdf", timeStr)
+}
+
 // ReadFile 从远程服务器读取文件的二进制内容
 func (c *Client) ReadFile(path string) ([]byte, error) {
 	session, release, err := c.newSession()

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // URLRegex 匹配 HTTP/HTTPS URL
@@ -273,6 +274,54 @@ func decodeWechatHex(s string) string {
 func ExtractURL(text string) string {
 	matches := URLRegex.FindString(text)
 	return matches
+}
+
+// IsPDFURL 通过 HEAD 请求检测 URL 是否返回 PDF（Content-Type 包含 application/pdf）
+func IsPDFURL(ctx context.Context, url string) bool {
+	req, err := http.NewRequestWithContext(ctx, "HEAD", url, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		// HEAD 失败时 fallback 到 URL 后缀判断
+		return strings.HasSuffix(strings.ToLower(strings.SplitN(url, "?", 2)[0]), ".pdf")
+	}
+	defer resp.Body.Close()
+
+	ct := resp.Header.Get("Content-Type")
+	return strings.Contains(ct, "application/pdf")
+}
+
+// FetchPDF 下载 PDF 文件二进制内容（限制 10MB）
+func FetchPDF(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch PDF: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	limitedReader := io.LimitReader(resp.Body, 10*1024*1024) // 10MB
+	body, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read PDF: %w", err)
+	}
+
+	return body, nil
 }
 
 // IsURL 检查文本本身是否是一个纯粹的 URL

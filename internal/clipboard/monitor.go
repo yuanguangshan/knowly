@@ -280,24 +280,33 @@ func (m *Monitor) enhanceAndSend(content string, hash string) {
 	enhanced := content
 	if fetcher.IsURL(content) {
 		urlStr := fetcher.ExtractURL(content)
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
 
-		// 获取页面标题和内容
-		info, err := fetcher.FetchPage(ctx, urlStr)
-		if err == nil && info != nil {
-			if info.Title != "" && info.Content != "" {
-				enhanced = fmt.Sprintf("%s\n\n# %s\n\n%s", content, info.Title, info.Content)
-				log.Printf("[INFO] Fetched title and content for URL")
-			} else if info.Title != "" {
-				enhanced = fmt.Sprintf("%s\n\n# %s", content, info.Title)
-				log.Printf("[INFO] Fetched title for URL")
-			} else if info.Content != "" {
-				enhanced = fmt.Sprintf("%s\n\n%s", content, info.Content)
-				log.Printf("[INFO] Fetched content for URL")
-			}
+		// PDF URL 不做 HTML 提取，直接传 URL 原文（后续由 sync 层下载保存）
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		isPDF := fetcher.IsPDFURL(ctx, urlStr)
+		cancel()
+
+		if isPDF {
+			log.Printf("[INFO] PDF URL detected, skipping HTML enhancement")
 		} else {
-			log.Printf("[DEBUG] Failed to fetch page: %v", err)
+			ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel2()
+
+			info, err := fetcher.FetchPage(ctx2, urlStr)
+			if err == nil && info != nil {
+				if info.Title != "" && info.Content != "" {
+					enhanced = fmt.Sprintf("%s\n\n# %s\n\n%s", content, info.Title, info.Content)
+					log.Printf("[INFO] Fetched title and content for URL")
+				} else if info.Title != "" {
+					enhanced = fmt.Sprintf("%s\n\n# %s", content, info.Title)
+					log.Printf("[INFO] Fetched title for URL")
+				} else if info.Content != "" {
+					enhanced = fmt.Sprintf("%s\n\n%s", content, info.Content)
+					log.Printf("[INFO] Fetched content for URL")
+				}
+			} else {
+				log.Printf("[DEBUG] Failed to fetch page: %v", err)
+			}
 		}
 	}
 
