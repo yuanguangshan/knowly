@@ -174,6 +174,22 @@ func main() {
 		log.Println("[INFO] Relay puller started")
 	}
 
+	// 6. 启动结果拉取器（拉取 Chrome 扩展等处理后的结果，归档到 NAS）
+	if cfg.Relay.Enabled && cfg.Relay.Endpoint != "" {
+		resultPuller := relay.NewResultPuller(
+			cfg.Relay.Endpoint,
+			cfg.Relay.Secret,
+			30*time.Second,
+			func(content string) {
+				// 结果已是处理后的成品，直接归档，不再 AI 加工或 URL 抓取
+				go syncText(client, cfg, content, time.Now(), histStore, nil, outboxStore, "RelayResult")
+			},
+		)
+		resultPuller.Start()
+		defer resultPuller.Stop()
+		log.Println("[INFO] Result puller started")
+	}
+
 	// 7. 消费 Payload 循环
 	for {
 		select {
