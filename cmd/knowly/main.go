@@ -181,8 +181,8 @@ func main() {
 			cfg.Relay.Secret,
 			30*time.Second,
 			func(content string) {
-				// 结果已是处理后的成品，直接归档，不再 AI 加工或 URL 抓取
-				go syncText(client, cfg, content, time.Now(), histStore, nil, outboxStore, "RelayResult")
+				// 结果已是处理后的成品，跳过 URL 抓取，但仍做 AI 标签/摘要
+				go syncText(client, cfg, content, time.Now(), histStore, aiProcessor, outboxStore, "RelayResult")
 			},
 		)
 		resultPuller.Start()
