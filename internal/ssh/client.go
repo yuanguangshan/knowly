@@ -437,8 +437,8 @@ func (c *Client) WriteFile(path string, content string) error {
 	return nil
 }
 
-// contentHash 返回内容的 MD5 哈希十六进制串
-func contentHash(data []byte) string {
+// ContentHash 返回内容的 MD5 哈希十六进制串
+func ContentHash(data []byte) string {
 	h := md5.Sum(data)
 	return hex.EncodeToString(h[:])
 }
@@ -483,7 +483,7 @@ func (c *Client) SyncItem(content string, timestamp time.Time, meta *ContentMeta
 	timeStr := timestamp.Format("150405")
 
 	// 计算内容哈希，用于去重
-	hash := contentHash([]byte(content))
+	hash := ContentHash([]byte(content))
 	relPath := filepath.Join(year, month, day)
 
 	// 检查远程当天目录中是否已有相同内容
@@ -640,7 +640,7 @@ func (c *Client) SyncImage(data []byte, timestamp time.Time) (string, error) {
 	timeStr := timestamp.Format("150405")
 
 	// 计算图片哈希用于去重
-	hash := contentHash(data)
+	hash := ContentHash(data)
 	relPath := filepath.Join(year, month, day)
 
 	// 检查远程当天目录中是否已有相同图片（通过文件名中的哈希前缀判断）

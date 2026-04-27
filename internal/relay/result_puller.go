@@ -6,19 +6,23 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 // ResultPuller 周期性拉取 Worker 的结果队列，归档到 NAS
 type ResultPuller struct {
-	baseURL  string
-	secret   string
-	interval time.Duration
-	stopChan chan struct{}
-	callback func(content string)
-	cursor   int64
-	cursorMu sync.Mutex
+	baseURL    string
+	secret     string
+	interval   time.Duration
+	stopChan   chan struct{}
+	callback   func(content string)
+	cursor     int64
+	cursorMu   sync.Mutex
+	cursorFile string
 }
 
 type resultsResponse struct {
@@ -32,14 +36,23 @@ type resultsItem struct {
 }
 
 // NewResultPuller 创建结果拉取器
-func NewResultPuller(endpoint, secret string, interval time.Duration, callback func(string)) *ResultPuller {
-	return &ResultPuller{
-		baseURL:  endpoint,
-		secret:   secret,
-		interval: interval,
-		stopChan: make(chan struct{}),
-		callback: callback,
+func NewResultPuller(endpoint, secret, cursorFile string, interval time.Duration, callback func(string)) *ResultPuller {
+	rp := &ResultPuller{
+		baseURL:    endpoint,
+		secret:     secret,
+		interval:   interval,
+		stopChan:   make(chan struct{}),
+		callback:   callback,
+		cursorFile: cursorFile,
 	}
+	// 从文件恢复游标
+	if data, err := os.ReadFile(cursorFile); err == nil {
+		if cur, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64); err == nil && cur > 0 {
+			rp.cursor = cur
+			log.Printf("[INFO] Result puller loaded cursor: %d", cur)
+		}
+	}
+	return rp
 }
 
 func (rp *ResultPuller) Start() {
@@ -106,6 +119,8 @@ func (rp *ResultPuller) pullResults() ([]resultsItem, error) {
 		rp.cursorMu.Lock()
 		rp.cursor = data.Cursor
 		rp.cursorMu.Unlock()
+		// 持久化游标
+		_ = os.WriteFile(rp.cursorFile, []byte(strconv.FormatInt(data.Cursor, 10)), 0644)
 	}
 
 	return data.Items, nil

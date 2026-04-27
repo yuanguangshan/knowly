@@ -176,9 +176,11 @@ func main() {
 
 	// 6. 启动结果拉取器（拉取 Chrome 扩展等处理后的结果，归档到 NAS）
 	if cfg.Relay.Enabled && cfg.Relay.Endpoint != "" {
+		cursorFile := filepath.Join(config.GetConfigDir(), "result_cursor.txt")
 		resultPuller := relay.NewResultPuller(
 			cfg.Relay.Endpoint,
 			cfg.Relay.Secret,
+			cursorFile,
 			30*time.Second,
 			func(content string) {
 				// 结果已是处理后的成品，跳过 URL 抓取，但仍做 AI 标签/摘要
@@ -428,6 +430,14 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 
 // syncText 公共文本同步逻辑（剪贴板和 Relay 共用）
 func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp time.Time, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store, source string) {
+	// 远程去重前置检查：在 AI 处理之前确认内容是否已存在，避免浪费 API 调用
+	hash := ssh.ContentHash([]byte(content))
+	relPath := filepath.Join(timestamp.Format("2006"), timestamp.Format("01"), timestamp.Format("02"))
+	if client.ExistsByHash(relPath, hash) {
+		log.Printf("[INFO] %s remote duplicate detected (hash: %s), skipped entirely", source, hash[:8])
+		return
+	}
+
 	retryCfg := retry.Config{
 		MaxRetries: cfg.Sync.MaxRetries,
 		BaseDelay:  time.Duration(cfg.Sync.RetryDelay) * time.Millisecond,
