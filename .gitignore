@@ -45,4 +45,3 @@ yarn-error.log*
 .knowly/
 
 # Generated snapshots
-project_snapshot.md
