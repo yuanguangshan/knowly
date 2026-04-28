@@ -53,24 +53,25 @@ type PageInfo struct {
 
 // FetchPage 从 URL 抓取页面标题和正文内容
 func FetchPage(ctx context.Context, url string) (*PageInfo, error) {
-	// 知乎链接处理
+	// 知乎链接处理：优先提交到 knasync 由 Chrome 扩展处理，不消耗 MCP 额度
 	if isZhihuURL(url) {
-		// 如果启用了 knasync，用独立短超时提交到远程端点，不占用主 context 时间
 		if knasyncEnabled {
 			knCtx, knCancel := context.WithTimeout(context.Background(), 3*time.Second)
-			if err := SubmitToKnasync(knCtx, url); err != nil {
+			err := SubmitToKnasync(knCtx, url)
+			knCancel()
+			if err != nil {
 				log.Printf("[WARN] failed to submit zhihu link to knasync: %v", err)
 			} else {
 				log.Printf("[INFO] zhihu link submitted to knasync: %s", url)
 			}
-			knCancel()
+			// 交由 Chrome 扩展处理，result puller 会归档最终结果
+			return nil, nil
 		}
 
-		// 使用智谱 web_reader 获取知乎内容
+		// knasync 未启用时，回退到 web_reader
 		if webReaderAPIKey != "" {
 			info, err := fetchViaWebReader(ctx, url)
 			if err != nil {
-				// web_reader 失败时回退到普通抓取
 				log.Printf("[WARN] web_reader failed for zhihu, fallback to direct fetch: %v", err)
 			} else if info != nil && (info.Title != "" || info.Content != "") {
 				return info, nil

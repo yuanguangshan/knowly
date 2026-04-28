@@ -86,16 +86,6 @@ func SubmitToKnasync(ctx context.Context, url string) error {
 		return fmt.Errorf("knasync returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	// 解析响应
-	respText := string(respBody)
-	if !containsOK(respText) {
-		return fmt.Errorf("knasync unexpected response: %s", respText)
-	}
-
+	// HTTP 200 即视为成功（远端可能返回 "OK (zhihu)" 或 "Duplicate ignored" 等）
 	return nil
-}
-
-// containsOK 检查响应是否包含 OK
-func containsOK(text string) bool {
-	return len(text) >= 2 && (text[0:2] == "OK" || text[0:2] == "ok")
 }
