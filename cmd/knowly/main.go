@@ -413,13 +413,6 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 		cancel()
 		log.Printf("[INFO] Relay URL fetched in %.1fs", time.Since(urlStart).Seconds())
 		
-		if info == nil && err == nil {
-			// 特殊情况：知乎链接已提交至 knasync，FetchPage 返回 nil, nil
-			// 这种情况下直接终止，不归档原始 URL
-			log.Printf("[INFO] Relay total processing time: %.1fs (forwarded to knasync)", time.Since(start).Seconds())
-			return ""
-		}
-
 		if err == nil && info != nil {
 			var sb strings.Builder
 			sb.WriteString(content)

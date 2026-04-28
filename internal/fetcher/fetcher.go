@@ -55,14 +55,15 @@ type PageInfo struct {
 func FetchPage(ctx context.Context, url string) (*PageInfo, error) {
 	// 知乎链接处理
 	if isZhihuURL(url) {
-		// 如果启用了 knasync，异步提交到远程端点（Chrome 扩展可消费，但不再依赖它）
+		// 如果启用了 knasync，用独立短超时提交到远程端点，不占用主 context 时间
 		if knasyncEnabled {
-			if err := SubmitToKnasync(ctx, url); err != nil {
+			knCtx, knCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			if err := SubmitToKnasync(knCtx, url); err != nil {
 				log.Printf("[WARN] failed to submit zhihu link to knasync: %v", err)
 			} else {
 				log.Printf("[INFO] zhihu link submitted to knasync: %s", url)
 			}
-			// 不再 return nil, nil —— 继续尝试 web_reader 直接获取内容
+			knCancel()
 		}
 
 		// 使用智谱 web_reader 获取知乎内容
