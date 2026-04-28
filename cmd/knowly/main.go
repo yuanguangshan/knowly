@@ -391,8 +391,9 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 		return ""
 	}
 
+	enhanced := content
 	// Relay 路径也需要 URL 增强（与剪贴板 enhanceAndSend 一致）
-	if fetcher.IsURL(content) {
+	if isURL {
 		urlStr := fetcher.ExtractURL(content)
 
 		// PDF URL 直接下载保存到 NAS
@@ -412,39 +413,53 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 		cancel()
 		log.Printf("[INFO] Relay URL fetched in %.1fs", time.Since(urlStart).Seconds())
 		if err == nil && info != nil {
-			var enhanced strings.Builder
-			enhanced.WriteString(content)
+			var sb strings.Builder
+			sb.WriteString(content)
 			if info.Title != "" {
-				enhanced.WriteString("\n\n# " + info.Title)
+				sb.WriteString("\n\n# " + info.Title)
 			}
 			if info.Content != "" {
-				enhanced.WriteString("\n\n" + info.Content)
+				sb.WriteString("\n\n" + info.Content)
 			}
-			if enhanced.Len() > len(content) {
-				content = enhanced.String()
-			}
+			enhanced = sb.String()
 		} else {
-			log.Printf("[DEBUG] Relay URL fetch failed: %v", err)
+			if err != nil {
+				log.Printf("[DEBUG] Relay URL fetch failed: %v", err)
+			}
 		}
 	}
 
-	syncText(client, cfg, content, time.Now(), histStore, aiProcessor, outboxStore, "Relay")
+	syncText(client, cfg, enhanced, time.Now(), histStore, aiProcessor, outboxStore, "Relay")
 
 	log.Printf("[INFO] Relay total processing time: %.1fs", time.Since(start).Seconds())
-	return content
+
+	// 如果增强后的内容依然只是原始 URL，则没必要推送到结果队列
+	if enhanced == content && isURL {
+		return ""
+	}
+	return enhanced
 }
 
 // syncText 公共文本同步逻辑（剪贴板和 Relay 共用）
 func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp time.Time, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store, source string) {
-	// 如果是纯 URL，且没有经过增强处理，则跳过归档（避免归档低价值信息及重复检测冲突）
-	if fetcher.IsURL(content) {
-		log.Printf("[INFO] %s pure URL ignored (async/forwarded): %s", source, content)
+	isURL := fetcher.IsURL(content)
+
+	// 远程去重前置检查
+	hash := ssh.ContentHash([]byte(content))
+	relPath := filepath.Join(timestamp.Format("2006"), timestamp.Format("01"), timestamp.Format("02"))
+
+	// 如果是纯 URL，跳过 NAS 同步和 AI 处理，但保留本地历史记录
+	if isURL {
+		log.Printf("[INFO] %s pure URL recorded locally but skipped for NAS archive: %s", source, content)
+		histStore.Append(history.Entry{
+			Content:   content,
+			Type:      "text",
+			NASPath:   "", // 标记为未同步
+			Timestamp: timestamp,
+		})
 		return
 	}
 
-	// 远程去重前置检查：在 AI 处理之前确认内容是否已存在，避免浪费 API 调用
-	hash := ssh.ContentHash([]byte(content))
-	relPath := filepath.Join(timestamp.Format("2006"), timestamp.Format("01"), timestamp.Format("02"))
 	if client.ExistsByHash(relPath, hash) {
 		log.Printf("[INFO] %s remote duplicate detected (hash: %s), skipped entirely", source, hash[:8])
 		return
