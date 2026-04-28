@@ -15,6 +15,13 @@ import (
 // URLRegex 匹配 HTTP/HTTPS URL
 var URLRegex = regexp.MustCompile(`https?://[^\s]+`)
 
+var knasyncEnabled bool
+
+// SetKnasyncEnabled 设置 knasync 是否启用
+func SetKnasyncEnabled(enabled bool) {
+	knasyncEnabled = enabled
+}
+
 // 包级别正则，避免重复编译
 var (
 	titleRegex      = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
@@ -46,14 +53,31 @@ type PageInfo struct {
 
 // FetchPage 从 URL 抓取页面标题和正文内容
 func FetchPage(ctx context.Context, url string) (*PageInfo, error) {
-	// 知乎链接使用 web_reader 获取
-	if isZhihuURL(url) && webReaderAPIKey != "" {
-		info, err := fetchViaWebReader(ctx, url)
-		if err != nil {
-			// web_reader 失败时回退到普通抓取
-			log.Printf("[WARN] web_reader failed for zhihu, fallback to direct fetch: %v", err)
-		} else if info != nil && (info.Title != "" || info.Content != "") {
-			return info, nil
+	// 知乎链接处理
+	if isZhihuURL(url) {
+		// 如果启用了 knasync，提交到远程端点处理
+		if knasyncEnabled {
+			if err := SubmitToKnasync(ctx, url); err != nil {
+				log.Printf("[WARN] failed to submit zhihu link to knasync: %v", err)
+			} else {
+				log.Printf("[INFO] zhihu link submitted to knasync: %s", url)
+				// 返回一个特殊的 PageInfo，表示已提交到 knasync
+				return &PageInfo{
+					Title:   "[知乎链接已提交至远程处理]",
+					Content: fmt.Sprintf("链接: %s\n\n该链接已提交至 knasync 远程端点处理，请稍后在其他客户端查看处理结果。", url),
+				}, nil
+			}
+		}
+
+		// 否则，如果配置了 web_reader，使用智谱 web_reader 获取
+		if webReaderAPIKey != "" {
+			info, err := fetchViaWebReader(ctx, url)
+			if err != nil {
+				// web_reader 失败时回退到普通抓取
+				log.Printf("[WARN] web_reader failed for zhihu, fallback to direct fetch: %v", err)
+			} else if info != nil && (info.Title != "" || info.Content != "") {
+				return info, nil
+			}
 		}
 	}
 

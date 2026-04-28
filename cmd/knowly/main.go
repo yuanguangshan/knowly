@@ -53,6 +53,14 @@ func main() {
 		fetcher.SetWebReaderAPIKey(cfg.WebReader.APIKey)
 	}
 
+	// 初始化 knasync（远程处理知乎链接）
+	if cfg.Knasync.Enabled {
+		fetcher.SetKnasyncEnabled(true)
+		if cfg.Knasync.AuthKey != "" {
+			fetcher.SetKnasyncAuthKey(cfg.Knasync.AuthKey)
+		}
+	}
+
 	// 处理 --status
 	if len(os.Args) > 1 && os.Args[1] == "--status" {
 		showStatus(cfg)

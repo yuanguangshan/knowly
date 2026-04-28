@@ -19,6 +19,7 @@ type Config struct {
 	Kindle       KindleConfig       `json:"kindle"`
 	AI           AIConfig           `json:"ai"`
 	WebReader    WebReaderConfig    `json:"web_reader"`
+	Knasync      KnasyncConfig      `json:"knasync"`
 }
 
 type SSHConfig struct {
@@ -106,6 +107,11 @@ type AIConfig struct {
 
 type WebReaderConfig struct {
 	APIKey string `json:"api_key"` // 智谱 web_reader API Key
+}
+
+type KnasyncConfig struct {
+	Enabled bool   `json:"enabled"` // 是否启用 knasync 远程处理知乎链接
+	AuthKey string `json:"auth_key"` // knasync 认证密钥
 }
 
 // AIPresetOption 服务商预设选项
@@ -385,6 +391,10 @@ func DefaultConfig() *Config {
 		},
 		Web: WebConfig{
 			Port: 8090,
+		},
+		Knasync: KnasyncConfig{
+			Enabled: false,
+			AuthKey: "test1234",
 		},
 	}
 }
