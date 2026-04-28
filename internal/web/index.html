@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Knowly</title>
-<script>var REFRESH_SEC = {{.RefreshSec}};</script>
+<script>var REFRESH_SEC = {{.RefreshSec}}; var LOG_REFRESH_SEC = {{.LogRefreshSec}};</script>
 <style>
 :root {
   --bg-primary: #1a1a2e;
@@ -1185,6 +1185,8 @@ select.cfg-input { width: 180px; }
             <div class="settings-card-body">
               <div class="cfg-row"><span class="cfg-label">端口</span><input class="cfg-input" type="number" id="cfg-web-port"></div>
               <div class="cfg-row"><span class="cfg-label">认证 (user:password)</span><input class="cfg-input" id="cfg-web-auth" placeholder="留空不启用"></div>
+              <div class="cfg-row"><span class="cfg-label">自动刷新(秒)</span><input class="cfg-input" type="number" id="cfg-web-refresh_sec" min="0" placeholder="默认30"></div>
+              <div class="cfg-row"><span class="cfg-label">日志刷新(秒)</span><input class="cfg-input" type="number" id="cfg-web-log_refresh_sec" min="0" placeholder="默认30"></div>
             </div>
           </div>
 
@@ -2314,6 +2316,8 @@ async function loadAllConfig() {
     // Web
     setVal('cfg-web-port', c.web.port);
     setVal('cfg-web-auth', ''); // always empty for security
+    setVal('cfg-web-refresh_sec', c.web.refresh_sec || '');
+    setVal('cfg-web-log_refresh_sec', c.web.log_refresh_sec || '');
 
     // Relay
     setChecked('cfg-relay-enabled', c.relay.enabled);
@@ -2419,7 +2423,7 @@ async function saveAllConfig() {
       enabled: getChecked('cfg-sync-enabled'), max_retries: getInt('cfg-sync-max_retries'),
       retry_delay_ms: getInt('cfg-sync-retry_delay_ms')
     },
-    web: { enabled: true, port: getInt('cfg-web-port'), auth: getVal('cfg-web-auth') },
+    web: { enabled: true, port: getInt('cfg-web-port'), auth: getVal('cfg-web-auth'), refresh_sec: getInt('cfg-web-refresh_sec'), log_refresh_sec: getInt('cfg-web-log_refresh_sec') },
     relay: {
       enabled: getChecked('cfg-relay-enabled'), endpoint: getVal('cfg-relay-endpoint'),
       secret: getVal('cfg-relay-secret'), pull_interval_sec: getInt('cfg-relay-pull_interval_sec')
@@ -2613,7 +2617,7 @@ document.addEventListener('DOMContentLoaded', function() {
   loadLogs();
   connectLogStream();
   loadStatus();
-  setInterval(loadStatus, 30000);
+  setInterval(loadStatus, (LOG_REFRESH_SEC || 30) * 1000);
 
   // 标签栏点击事件委托
   document.getElementById('tagsBar').addEventListener('click', function(e) {

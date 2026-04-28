@@ -47,7 +47,8 @@ type WebConfig struct {
 	Enabled    *bool  `json:"enabled"`     // 是否启用 Web 管理界面，nil 或 true 表示启用
 	Port       int    `json:"port"`        // 监听端口，默认 8090
 	Auth       string `json:"auth"`        // HTTP Basic Auth 凭证，格式 "user:password"，留空则不启用认证
-	RefreshSec int    `json:"refresh_sec"` // 自动刷新间隔（秒），0=不自动刷新，默认30
+	RefreshSec    int    `json:"refresh_sec"`     // 自动刷新间隔（秒），0=不自动刷新，默认30
+	LogRefreshSec int    `json:"log_refresh_sec"` // 日志页刷新间隔（秒），0=不自动刷新，默认30
 }
 
 func (w *WebConfig) IsEnabled() bool {
@@ -294,6 +295,9 @@ func Load() (*Config, error) {
 	}
 	if config.Web.RefreshSec == 0 {
 		config.Web.RefreshSec = 30
+	}
+	if config.Web.LogRefreshSec == 0 {
+		config.Web.LogRefreshSec = 30
 	}
 
 	return &config, nil

@@ -38,7 +38,8 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tmpl.Execute(w, map[string]interface{}{
-		"RefreshSec": s.cfg.Web.RefreshSec,
+		"RefreshSec":    s.cfg.Web.RefreshSec,
+		"LogRefreshSec": s.cfg.Web.LogRefreshSec,
 	})
 }
 
