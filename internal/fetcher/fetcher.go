@@ -55,18 +55,17 @@ type PageInfo struct {
 func FetchPage(ctx context.Context, url string) (*PageInfo, error) {
 	// 知乎链接处理
 	if isZhihuURL(url) {
-		// 如果启用了 knasync，提交到远程端点处理
+		// 如果启用了 knasync，异步提交到远程端点（Chrome 扩展可消费，但不再依赖它）
 		if knasyncEnabled {
 			if err := SubmitToKnasync(ctx, url); err != nil {
 				log.Printf("[WARN] failed to submit zhihu link to knasync: %v", err)
 			} else {
 				log.Printf("[INFO] zhihu link submitted to knasync: %s", url)
-				// 提交成功后返回 nil，让调用方保持原始 URL，不生成占位符内容
-				return nil, nil
 			}
+			// 不再 return nil, nil —— 继续尝试 web_reader 直接获取内容
 		}
 
-		// 否则，如果配置了 web_reader，使用智谱 web_reader 获取
+		// 使用智谱 web_reader 获取知乎内容
 		if webReaderAPIKey != "" {
 			info, err := fetchViaWebReader(ctx, url)
 			if err != nil {
