@@ -436,6 +436,12 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 
 // syncText 公共文本同步逻辑（剪贴板和 Relay 共用）
 func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp time.Time, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store, source string) {
+	// 如果是纯 URL，且没有经过增强处理，则跳过归档（避免归档低价值信息及重复检测冲突）
+	if fetcher.IsURL(content) {
+		log.Printf("[INFO] %s pure URL ignored (async/forwarded): %s", source, content)
+		return
+	}
+
 	// 远程去重前置检查：在 AI 处理之前确认内容是否已存在，避免浪费 API 调用
 	hash := ssh.ContentHash([]byte(content))
 	relPath := filepath.Join(timestamp.Format("2006"), timestamp.Format("01"), timestamp.Format("02"))

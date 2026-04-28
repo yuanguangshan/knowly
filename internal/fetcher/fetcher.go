@@ -61,11 +61,8 @@ func FetchPage(ctx context.Context, url string) (*PageInfo, error) {
 				log.Printf("[WARN] failed to submit zhihu link to knasync: %v", err)
 			} else {
 				log.Printf("[INFO] zhihu link submitted to knasync: %s", url)
-				// 返回一个特殊的 PageInfo，表示已提交到 knasync
-				return &PageInfo{
-					Title:   "[知乎链接已提交至远程处理]",
-					Content: fmt.Sprintf("链接: %s\n\n该链接已提交至 knasync 远程端点处理，请稍后在其他客户端查看处理结果。", url),
-				}, nil
+				// 提交成功后返回 nil，让调用方保持原始 URL，不生成占位符内容
+				return nil, nil
 			}
 		}
 
