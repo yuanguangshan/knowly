@@ -110,8 +110,9 @@ type WebReaderConfig struct {
 }
 
 type KnasyncConfig struct {
-	Enabled bool   `json:"enabled"` // 是否启用 knasync 远程处理知乎链接
-	AuthKey string `json:"auth_key"` // knasync 认证密钥
+	Enabled  bool   `json:"enabled"`  // 是否启用 knasync 远程处理知乎链接
+	Endpoint string `json:"endpoint"` // knasync 端点
+	AuthKey  string `json:"auth_key"` // knasync 认证密钥
 }
 
 // AIPresetOption 服务商预设选项
@@ -306,6 +307,11 @@ func Load() (*Config, error) {
 		config.Web.LogRefreshSec = 30
 	}
 
+	// 补全 Knasync 默认值
+	if config.Knasync.Endpoint == "" {
+		config.Knasync.Endpoint = "https://knasync.yuanguangshan.workers.dev"
+	}
+
 	return &config, nil
 }
 
@@ -393,8 +399,9 @@ func DefaultConfig() *Config {
 			Port: 8090,
 		},
 		Knasync: KnasyncConfig{
-			Enabled: false,
-			AuthKey: "test1234",
+			Enabled:  false,
+			Endpoint: "https://knasync.yuanguangshan.workers.dev",
+			AuthKey:  "test1234",
 		},
 	}
 }

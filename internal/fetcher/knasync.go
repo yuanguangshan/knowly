@@ -7,13 +7,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
-const knasyncEndpoint = "https://knasync.yuanguangshan.workers.dev/submit"
+var (
+	knasyncEndpoint string
+	knasyncAuthKey  string
+)
 
-var knasyncAuthKey string
+// SetKnasyncConfig 设置 knasync 配置
+func SetKnasyncConfig(endpoint, authKey string) {
+	knasyncEndpoint = endpoint
+	knasyncAuthKey = authKey
+}
 
-// SetKnasyncAuthKey 设置 knasync 认证密钥
+// SetKnasyncAuthKey 设置 knasync 认证密钥（向后兼容）
 func SetKnasyncAuthKey(key string) {
 	knasyncAuthKey = key
 }
@@ -29,6 +37,16 @@ func SubmitToKnasync(ctx context.Context, url string) error {
 	if knasyncAuthKey == "" {
 		return fmt.Errorf("knasync auth key not configured")
 	}
+	if knasyncEndpoint == "" {
+		return fmt.Errorf("knasync endpoint not configured")
+	}
+
+	// 构造完整的端点 URL
+	endpoint := knasyncEndpoint
+	if !strings.HasSuffix(endpoint, "/") {
+		endpoint += "/"
+	}
+	endpoint += "submit"
 
 	// 构造请求体
 	reqBody := knasyncRequest{
@@ -40,7 +58,7 @@ func SubmitToKnasync(ctx context.Context, url string) error {
 	}
 
 	// 创建 HTTP 请求
-	req, err := http.NewRequestWithContext(ctx, "POST", knasyncEndpoint, bytes.NewReader(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

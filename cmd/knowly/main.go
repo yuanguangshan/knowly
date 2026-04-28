@@ -56,9 +56,7 @@ func main() {
 	// 初始化 knasync（远程处理知乎链接）
 	if cfg.Knasync.Enabled {
 		fetcher.SetKnasyncEnabled(true)
-		if cfg.Knasync.AuthKey != "" {
-			fetcher.SetKnasyncAuthKey(cfg.Knasync.AuthKey)
-		}
+		fetcher.SetKnasyncConfig(cfg.Knasync.Endpoint, cfg.Knasync.AuthKey)
 	}
 
 	// 处理 --status
