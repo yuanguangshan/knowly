@@ -304,7 +304,7 @@ func (m *Monitor) enhanceAndSend(content string, hash string) {
 					enhanced = fmt.Sprintf("%s\n\n%s", content, info.Content)
 					log.Printf("[INFO] Fetched content for URL")
 				}
-			} else {
+			} else if err != nil {
 				log.Printf("[DEBUG] Failed to fetch page: %v", err)
 			}
 		}
