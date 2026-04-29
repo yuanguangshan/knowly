@@ -648,24 +648,45 @@ canvas {
   opacity: 0.5;
 }
 /* Search */
-.search-bar {
+.archive-breadcrumb-actions {
   display: flex;
-  gap: 8px;
-  padding: 12px;
-  border-bottom: 1px solid var(--border);
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
 }
-.search-bar input {
-  flex: 1;
+.archive-breadcrumb-actions .icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 16px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+.archive-breadcrumb-actions .icon-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.search-expand-input {
+  width: 0;
+  padding: 0;
+  border: none;
   background: var(--bg-card);
   color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px 10px;
   font-size: 13px;
   outline: none;
+  transition: width 0.25s ease, padding 0.25s ease, border 0.25s ease;
+  border-radius: 4px;
+  overflow: hidden;
 }
-.search-bar input:focus { border-color: var(--accent); }
-.search-bar input::placeholder { color: var(--text-secondary); }
+.search-expand-input.expanded {
+  width: 120px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+}
+.search-expand-input.expanded:focus { border-color: var(--accent); }
 .search-results {
   flex: 1;
   overflow-y: auto;
@@ -1010,16 +1031,17 @@ select.cfg-input { width: 180px; }
     <div class="tab-panel" id="panel-archive">
       <div class="archive-layout">
         <div class="archive-sidebar">
-          <div class="search-bar">
-            <input type="text" id="searchInput" placeholder="搜索归档内容..." onkeydown="if(event.key==='Enter')searchArchive()">
-            <button class="btn btn-accent" onclick="searchArchive()">搜索</button>
-          </div>
           <div class="archive-breadcrumb">
             <select id="selYear" onchange="loadMonths()"><option value="">年份</option></select>
             <span>/</span>
             <select id="selMonth" onchange="loadDays()" disabled><option value="">月份</option></select>
             <span>/</span>
             <select id="selDay" onchange="loadFiles()" disabled><option value="">日期</option></select>
+            <div class="archive-breadcrumb-actions">
+              <input type="text" class="search-expand-input" id="searchInput" placeholder="搜索..." onkeydown="if(event.key==='Enter')searchArchive()">
+              <button class="icon-btn" onclick="toggleSearchInput()" title="搜索">🔍</button>
+              <button class="icon-btn" id="toggleFileListBtn" onclick="toggleFileList()" title="折叠列表">📂</button>
+            </div>
           </div>
           <div class="file-list" id="fileList">
             <div class="empty-state">请选择日期查看文件</div>
@@ -2128,6 +2150,32 @@ function drawDailyChart(data) {
   });
 }
 
+// === Archive sidebar toggles ===
+function toggleSearchInput() {
+  const input = document.getElementById('searchInput');
+  input.classList.toggle('expanded');
+  if (input.classList.contains('expanded')) {
+    input.focus();
+  }
+}
+
+function toggleFileList() {
+  const fileList = document.getElementById('fileList');
+  const searchResults = document.getElementById('searchResults');
+  const btn = document.getElementById('toggleFileListBtn');
+  const collapsed = fileList.style.display === 'none';
+  if (collapsed) {
+    fileList.style.display = '';
+    searchResults.style.display === 'none' && (searchResults.style.display = 'none');
+    btn.textContent = '📂';
+    btn.title = '折叠列表';
+  } else {
+    fileList.style.display = 'none';
+    btn.textContent = '📁';
+    btn.title = '展开列表';
+  }
+}
+
 // === Search ===
 let searchKeyword = '';
 
@@ -2199,6 +2247,9 @@ function clearSearch() {
   document.getElementById('searchResults').style.display = 'none';
   document.querySelector('.archive-breadcrumb').style.display = 'flex';
   document.getElementById('fileList').style.display = 'block';
+  const btn = document.getElementById('toggleFileListBtn');
+  btn.textContent = '📂';
+  btn.title = '折叠列表';
 }
 
 // === Publish ===
