@@ -57,7 +57,8 @@ func (p *Puller) Start() {
 }
 
 func (p *Puller) pull() ([]string, error) {
-	req, err := http.NewRequest("GET", p.baseURL+"/pull?queue=queue_general", nil)
+	// 不指定 queue 参数，让服务端自动按优先级拉取（先 zhihu，后 general）
+	req, err := http.NewRequest("GET", p.baseURL+"/pull", nil)
 	if err != nil {
 		return nil, err
 	}
