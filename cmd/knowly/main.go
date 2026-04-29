@@ -164,11 +164,6 @@ func main() {
 			cfg.Relay.Secret,
 			time.Duration(cfg.Relay.Interval)*time.Second,
 			func(content string) {
-				// 当 knasync 启用时，跳过知乎链接（由 Chrome 扩展处理）
-				if cfg.Knasync.Enabled && isZhihuURL(content) {
-					log.Printf("[INFO] Relay skipped Zhihu URL (handled by Chrome extension): %s", truncateURL(content))
-					return
-				}
 				// Relay 内容也走统一的同步+归档流程，处理完后推送结果
 				go func() {
 					enhanced := syncAndArchiveText(client, cfg, content, "relay", histStore, aiProcessor, outboxStore, mon)

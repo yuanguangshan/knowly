@@ -57,8 +57,8 @@ func (p *Puller) Start() {
 }
 
 func (p *Puller) pull() ([]string, error) {
-	// 不指定 queue 参数，让服务端自动按优先级拉取（先 zhihu，后 general）
-	req, err := http.NewRequest("GET", p.baseURL+"/pull", nil)
+	// 只拉取 general 队列，zhihu 队列由 Chrome 扩展处理
+	req, err := http.NewRequest("GET", p.baseURL+"/pull?queue=general", nil)
 	if err != nil {
 		return nil, err
 	}
