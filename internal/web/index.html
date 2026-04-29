@@ -1529,7 +1529,36 @@ function connectLogStream() {
 let archiveInitialized = false;
 
 async function loadYears() {
-  if (archiveInitialized) return;
+  if (archiveInitialized) {
+    // 已初始化时仅重置到今天
+    try {
+      const data = await api('/api/archive/today');
+      const selYear = document.getElementById('selYear');
+      const selMonth = document.getElementById('selMonth');
+      const selDay = document.getElementById('selDay');
+      if (data.year && selYear.querySelector('option[value="' + data.year + '"]')) selYear.value = data.year;
+      selMonth.innerHTML = '<option value="">月份</option>';
+      selMonth.disabled = true;
+      (data.months || []).filter(e => e.is_dir).sort((a, b) => b.name.localeCompare(a.name)).forEach(e => {
+        selMonth.innerHTML += '<option value="' + e.name + '">' + e.name + ' 月</option>';
+      });
+      if (data.month && selMonth.querySelector('option[value="' + data.month + '"]')) {
+        selMonth.value = data.month;
+        selMonth.disabled = false;
+      }
+      selDay.innerHTML = '<option value="">日期</option>';
+      selDay.disabled = true;
+      (data.days || []).filter(e => e.is_dir).sort((a, b) => b.name.localeCompare(a.name)).forEach(e => {
+        selDay.innerHTML += '<option value="' + e.name + '">' + e.name + ' 日</option>';
+      });
+      if (data.day && selDay.querySelector('option[value="' + data.day + '"]')) {
+        selDay.value = data.day;
+        selDay.disabled = false;
+      }
+      renderFileList(data.files || [], data.year + '/' + data.month + '/' + data.day);
+    } catch (e) {}
+    return;
+  }
   archiveInitialized = true;
 
   try {
