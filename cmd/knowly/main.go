@@ -164,6 +164,11 @@ func main() {
 			cfg.Relay.Secret,
 			time.Duration(cfg.Relay.Interval)*time.Second,
 			func(content string) {
+				// 当 knasync 启用时，跳过知乎链接（由 Chrome 扩展处理）
+				if cfg.Knasync.Enabled && isZhihuURL(content) {
+					log.Printf("[INFO] Relay skipped Zhihu URL (handled by Chrome extension): %s", truncateURL(content))
+					return
+				}
 				// Relay 内容也走统一的同步+归档流程，处理完后推送结果
 				go func() {
 					enhanced := syncAndArchiveText(client, cfg, content, "relay", histStore, aiProcessor, outboxStore, mon)
@@ -287,6 +292,19 @@ func handleImagePayload(client *ssh.Client, retryCfg retry.Config, v clipboard.I
 }
 
 // syncPDF 下载 PDF 并保存到 NAS
+// isZhihuURL 检查 URL 是否来自知乎
+func isZhihuURL(url string) bool {
+	return strings.Contains(strings.ToLower(url), "zhihu.com")
+}
+
+// truncateURL 截断 URL 用于日志显示
+func truncateURL(url string) string {
+	if len(url) <= 60 {
+		return url
+	}
+	return url[:60] + "..."
+}
+
 func syncPDF(client *ssh.Client, cfg *config.Config, urlStr string, timestamp time.Time, histStore *history.Store, outboxStore *outbox.Store, source string) {
 	log.Printf("[INFO] %s PDF detected: %s", source, urlStr)
 
