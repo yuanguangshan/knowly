@@ -2222,25 +2222,51 @@ function highlightMatch(text, keyword) {
   return text.replace(re, '<span class="search-highlight">$1</span>');
 }
 
-function openSearchResult(path) {
+async function openSearchResult(path) {
   // 从路径解析 年/月/日/文件名
   const parts = path.split('/');
-  if (parts.length >= 4) {
-    const year = parts[0], month = parts[1], day = parts[2], fileName = parts.slice(3).join('/');
-    document.getElementById('selYear').value = year;
-    document.getElementById('selMonth').innerHTML = '<option value="' + month + '">' + month + ' 月</option>';
-    document.getElementById('selMonth').value = month;
-    document.getElementById('selDay').innerHTML = '<option value="' + day + '">' + day + ' 日</option>';
-    document.getElementById('selDay').value = day;
-  }
-  // 隐藏搜索结果，显示文件列表
+  if (parts.length < 4) return;
+  const year = parts[0], month = parts[1], day = parts[2], fileName = parts.slice(3).join('/');
+
+  // 设置日期选择器
+  document.getElementById('selYear').value = year;
+  document.getElementById('selMonth').innerHTML = '<option value="' + month + '">' + month + ' 月</option>';
+  document.getElementById('selMonth').value = month;
+  document.getElementById('selDay').innerHTML = '<option value="' + day + '">' + day + ' 日</option>';
+  document.getElementById('selDay').value = day;
+
+  // 隐藏搜索结果，显示面包屑和文件列表
   document.getElementById('searchResults').style.display = 'none';
   document.querySelector('.archive-breadcrumb').style.display = 'flex';
-  document.getElementById('fileList').style.display = 'block';
+  const fileListEl = document.getElementById('fileList');
+  fileListEl.style.display = 'block';
+  const btn = document.getElementById('toggleFileListBtn');
+  btn.textContent = '📂';
+  btn.title = '折叠列表';
 
-  // 直接预览该文件
-  const relPath = path;
-  previewFile(relPath, parts[parts.length-1], null);
+  // 加载当天文件列表
+  const dirPath = year + '/' + month + '/' + day;
+  try {
+    const entries = await api('/api/archive/list?path=' + encodeURIComponent(dirPath));
+    renderFileList(entries, dirPath);
+  } catch (e) { /* ignore */ }
+
+  // 在列表中找到对应文件并选中
+  const targetName = fileName.toLowerCase();
+  const items = fileListEl.querySelectorAll('.file-item');
+  let targetEl = null;
+  items.forEach(function(item) {
+    const nameEl = item.querySelector('.file-name');
+    if (nameEl && nameEl.textContent.toLowerCase() === targetName) {
+      targetEl = item;
+    }
+  });
+
+  // 滚动到对应项并预览
+  if (targetEl) {
+    targetEl.scrollIntoView({ block: 'center' });
+  }
+  previewFile(path, parts[parts.length - 1], targetEl);
 }
 
 function clearSearch() {
@@ -2250,6 +2276,9 @@ function clearSearch() {
   const btn = document.getElementById('toggleFileListBtn');
   btn.textContent = '📂';
   btn.title = '折叠列表';
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchInput').classList.remove('expanded');
+  loadYears();
 }
 
 // === Publish ===
