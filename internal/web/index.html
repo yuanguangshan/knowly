@@ -1073,9 +1073,9 @@ select.cfg-input { width: 180px; }
     <!-- 历史面板 -->
     <div class="tab-panel" id="panel-history">
       <div class="toolbar">
-        <button class="btn active" onclick="filterHistory('all')">全部</button>
-        <button class="btn" onclick="filterHistory('text')">文本</button>
-        <button class="btn" onclick="filterHistory('image')">图片</button>
+        <button class="btn active" onclick="filterHistory(event, 'all')">全部</button>
+        <button class="btn" onclick="filterHistory(event, 'text')">文本</button>
+        <button class="btn" onclick="filterHistory(event, 'image')">图片</button>
         <span class="tag-item tag-toggle" id="tagsToggle" style="margin-left:auto;display:none" onclick="toggleTags(event)">展开更多</span>
       </div>
       <div class="tags-bar" id="tagsBar"></div>
@@ -2028,10 +2028,10 @@ function toggleHistoryDetail(el, entry) {
   el.appendChild(detail);
 }
 
-function filterHistory(type) {
+function filterHistory(ev, type) {
   currentHistoryType = type;
   document.querySelectorAll('#panel-history .toolbar .btn').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
+  ev.target.classList.add('active');
   loadHistory();
 }
 
