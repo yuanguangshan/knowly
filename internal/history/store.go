@@ -206,6 +206,13 @@ func (s *Store) compact() error {
 	return nil
 }
 
+// ReadAll 读取所有条目（线程安全，带锁）
+func (s *Store) ReadAll() ([]Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.readAll()
+}
+
 // readAll 读取所有条目（不加锁，调用方需持有锁）
 func (s *Store) readAll() ([]Entry, error) {
 	f, err := os.Open(s.path)

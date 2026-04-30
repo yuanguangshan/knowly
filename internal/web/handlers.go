@@ -361,7 +361,18 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	var entries []history.Entry
 	var err error
 
-	if afterStr != "" {
+	// 有标签过滤时读取全部记录，因为目标条目可能不在最近 N 条中
+	if tagFilter != "" {
+		entries, err = s.histStore.ReadAll()
+		if err != nil {
+			jsonError(w, fmt.Sprintf("无法读取历史: %v", err), http.StatusInternalServerError)
+			return
+		}
+		// 倒序：最新的在前面
+		for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+			entries[i], entries[j] = entries[j], entries[i]
+		}
+	} else if afterStr != "" {
 		// 分页：加载指定时间戳之前的条目
 		afterTime, parseErr := time.Parse("2006-01-02 15:04:05", afterStr)
 		if parseErr != nil {
