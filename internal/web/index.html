@@ -1923,7 +1923,7 @@ function toggleTags(event) {
 }
 
 function filterByTag(tag) {
-  currentTagFilter = tag;
+  currentTagFilter = (currentTagFilter === tag) ? '' : tag;
   loadTags();
   loadHistory();
 }
