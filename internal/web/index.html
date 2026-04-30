@@ -1956,7 +1956,7 @@ async function loadHistory(append) {
       }
     }
 
-    const entries = await api(url);
+    const entries = (await api(url)) || [];
 
     if (entries.length < historyPageSize) {
       historyHasMore = false;
