@@ -1013,6 +1013,7 @@ select.cfg-input { width: 180px; }
     <div class="sidebar-item" onclick="switchTab('history')" id="tab-history">📜 历史</div>
     <div class="sidebar-item" onclick="switchTab('stats')" id="tab-stats">🎀 统计</div>
     <div class="sidebar-item" onclick="switchTab('poe')" id="tab-poe">🌐 Poe</div>
+    <div class="sidebar-item" onclick="switchTab('ds')" id="tab-ds">🌐 DS</div>
     <div class="sidebar-item" onclick="switchTab('admin')" id="tab-admin">⚙️ 设置</div>
   </div>
 
@@ -1118,6 +1119,11 @@ select.cfg-input { width: 180px; }
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- DS 面板 -->
+    <div class="tab-panel" id="panel-ds">
+      <iframe src="https://chat.deepseek.com/" class="poe-iframe" allow="clipboard-read;clipboard-write"></iframe>
     </div>
 
     <!-- Poe 面板 -->
