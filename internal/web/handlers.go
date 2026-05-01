@@ -189,10 +189,7 @@ func tailFile(path string, n int) ([]string, error) {
 		}
 	}
 
-	// 逆序：从最早到最新
-	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
-		lines[i], lines[j] = lines[j], lines[i]
-	}
+	// 已是最新在前的顺序（从文件末尾逆向读取）
 	return lines, nil
 }
 

@@ -1480,6 +1480,35 @@ select.cfg-input { width: 180px; }
 
 <div class="toast" id="toast"></div>
 
+<!-- Edit Modal -->
+<div class="edit-modal-overlay" id="editModal">
+  <div class="edit-modal" onclick="event.stopPropagation()">
+    <div class="edit-modal-title">
+      <span>&#9998;</span> 编辑条目
+      <span class="manual-edit-badge" id="editBadge" style="display:none">已编辑</span>
+    </div>
+    <div class="edit-field">
+      <label>标题</label>
+      <input type="text" id="editTitle" placeholder="条目标题">
+    </div>
+    <div class="edit-field">
+      <label>标签（Enter 添加）</label>
+      <div class="tag-editor" id="editTagEditor">
+        <input type="text" id="editTagInput" placeholder="输入标签...">
+      </div>
+    </div>
+    <div class="edit-field">
+      <label>摘要</label>
+      <textarea id="editSummary" placeholder="内容摘要" rows="3"></textarea>
+    </div>
+    <div class="edit-modal-actions">
+      <button class="btn" onclick="closeEditModal()">取消</button>
+      <button class="btn btn-reprocess" id="btnReprocess" onclick="reprocessEntry()">重新AI处理</button>
+      <button class="btn btn-accent" id="btnSaveEdit" onclick="saveEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
 <script>
 
 // === Motto ===
@@ -1750,17 +1779,21 @@ function fallbackCopy(text) {
 async function loadLogs() {
   try {
     const lines = await api('/api/logs?level=' + currentLevel + '&limit=300');
+    console.log('loadLogs:', lines.length, 'entries');
     const container = document.getElementById('logContainer');
     const html = lines.map(l => buildLogLineHtml(l)).join('');
     container.innerHTML = html;
-  } catch (e) { console.error(e); }
+    console.log('rendered', html.length, 'bytes');
+  } catch (e) { console.error('loadLogs error:', e); }
 }
 
 function buildLogLineHtml(line) {
   var key = (line.time || '') + '|' + (line.raw || line.message || '');
   var level = line.level || '';
   var levelBadge = level ? escHtml(level) : '<span style="opacity:0.3">\u00b7</span>';
-  return '<div class="log-line level-' + (level || 'PLAIN') + '" data-key="' + escHtml(key) + '" data-raw="' + escHtml(line.raw || line.message || '') + '">' +
+  var rawAttr = line.raw ? JSON.stringify(line.raw) : '""';
+  var keyAttr = JSON.stringify(key);
+  return '<div class="log-line level-' + (level || 'PLAIN') + '" data-key=' + keyAttr + ' data-raw=' + rawAttr + '>' +
     '<span class="log-time">' + escHtml((line.time || '').replace(/^\d{4}\//, '')) + '</span>' +
     '<span class="log-level">' + levelBadge + '</span>' +
     '<span class="log-msg">' + escHtml(line.message || line.raw || '') + '</span>' +
@@ -3072,15 +3105,20 @@ function renderEditTagChips() {
   });
 }
 
-document.getElementById('editTagInput').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter' && this.value.trim()) {
-    e.preventDefault();
-    var tag = this.value.trim();
-    if (editingEntryTags.indexOf(tag) === -1) {
-      editingEntryTags.push(tag);
-      renderEditTagChips();
-    }
-    this.value = '';
+document.addEventListener('DOMContentLoaded', function() {
+  var tagInput = document.getElementById('editTagInput');
+  if (tagInput) {
+    tagInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && this.value.trim()) {
+        e.preventDefault();
+        var tag = this.value.trim();
+        if (editingEntryTags.indexOf(tag) === -1) {
+          editingEntryTags.push(tag);
+          renderEditTagChips();
+        }
+        this.value = '';
+      }
+    });
   }
 });
 
@@ -3171,35 +3209,6 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 </script>
-
-<!-- Edit Modal -->
-<div class="edit-modal-overlay" id="editModal">
-  <div class="edit-modal" onclick="event.stopPropagation()">
-    <div class="edit-modal-title">
-      <span>&#9998;</span> 编辑条目
-      <span class="manual-edit-badge" id="editBadge" style="display:none">已编辑</span>
-    </div>
-    <div class="edit-field">
-      <label>标题</label>
-      <input type="text" id="editTitle" placeholder="条目标题">
-    </div>
-    <div class="edit-field">
-      <label>标签（Enter 添加）</label>
-      <div class="tag-editor" id="editTagEditor">
-        <input type="text" id="editTagInput" placeholder="输入标签...">
-      </div>
-    </div>
-    <div class="edit-field">
-      <label>摘要</label>
-      <textarea id="editSummary" placeholder="内容摘要" rows="3"></textarea>
-    </div>
-    <div class="edit-modal-actions">
-      <button class="btn" onclick="closeEditModal()">取消</button>
-      <button class="btn btn-reprocess" id="btnReprocess" onclick="reprocessEntry()">重新AI处理</button>
-      <button class="btn btn-accent" id="btnSaveEdit" onclick="saveEdit()">保存</button>
-    </div>
-  </div>
-</div>
 
 </body>
 </html>
