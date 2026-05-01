@@ -1854,7 +1854,13 @@
             ></iframe>
           </div>
           <div class="ai-subpanel" id="ai-panel-deepseek">
-            <div class="ai-fallback show" id="deepseekFallback">
+            <iframe
+              id="deepseekIframe"
+              class="poe-iframe"
+              allow="clipboard-read; clipboard-write"
+              style="display: none;"
+            ></iframe>
+            <div class="ai-fallback" id="deepseekFallback">
               <div class="ai-fallback-icon">🤖</div>
               <div class="ai-fallback-text" style="color:#d32f2f;">
                 提示：普通网页无法嵌入 DeepSeek 官网<br>
@@ -2681,12 +2687,31 @@
       }
 
       // === AI Sub-tab Switch ===
+      var deepseekLoaded = false;
       function switchAiSubTab(sub) {
         document.querySelectorAll('.ai-subtab').forEach(function(el) { el.classList.remove('active'); });
         document.querySelectorAll('.ai-subpanel').forEach(function(el) { el.classList.remove('active'); });
         document.getElementById('ai-subtab-' + sub).classList.add('active');
         document.getElementById('ai-panel-' + sub).classList.add('active');
-        // DeepSeek 现已改为直接显示外链跳转卡片，且手机端通过 CSS 隐藏选项，无需额外的 iframe 加载逻辑
+        
+        if (sub === 'deepseek') {
+          var iframe = document.getElementById('deepseekIframe');
+          var fallback = document.getElementById('deepseekFallback');
+          
+          // 判断环境：如果自身不是顶层窗口，说明是在 AI Studio Side Panel 的 iframe 内
+          if (window.self !== window.top) {
+            fallback.classList.remove('show');
+            iframe.style.display = 'block';
+            if (!deepseekLoaded) {
+              iframe.src = 'https://chat.deepseek.com/';
+              deepseekLoaded = true;
+            }
+          } else {
+            // 普通页面访问
+            iframe.style.display = 'none';
+            fallback.classList.add('show');
+          }
+        }
       }
 
       // === API Helper ===
