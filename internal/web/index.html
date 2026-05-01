@@ -301,6 +301,12 @@
       .ai-subpanel.active {
         display: flex;
       }
+      /* Mobile Hiding */
+      @media screen and (max-width: 768px) {
+        .hide-on-mobile {
+          display: none !important;
+        }
+      }
       .ai-fallback {
         display: none;
         flex-direction: column;
@@ -1833,7 +1839,7 @@
               Poe
             </div>
             <div
-              class="ai-subtab"
+              class="ai-subtab hide-on-mobile"
               onclick="switchAiSubTab('deepseek')"
               id="ai-subtab-deepseek"
             >
@@ -2678,8 +2684,6 @@
 
       // === AI Sub-tab Switch ===
       var deepseekLoaded = false;
-      // DeepSeek 代理地址（Cloudflare Worker），手机端无需 Chrome 插件即可嵌入
-      var DEEPSEEK_PROXY = 'https://deepseek.yuanguangshan.workers.dev';
       function switchAiSubTab(sub) {
         document.querySelectorAll('.ai-subtab').forEach(function(el) { el.classList.remove('active'); });
         document.querySelectorAll('.ai-subpanel').forEach(function(el) { el.classList.remove('active'); });
@@ -2689,7 +2693,7 @@
         if (sub === 'deepseek' && !deepseekLoaded) {
           var iframe = document.getElementById('deepseekIframe');
           var fallback = document.getElementById('deepseekFallback');
-          iframe.src = DEEPSEEK_PROXY + '/';
+          iframe.src = 'https://chat.deepseek.com/';
           deepseekLoaded = true;
           // 检测 iframe 是否加载成功（5秒超时）
           var checkTimer = setTimeout(function() {
