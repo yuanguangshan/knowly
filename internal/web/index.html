@@ -985,6 +985,149 @@ select.cfg-input { width: 180px; }
   .stats-card-value { font-size: 20px; }
   .chart-row { grid-template-columns: 1fr; }
 }
+
+/* Edit Modal */
+.edit-modal-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 200;
+  justify-content: center;
+  align-items: center;
+}
+.edit-modal-overlay.show { display: flex; }
+.edit-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  width: 90%;
+  max-width: 520px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.edit-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.edit-modal .edit-field { margin-bottom: 14px; }
+.edit-modal .edit-field label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.edit-modal .edit-field input,
+.edit-modal .edit-field textarea {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 13px;
+  outline: none;
+  font-family: inherit;
+}
+.edit-modal .edit-field textarea { resize: vertical; min-height: 70px; }
+.edit-modal .edit-field input:focus,
+.edit-modal .edit-field textarea:focus { border-color: var(--accent); }
+
+/* Tag chip editor */
+.tag-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-height: 34px;
+  padding: 4px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  background: rgba(100,180,255,0.15);
+  color: var(--info);
+  border-radius: 10px;
+  font-size: 12px;
+}
+.tag-chip .tag-remove {
+  cursor: pointer;
+  opacity: 0.5;
+  font-size: 14px;
+  line-height: 1;
+}
+.tag-chip .tag-remove:hover { opacity: 1; color: var(--error); }
+.tag-editor input {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+  flex: 1;
+  min-width: 60px;
+  padding: 2px 4px;
+}
+
+/* Manual edit badge */
+.manual-edit-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(255,213,79,0.15);
+  color: var(--warn);
+  white-space: nowrap;
+}
+
+/* History edit button */
+.history-edit-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.history-edit-btn:hover {
+  background: var(--accent-dim);
+  color: #fff;
+  border-color: var(--accent-dim);
+}
+
+/* Edit modal action buttons */
+.edit-modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+.edit-modal-actions .btn { flex: 1; padding: 8px 12px; }
+.btn-reprocess {
+  background: var(--bg-card);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.btn-reprocess:hover {
+  background: var(--accent-dim);
+  color: #fff;
+}
+.btn-reprocess:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 </style>
 </head>
 <body>
@@ -1983,11 +2126,14 @@ async function loadHistory(append) {
         if (e.tags && e.tags.length) {
           tagsHtml = '<span class="history-tags">' + e.tags.map(t => '<span class="htag">#' + escHtml(t) + '</span>').join('') + '</span>';
         }
+        const editBadge = e.manual_edit ? '<span class="manual-edit-badge">已编辑</span>' : '';
         div.innerHTML =
           '<div class="history-header">' +
             '<span class="history-time">' + escHtml(e.timestamp || '') + '</span>' +
             '<span class="history-type ' + e.type + '">' + typeLabel + '</span>' +
+            editBadge +
             '<div class="history-quick-actions">' +
+              '<button class="history-edit-btn" data-id="' + escHtml(e.id) + '" title="编辑">&#9998; 编辑</button>' +
               '<button class="quick-tag-btn" data-id="' + escHtml(e.id) + '" data-tag="Ima" data-target="ima" title="添加 Ima 标签并发布">+ Ima</button>' +
               '<button class="quick-tag-btn" data-id="' + escHtml(e.id) + '" data-tag="Blog" data-target="blog" title="添加 Blog 标签并发布">+ Blog</button>' +
               '<button class="quick-tag-btn" data-id="' + escHtml(e.id) + '" data-tag="Kindle" data-target="kindle" title="添加 Kindle 标签并发布">+ Kindle</button>' +
@@ -1997,7 +2143,7 @@ async function loadHistory(append) {
           '<div class="history-preview">' + escHtml(preview) + '</div>' +
           tagsHtml;
         div.onclick = function(ev) {
-          if (ev.target.classList.contains('quick-tag-btn')) return;
+          if (ev.target.classList.contains('quick-tag-btn') || ev.target.classList.contains('history-edit-btn')) return;
           toggleHistoryDetail(div, e);
         };
         list.appendChild(div);
@@ -2086,6 +2232,29 @@ document.addEventListener('click', async function(e) {
     btn.textContent = originalText;
     btn.classList.remove('success', 'error');
   }, 3000);
+});
+
+// 编辑按钮点击处理（事件委托）
+document.addEventListener('click', async function(e) {
+  if (!e.target.classList.contains('history-edit-btn')) return;
+
+  e.stopPropagation();
+  const btn = e.target;
+  const id = btn.dataset.id;
+
+  // 获取完整条目信息
+  try {
+    const entry = await api('/api/history/' + id);
+    openEditModal({
+      id: entry.id,
+      title: entry.title || '',
+      tags: entry.tags || [],
+      summary: entry.publish_summary || '',
+      manual_edit: entry.manual_edit || false
+    });
+  } catch (err) {
+    showToast('获取条目失败: ' + err.message);
+  }
 });
 
 // === Stats ===
@@ -2829,6 +2998,118 @@ function toggleThemeMenu() {
   });
 })();
 
+// === Edit Modal ===
+let editingEntryId = '';
+let editingEntryTags = [];
+
+function openEditModal(entry) {
+  editingEntryId = entry.id;
+  editingEntryTags = [...(entry.tags || [])];
+
+  document.getElementById('editTitle').value = entry.title || '';
+  document.getElementById('editSummary').value = entry.publish_summary || entry.summary || '';
+  document.getElementById('editBadge').style.display = entry.manual_edit ? '' : 'none';
+
+  renderEditTagChips();
+  document.getElementById('editModal').classList.add('show');
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').classList.remove('show');
+  editingEntryId = '';
+  editingEntryTags = [];
+}
+
+function renderEditTagChips() {
+  const editor = document.getElementById('editTagEditor');
+  const input = document.getElementById('editTagInput');
+  editor.querySelectorAll('.tag-chip').forEach(c => c.remove());
+  editingEntryTags.forEach(function(tag, i) {
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.innerHTML = escHtml(tag) + '<span class="tag-remove" data-idx="' + i + '">&times;</span>';
+    chip.querySelector('.tag-remove').onclick = function() {
+      editingEntryTags.splice(parseInt(this.dataset.idx), 1);
+      renderEditTagChips();
+    };
+    editor.insertBefore(chip, input);
+  });
+}
+
+document.getElementById('editTagInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && this.value.trim()) {
+    e.preventDefault();
+    var tag = this.value.trim();
+    if (editingEntryTags.indexOf(tag) === -1) {
+      editingEntryTags.push(tag);
+      renderEditTagChips();
+    }
+    this.value = '';
+  }
+});
+
+// 点击 modal 背景关闭
+document.getElementById('editModal').addEventListener('click', function(e) {
+  if (e.target === this) closeEditModal();
+});
+
+// Escape 键关闭 modal
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeEditModal();
+});
+
+async function saveEdit() {
+  if (!editingEntryId) return;
+  var btn = document.getElementById('btnSaveEdit');
+  btn.disabled = true;
+  btn.textContent = '保存中...';
+
+  try {
+    await api('/api/history/' + editingEntryId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: document.getElementById('editTitle').value,
+        tags: editingEntryTags,
+        summary: document.getElementById('editSummary').value
+      })
+    });
+    showToast('已保存');
+    closeEditModal();
+    loadTags();
+    loadHistory();
+  } catch (e) {
+    showToast('保存失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '保存';
+  }
+}
+
+async function reprocessEntry() {
+  if (!editingEntryId) return;
+  var btn = document.getElementById('btnReprocess');
+  btn.disabled = true;
+  btn.textContent = '处理中...';
+
+  try {
+    var result = await api('/api/history/' + editingEntryId + '/reprocess', { method: 'POST' });
+    showToast('AI 处理完成');
+    document.getElementById('editTitle').value = result.title || '';
+    document.getElementById('editSummary').value = result.summary || '';
+    editingEntryTags = result.tags || [];
+    renderEditTagChips();
+    document.getElementById('editBadge').style.display = 'none';
+    loadTags();
+    loadHistory();
+  } catch (e) {
+    showToast('AI 处理失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '重新AI处理';
+  }
+}
+
 // === Init ===
 document.addEventListener('DOMContentLoaded', function() {
   showMotto();
@@ -2854,5 +3135,35 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 </script>
+
+<!-- Edit Modal -->
+<div class="edit-modal-overlay" id="editModal">
+  <div class="edit-modal" onclick="event.stopPropagation()">
+    <div class="edit-modal-title">
+      <span>&#9998;</span> 编辑条目
+      <span class="manual-edit-badge" id="editBadge" style="display:none">已编辑</span>
+    </div>
+    <div class="edit-field">
+      <label>标题</label>
+      <input type="text" id="editTitle" placeholder="条目标题">
+    </div>
+    <div class="edit-field">
+      <label>标签（Enter 添加）</label>
+      <div class="tag-editor" id="editTagEditor">
+        <input type="text" id="editTagInput" placeholder="输入标签...">
+      </div>
+    </div>
+    <div class="edit-field">
+      <label>摘要</label>
+      <textarea id="editSummary" placeholder="内容摘要" rows="3"></textarea>
+    </div>
+    <div class="edit-modal-actions">
+      <button class="btn" onclick="closeEditModal()">取消</button>
+      <button class="btn btn-reprocess" id="btnReprocess" onclick="reprocessEntry()">重新AI处理</button>
+      <button class="btn btn-accent" id="btnSaveEdit" onclick="saveEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

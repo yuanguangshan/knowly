@@ -39,6 +39,10 @@ type Entry struct {
 	// 同步时异步预生成的发布标题/摘要，手动发布时直接使用避免重复 AI 调用
 	PublishTitle   string `json:"publish_title,omitempty"`
 	PublishSummary string `json:"publish_summary,omitempty"`
+	// 用户设置的标题或 AI 生成的标题
+	Title string `json:"title,omitempty"`
+	// 用户是否手动编辑过此条目
+	ManualEdit bool `json:"manual_edit"`
 }
 
 // Store 历史存储
@@ -687,6 +691,10 @@ func (s *Store) UpdatePublishMeta(id, title, summary string) error {
 	found := false
 	for i := range entries {
 		if entries[i].ID == id {
+			// 用户已手动编辑的条目，跳过 AI 覆盖
+			if entries[i].ManualEdit {
+				return nil
+			}
 			entries[i].PublishTitle = title
 			entries[i].PublishSummary = summary
 			found = true
@@ -727,6 +735,91 @@ func (s *Store) UpdatePublishMeta(id, title, summary string) error {
 	f.Close()
 
 	return os.Rename(tmpPath, s.path)
+}
+
+// UpdateEntry 更新指定条目的标题、标签、摘要
+// clearManualEdit=true 时重置 ManualEdit 标志（用于 AI 重新处理后）
+func (s *Store) UpdateEntry(id, title string, newTags []string, summary string, clearManualEdit bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := s.readAll()
+	if err != nil {
+		return err
+	}
+
+	found := false
+	var oldTags []string
+	for i := range entries {
+		if entries[i].ID == id {
+			oldTags = entries[i].Tags
+			if title != "" {
+				entries[i].Title = title
+			}
+			if newTags != nil {
+				// 替换标签（不去重，保持用户设置的顺序）
+				entries[i].Tags = newTags
+			}
+			if summary != "" {
+				entries[i].PublishSummary = summary
+			}
+			entries[i].ManualEdit = !clearManualEdit
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("entry with id %s not found", id)
+	}
+
+	tmpPath := s.path + ".tmp"
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+
+	writer := bufio.NewWriter(f)
+	for _, e := range entries {
+		data, err := json.Marshal(e)
+		if err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+		if _, err := writer.Write(append(data, '\n')); err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+	}
+
+	if err := writer.Flush(); err != nil {
+		f.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	f.Close()
+
+	if err := os.Rename(tmpPath, s.path); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+
+	// 增量更新标签缓存
+	if s.tagCacheBuilt && newTags != nil {
+		oldTagSet := make(map[string]bool)
+		for _, t := range oldTags {
+			oldTagSet[t] = true
+		}
+		for _, t := range newTags {
+			if !oldTagSet[t] {
+				s.tagCache[t]++
+			}
+		}
+	}
+
+	return nil
 }
 
 // GetByID 根据 ID 获取条目
