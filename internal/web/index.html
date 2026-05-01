@@ -471,6 +471,15 @@ body {
 }
 .history-type.text { background: #1a3a5c; color: var(--info); }
 .history-type.image { background: #1a3c1a; color: var(--success); }
+.history-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .history-quick-actions {
   margin-left: auto;
   display: flex;
@@ -2131,6 +2140,7 @@ async function loadHistory(append) {
         const div = document.createElement('div');
         div.className = 'history-item';
         const typeLabel = e.type === 'text' ? '文本' : '图片';
+        const title = e.title || '';
         const lines = (e.content || '').split('\n').filter(l => l.trim());
         const preview = lines.slice(0, 3).join('\n') + (lines.length > 3 ? '\n...' : '');
         let tagsHtml = '';
@@ -2138,6 +2148,7 @@ async function loadHistory(append) {
           tagsHtml = '<span class="history-tags">' + e.tags.map(t => '<span class="htag">#' + escHtml(t) + '</span>').join('') + '</span>';
         }
         const editBadge = e.manual_edit ? '<span class="manual-edit-badge">已编辑</span>' : '';
+        const titleHtml = title ? '<div class="history-title">' + escHtml(title) + '</div>' : '';
         div.innerHTML =
           '<div class="history-header">' +
             '<span class="history-time">' + escHtml(e.timestamp || '') + '</span>' +
@@ -2151,6 +2162,7 @@ async function loadHistory(append) {
               '<button class="quick-tag-btn" data-id="' + escHtml(e.id) + '" data-tag="Podcast" data-target="podcast" title="添加 Podcast 标签并发布">+ Podcast</button>' +
             '</div>' +
           '</div>' +
+          titleHtml +
           '<div class="history-preview">' + escHtml(preview) + '</div>' +
           tagsHtml;
         div.onclick = function(ev) {
