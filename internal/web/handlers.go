@@ -76,42 +76,35 @@ func parseLogLine(line string) map[string]string {
 	return result
 }
 
-// handleLogs 读取日志文件
+// handleLogs 读取日志文件，从末尾逆向读取最后 N 行
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	level := r.URL.Query().Get("level")
 	limitStr := r.URL.Query().Get("limit")
-	limit := 200
+	limit := 300
 	if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
 		limit = n
 	}
 
 	logPath := config.GetLogPath()
-	f, err := os.Open(logPath)
+	lines, err := tailFile(logPath, limit)
 	if err != nil {
 		jsonError(w, "无法读取日志文件", http.StatusInternalServerError)
 		return
 	}
-	defer f.Close()
 
-	var lines []string
-	scanner := bufio.NewScanner(f)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 2*1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if level != "" && level != "all" {
-			if !strings.Contains(line, "["+level+"]") {
-				continue
+	// 按级别过滤
+	if level != "" && level != "all" {
+		filtered := make([]string, 0, len(lines))
+		pat := "[" + level + "]"
+		for _, line := range lines {
+			if strings.Contains(line, pat) {
+				filtered = append(filtered, line)
 			}
 		}
-		lines = append(lines, line)
+		lines = filtered
 	}
 
-	if len(lines) > limit {
-		lines = lines[len(lines)-limit:]
-	}
-
-	// 合并多行日志：非时间戳开头的行追加到上一条
+	// 合并多行日志
 	merged := make([]string, 0, len(lines))
 	for _, line := range lines {
 		if len(line) >= 19 && line[4] == '/' && line[7] == '/' && line[10] == ' ' {
@@ -127,6 +120,80 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResp(w, result)
+}
+
+// tailFile 从文件末尾逆向读取最后 N 行
+func tailFile(path string, n int) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fileSize := fi.Size()
+	if fileSize == 0 {
+		return nil, nil
+	}
+
+	var lines []string
+	var tailBuf []byte
+	remaining := fileSize
+	const blockSize = int64(4096)
+	bufPool := make([]byte, 0, blockSize)
+
+	for remaining > 0 && len(lines) < n {
+		readSize := blockSize
+		if remaining < readSize {
+			readSize = remaining
+		}
+		remaining -= readSize
+
+		bufPool = bufPool[:readSize]
+		if _, err := f.Seek(remaining, 0); err != nil {
+			return nil, err
+		}
+		if _, err := f.Read(bufPool); err != nil {
+			return nil, err
+		}
+
+		combined := make([]byte, int(readSize)+len(tailBuf))
+		copy(combined, bufPool)
+		copy(combined[readSize:], tailBuf)
+		tailBuf = nil
+
+		data := combined
+		for i := len(data) - 1; i >= 0 && len(lines) < n; i-- {
+			if data[i] == '\n' {
+				if i < len(data)-1 {
+					line := strings.TrimRight(string(data[i+1:]), "\r")
+					if line != "" {
+						lines = append(lines, line)
+					}
+				}
+				data = data[:i]
+			}
+		}
+		if len(data) > 0 {
+			tailBuf = data
+		}
+	}
+
+	if len(tailBuf) > 0 && len(lines) < n {
+		line := strings.TrimRight(string(tailBuf), "\r")
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+
+	// 逆序：从最早到最新
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+		lines[i], lines[j] = lines[j], lines[i]
+	}
+	return lines, nil
 }
 
 // handleLogStream SSE 实时日志流
