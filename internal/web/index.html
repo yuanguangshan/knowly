@@ -96,6 +96,17 @@
         display: flex;
         flex-direction: column;
       }
+      /* Top Section (header + motto) - auto-hide on scroll */
+      .top-section {
+        flex-shrink: 0;
+        overflow: hidden;
+        transition: max-height 0.25s ease, opacity 0.2s ease;
+        max-height: 80px;
+      }
+      .top-section.hidden {
+        max-height: 0;
+        opacity: 0;
+      }
       /* Header */
       .header {
         display: flex;
@@ -1540,6 +1551,7 @@
     </style>
   </head>
   <body>
+    <div class="top-section" id="topSection">
     <div class="header">
       <div class="header-left">
         <h1
@@ -1602,6 +1614,7 @@
       <div class="status-info" id="headerStatus"></div>
     </div>
     <div class="motto-bar" id="mottoBar"></div>
+    </div>
 
     <div class="main-layout">
       <div class="sidebar">
@@ -4587,6 +4600,29 @@
         }
       }
 
+      // === Auto-hide top section on scroll ===
+      function setupScrollHide(el) {
+        if (!el || el._scrollHideSetup) return;
+        el._scrollHideSetup = true;
+        var topSection = document.getElementById('topSection');
+        var lastY = 0;
+        var timer = null;
+        el.addEventListener('scroll', function() {
+          var y = el.scrollTop;
+          if (timer) cancelAnimationFrame(timer);
+          timer = requestAnimationFrame(function() {
+            if (y > lastY && y > 16) topSection.classList.add('hidden');
+            else if (y < lastY) topSection.classList.remove('hidden');
+            lastY = y;
+          });
+        }, { passive: true });
+      }
+
+      function attachScrollHide(selector) {
+        var el = document.querySelector(selector);
+        if (el) setupScrollHide(el);
+      }
+
       // === Init ===
       document.addEventListener("DOMContentLoaded", function () {
         showMotto();
@@ -4615,6 +4651,14 @@
               copyText(text);
             }
           });
+
+        // Attach scroll-based auto-hide for top section
+        attachScrollHide('.log-container');
+        attachScrollHide('.file-list');
+        attachScrollHide('.preview-content');
+        attachScrollHide('.history-list');
+        attachScrollHide('.stats-container');
+        attachScrollHide('.admin-container');
       });
     </script>
   </body>
