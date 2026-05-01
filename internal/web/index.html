@@ -301,6 +301,46 @@
       .ai-subpanel.active {
         display: flex;
       }
+      .ai-fallback {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        flex: 1;
+        gap: 16px;
+        padding: 40px;
+        text-align: center;
+      }
+      .ai-fallback.show {
+        display: flex;
+      }
+      .ai-fallback-icon {
+        font-size: 48px;
+        opacity: 0.6;
+      }
+      .ai-fallback-text {
+        font-size: 14px;
+        color: var(--text-secondary);
+        line-height: 1.8;
+        max-width: 320px;
+      }
+      .ai-fallback-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 24px;
+        background: linear-gradient(135deg, #4b6cb7, #182848);
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        cursor: pointer;
+        text-decoration: none;
+        transition: opacity 0.2s;
+      }
+      .ai-fallback-btn:hover {
+        opacity: 0.85;
+      }
       /* Toolbar */
       .toolbar {
         display: flex;
@@ -1813,6 +1853,16 @@
               class="poe-iframe"
               allow="clipboard-read; clipboard-write"
             ></iframe>
+            <div class="ai-fallback" id="deepseekFallback">
+              <div class="ai-fallback-icon">🤖</div>
+              <div class="ai-fallback-text">
+                当前浏览器不支持嵌入 DeepSeek<br>
+                （需在桌面 Chrome 安装 AI Studio Side Panel 插件）
+              </div>
+              <a class="ai-fallback-btn" href="https://chat.deepseek.com/" target="_blank" rel="noopener">
+                🚀 在新标签页打开 DeepSeek
+              </a>
+            </div>
           </div>
         </div>
 
@@ -2630,19 +2680,33 @@
       // === AI Sub-tab Switch ===
       var deepseekLoaded = false;
       function switchAiSubTab(sub) {
-        document
-          .querySelectorAll(".ai-subtab")
-          .forEach((el) => el.classList.remove("active"));
-        document
-          .querySelectorAll(".ai-subpanel")
-          .forEach((el) => el.classList.remove("active"));
-        document.getElementById("ai-subtab-" + sub).classList.add("active");
-        document.getElementById("ai-panel-" + sub).classList.add("active");
+        document.querySelectorAll('.ai-subtab').forEach(function(el) { el.classList.remove('active'); });
+        document.querySelectorAll('.ai-subpanel').forEach(function(el) { el.classList.remove('active'); });
+        document.getElementById('ai-subtab-' + sub).classList.add('active');
+        document.getElementById('ai-panel-' + sub).classList.add('active');
         // Lazy-load DeepSeek iframe on first visit
-        if (sub === "deepseek" && !deepseekLoaded) {
-          document.getElementById("deepseekIframe").src =
-            "https://chat.deepseek.com/";
+        if (sub === 'deepseek' && !deepseekLoaded) {
+          var iframe = document.getElementById('deepseekIframe');
+          var fallback = document.getElementById('deepseekFallback');
+          iframe.src = 'https://chat.deepseek.com/';
           deepseekLoaded = true;
+          // 检测 iframe 是否加载成功（3秒超时）
+          var checkTimer = setTimeout(function() {
+            // 如果 iframe 内容高度为 0 或不可访问，说明被阻止了
+            try {
+              var doc = iframe.contentDocument || iframe.contentWindow.document;
+              // 如果能访问且有内容就是成功
+              if (doc && doc.body && doc.body.innerHTML.length > 0) return;
+            } catch(e) { /* 跨域访问被阻止 = 正常加载中 */ return; }
+            // 确实加载失败
+            iframe.style.display = 'none';
+            fallback.classList.add('show');
+          }, 3000);
+          iframe.addEventListener('error', function() {
+            clearTimeout(checkTimer);
+            iframe.style.display = 'none';
+            fallback.classList.add('show');
+          });
         }
       }
 
