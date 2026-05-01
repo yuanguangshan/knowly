@@ -1749,30 +1749,31 @@ function fallbackCopy(text) {
 // === Logs ===
 async function loadLogs() {
   try {
-    const lines = await api('/api/logs?level=' + currentLevel + '&limit=200');
+    const lines = await api('/api/logs?level=' + currentLevel + '&limit=300');
     const container = document.getElementById('logContainer');
-    container.innerHTML = '';
-    lines.forEach(l => appendLogLine(l));
+    const html = lines.map(l => buildLogLineHtml(l)).join('');
+    container.innerHTML = html;
   } catch (e) { console.error(e); }
+}
+
+function buildLogLineHtml(line) {
+  var key = (line.time || '') + '|' + (line.raw || line.message || '');
+  var level = line.level || '';
+  var levelBadge = level ? escHtml(level) : '<span style="opacity:0.3">\u00b7</span>';
+  return '<div class="log-line level-' + (level || 'PLAIN') + '" data-key="' + escHtml(key) + '" data-raw="' + escHtml(line.raw || line.message || '') + '">' +
+    '<span class="log-time">' + escHtml((line.time || '').replace(/^\d{4}\//, '')) + '</span>' +
+    '<span class="log-level">' + levelBadge + '</span>' +
+    '<span class="log-msg">' + escHtml(line.message || line.raw || '') + '</span>' +
+    '</div>';
 }
 
 function appendLogLine(line) {
   const container = document.getElementById('logContainer');
   var key = (line.time || '') + '|' + (line.raw || line.message || '');
   if (container.firstChild && container.firstChild.dataset && container.firstChild.dataset.key === key) return;
-  var next = container.firstChild;
-  while (next && next.dataset && next.dataset.key === key) { next = next.nextElementSibling; }
   const div = document.createElement('div');
-  var level = line.level || '';
-  div.className = 'log-line level-' + (level || 'PLAIN');
-  div.dataset.key = key;
-  div.dataset.raw = line.raw || line.message || '';
-  var levelBadge = level ? escHtml(level) : '<span style="opacity:0.3">·</span>';
-  div.innerHTML =
-    '<span class="log-time">' + escHtml((line.time || '').replace(/^\d{4}\//, '')) + '</span>' +
-    '<span class="log-level">' + levelBadge + '</span>' +
-    '<span class="log-msg">' + escHtml(line.message || line.raw || '') + '</span>';
-  container.insertBefore(div, container.firstChild);
+  div.innerHTML = buildLogLineHtml(line);
+  container.insertBefore(div.firstChild, container.firstChild);
 }
 
 function filterLogs(level) {
