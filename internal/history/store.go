@@ -95,8 +95,33 @@ func (s *Store) loadStats() {
 		if json.Unmarshal(data, &st) == nil {
 			s.totalSyncs = st.TotalSyncs
 			s.compactCount = st.CompactCount
+			return
 		}
 	}
+
+	// 无持久化文件时，用当前 history.jsonl 行数作为基准
+	if lines := s.countLines(); lines > 0 {
+		s.totalSyncs = lines
+		s.compactCount = 0
+		s.saveStats()
+	}
+}
+
+// countLines 快速统计文件行数
+func (s *Store) countLines() int {
+	f, err := os.Open(s.path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
+	count := 0
+	for scanner.Scan() {
+		count++
+	}
+	return count
 }
 
 // saveStats 持久化累计统计
