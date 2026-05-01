@@ -28,6 +28,7 @@ type DirEntry struct {
 	IsDir   bool   `json:"is_dir"`
 	Size    int64  `json:"size"`
 	ModTime string `json:"mod_time"`
+	Title   string `json:"title,omitempty"` // frontmatter 中的 AI 标题
 }
 
 // ContentMetadata AI 处理后的元数据，用于扩展归档文件的 frontmatter
@@ -841,6 +842,63 @@ func (c *Client) ListDir(remotePath string) ([]DirEntry, error) {
 	}
 
 	return entries, nil
+}
+
+// TitleEntry 批量提取的标题结果
+type TitleEntry struct {
+	Name  string
+	Title string
+}
+
+// BatchExtractTitles 一次性提取目录下所有 .md 文件的 frontmatter title
+func (c *Client) BatchExtractTitles(relPath string, entries []DirEntry) []TitleEntry {
+	// 过滤出 .md 文件
+	var mdFiles []string
+	for _, e := range entries {
+		if !e.IsDir && strings.HasSuffix(strings.ToLower(e.Name), ".md") {
+			mdFiles = append(mdFiles, e.Name)
+		}
+	}
+	if len(mdFiles) == 0 {
+		return nil
+	}
+
+	session, release, err := c.newSession()
+	if err != nil {
+		return nil
+	}
+	defer release()
+
+	dirPath := c.expandPath(filepath.Join(c.config.BasePath, relPath))
+
+	// 用一条命令批量提取：遍历 .md 文件，提取 title 行，输出 FILENAME<TAB>TITLE
+	cmd := fmt.Sprintf("cd %s && for f in %s; do title=$(head -12 \"$f\" | grep '^title:' | head -1 | sed 's/^title:\\s*\"//;s/\"$//'); [ -n \"$title\" ] && echo \"$f	$title\"; done",
+		shellEscape(dirPath),
+		func() string {
+			quoted := make([]string, len(mdFiles))
+			for i, f := range mdFiles {
+				quoted[i] = shellEscape(f)
+			}
+			return strings.Join(quoted, " ")
+		}())
+
+	output, err := session.Output(cmd)
+	if err != nil {
+		return nil
+	}
+
+	var result []TitleEntry
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) == 2 && parts[1] != "" {
+			result = append(result, TitleEntry{Name: parts[0], Title: parts[1]})
+		}
+	}
+	return result
 }
 
 // SearchResult 搜索结果条目

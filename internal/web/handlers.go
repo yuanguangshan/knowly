@@ -214,6 +214,20 @@ func (s *Server) handleArchiveList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 为 .md 文件提取 frontmatter 标题（一次性批量获取）
+	titles := s.sshClient.BatchExtractTitles(fullPath, entries)
+	titleMap := make(map[string]string)
+	for _, t := range titles {
+		titleMap[t.Name] = t.Title
+	}
+	for i := range entries {
+		if !entries[i].IsDir && strings.HasSuffix(strings.ToLower(entries[i].Name), ".md") {
+			if t, ok := titleMap[entries[i].Name]; ok {
+				entries[i].Title = t
+			}
+		}
+	}
+
 	jsonResp(w, entries)
 }
 
@@ -277,7 +291,21 @@ func (s *Server) handleArchiveToday(w http.ResponseWriter, r *http.Request) {
 		case "days":
 			resp.Days = r.entries
 		case "files":
-			resp.Files = r.entries
+				// 为 .md 文件提取 frontmatter 标题
+				files := r.entries
+				titles := s.sshClient.BatchExtractTitles(year+"/"+month+"/"+day, files)
+				titleMap := make(map[string]string)
+				for _, t := range titles {
+					titleMap[t.Name] = t.Title
+				}
+				for i := range files {
+					if !files[i].IsDir && strings.HasSuffix(strings.ToLower(files[i].Name), ".md") {
+						if t, ok := titleMap[files[i].Name]; ok {
+							files[i].Title = t
+						}
+					}
+				}
+				resp.Files = files
 		}
 	}
 

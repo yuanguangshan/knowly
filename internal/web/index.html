@@ -1909,10 +1909,11 @@ function renderFileList(entries, path) {
     const isImg = f.name.endsWith('.png') || f.name.endsWith('.jpg');
     const icon = isImg ? '🖼' : '📄';
     const sizeStr = f.size > 1024 ? (f.size / 1024).toFixed(1) + ' KB' : f.size + ' B';
+    const displayName = f.title || f.name;
     div.innerHTML =
       '<span class="file-icon">' + icon + '</span>' +
       '<div class="file-info">' +
-        '<div class="file-name">' + escHtml(f.name) + '</div>' +
+        '<div class="file-name">' + escHtml(displayName) + '</div>' +
         '<div class="file-meta">' + escHtml(f.mod_time) + ' · ' + sizeStr + '</div>' +
       '</div>';
     div.onclick = function() { previewFile(path + '/' + f.name, f.name, div); };
@@ -1959,12 +1960,22 @@ async function previewFile(path, name, itemEl) {
       const res = await fetch('/api/archive/file?path=' + encodeURIComponent(path));
       const text = await res.text();
       currentFileContent = text;
-      // Strip YAML frontmatter
+      // Strip YAML frontmatter and extract title
       let content = text;
+      let displayTitle = name;
       if (content.startsWith('---')) {
         const end = content.indexOf('---', 3);
-        if (end > 0) content = content.substring(end + 3).trim();
+        if (end > 0) {
+          const fm = content.substring(4, end);
+          // 提取 frontmatter 中的 title
+          const titleMatch = fm.match(/^title:\s*"(.+?)"/m);
+          if (titleMatch && titleMatch[1]) {
+            displayTitle = titleMatch[1];
+          }
+          content = content.substring(end + 3).trim();
+        }
       }
+      title.textContent = displayTitle;
       preview.innerHTML = '<div class="md-body">' + renderMarkdown(content) + '</div>';
       document.getElementById('publishDropdown').style.display = 'inline-block';
     } catch (e) {
