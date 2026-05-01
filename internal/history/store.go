@@ -54,8 +54,9 @@ type Store struct {
 	count      int  // 已追踪的条目数
 	counted    bool // 是否已统计过
 
-	totalSyncs  int // 累计同步总数（持久化，不受 compact 影响）
-	compactCount int // compact 次数
+	totalSyncs   int            // 累计同步总数（持久化，不受 compact 影响）
+	compactCount int            // compact 次数
+	dailyCounts  map[string]int // 按天统计的同步数（持久化，格式 "2006-01-02"）
 
 	tagCache      map[string]int // 标签计数缓存，避免每次 AllTags 全量扫描
 	tagCacheBuilt bool            // 标签缓存是否已构建
@@ -89,20 +90,39 @@ func NewStoreWithLimit(dir string, maxEntries int) *Store {
 func (s *Store) loadStats() {
 	if data, err := os.ReadFile(s.statsPath); err == nil {
 		var st struct {
-			TotalSyncs   int `json:"total_syncs"`
-			CompactCount int `json:"compact_count"`
+			TotalSyncs   int            `json:"total_syncs"`
+			CompactCount int            `json:"compact_count"`
+			DailyCounts  map[string]int `json:"daily_counts"`
 		}
 		if json.Unmarshal(data, &st) == nil {
 			s.totalSyncs = st.TotalSyncs
 			s.compactCount = st.CompactCount
+			s.dailyCounts = st.DailyCounts
+			if s.dailyCounts == nil {
+				s.dailyCounts = make(map[string]int)
+			}
 			return
 		}
 	}
 
 	// 无持久化文件时，用当前 history.jsonl 行数作为基准
+	s.dailyCounts = make(map[string]int)
 	if lines := s.countLines(); lines > 0 {
 		s.totalSyncs = lines
 		s.compactCount = 0
+		// 从当前文件统计每日数量
+		if f, err := os.Open(s.path); err == nil {
+			scanner := bufio.NewScanner(f)
+			scanner.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
+			for scanner.Scan() {
+				var e Entry
+				if json.Unmarshal(scanner.Bytes(), &e) == nil {
+					day := e.Timestamp.Format("2006-01-02")
+					s.dailyCounts[day]++
+				}
+			}
+			f.Close()
+		}
 		s.saveStats()
 	}
 }
@@ -126,9 +146,10 @@ func (s *Store) countLines() int {
 
 // saveStats 持久化累计统计
 func (s *Store) saveStats() {
-	data, _ := json.Marshal(map[string]int{
+	data, _ := json.Marshal(map[string]interface{}{
 		"total_syncs":   s.totalSyncs,
 		"compact_count": s.compactCount,
+		"daily_counts":  s.dailyCounts,
 	})
 	os.WriteFile(s.statsPath, data, 0644)
 }
@@ -189,6 +210,11 @@ func (s *Store) Append(entry Entry) (string, error) {
 	// 跟踪条目数，超过阈值时压缩
 	s.count++
 	s.totalSyncs++
+	day := entry.Timestamp.Format("2006-01-02")
+	if s.dailyCounts == nil {
+		s.dailyCounts = make(map[string]int)
+	}
+	s.dailyCounts[day]++
 	s.saveStats()
 	if s.count > s.maxEntries*2 {
 		if err := s.compact(); err != nil {
@@ -524,54 +550,40 @@ func (s *Store) Stats() (*Stats, error) {
 	stats.TextCount = textCount
 	stats.ImageCount = imageCount
 
-	// 按天聚合
-	dayMap := make(map[string]int)
-	for _, e := range entries {
-		day := e.Timestamp.Format("2006-01-02")
-		dayMap[day]++
-	}
-
+	// 使用持久化的每日计数（不受 compact 影响）
 	// 最近 30 天趋势
 	now := time.Now()
 	for i := 29; i >= 0; i-- {
 		d := now.AddDate(0, 0, -i).Format("2006-01-02")
 		stats.DailyTrend = append(stats.DailyTrend, DayCount{
 			Date:  d,
-			Count: dayMap[d],
+			Count: s.dailyCounts[d],
 		})
 	}
 
-	// 按周聚合（ISO 周）
-	type weekKey struct {
-		year, week int
-	}
-	weekMap := make(map[weekKey]struct {
-		text, image int
-	})
-	for _, e := range entries {
-		y, w := e.Timestamp.ISOWeek()
-		k := weekKey{y, w}
-		s := weekMap[k]
-		if e.Type == "text" {
-			s.text++
-		} else {
-			s.image++
+	// 按周聚合 — 从持久化的每日计数推导（不受 compact 影响）
+	// 由于 compact 后无法回溯类型，周趋势只显示总数
+	weekCounts := make(map[string]int)
+	for day, count := range s.dailyCounts {
+		t, err := time.Parse("2006-01-02", day)
+		if err != nil {
+			continue
 		}
-		weekMap[k] = s
+		y, w := t.ISOWeek()
+		label := fmt.Sprintf("%d-W%02d", y, w)
+		weekCounts[label] += count
 	}
 
 	// 最近 8 周
 	for i := 7; i >= 0; i-- {
 		t := now.AddDate(0, 0, -7*i)
 		y, w := t.ISOWeek()
-		k := weekKey{y, w}
-		s := weekMap[k]
 		label := fmt.Sprintf("%d-W%02d", y, w)
 		stats.WeeklyTrend = append(stats.WeeklyTrend, WeekCount{
 			Label:      label,
-			Count:      s.text + s.image,
-			TextCount:  s.text,
-			ImageCount: s.image,
+			Count:      weekCounts[label],
+			TextCount:  0,
+			ImageCount: 0,
 		})
 	}
 
