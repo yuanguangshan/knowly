@@ -48,10 +48,14 @@ type Entry struct {
 // Store 历史存储
 type Store struct {
 	path       string
+	statsPath  string // stats.json 路径
 	mu         sync.Mutex
 	maxEntries int
 	count      int  // 已追踪的条目数
 	counted    bool // 是否已统计过
+
+	totalSyncs  int // 累计同步总数（持久化，不受 compact 影响）
+	compactCount int // compact 次数
 
 	tagCache      map[string]int // 标签计数缓存，避免每次 AllTags 全量扫描
 	tagCacheBuilt bool            // 标签缓存是否已构建
@@ -59,20 +63,49 @@ type Store struct {
 
 // NewStore 创建历史存储实例
 func NewStore(dir string) *Store {
-	return &Store{
+	s := &Store{
 		path:       filepath.Join(dir, "history.jsonl"),
+		statsPath:  filepath.Join(dir, "history_stats.json"),
 		maxEntries: defaultMaxEntries,
 		tagCache:   make(map[string]int),
 	}
+	s.loadStats()
+	return s
 }
 
 // NewStoreWithLimit 创建带自定义最大条目数的存储实例
 func NewStoreWithLimit(dir string, maxEntries int) *Store {
-	return &Store{
+	s := &Store{
 		path:       filepath.Join(dir, "history.jsonl"),
+		statsPath:  filepath.Join(dir, "history_stats.json"),
 		maxEntries: maxEntries,
 		tagCache:   make(map[string]int),
 	}
+	s.loadStats()
+	return s
+}
+
+// loadStats 从 stats 文件加载累计统计
+func (s *Store) loadStats() {
+	if data, err := os.ReadFile(s.statsPath); err == nil {
+		var st struct {
+			TotalSyncs   int `json:"total_syncs"`
+			CompactCount int `json:"compact_count"`
+		}
+		if json.Unmarshal(data, &st) == nil {
+			s.totalSyncs = st.TotalSyncs
+			s.compactCount = st.CompactCount
+		}
+	}
+}
+
+// saveStats 持久化累计统计
+func (s *Store) saveStats() {
+	data, _ := json.Marshal(map[string]int{
+		"total_syncs":   s.totalSyncs,
+		"compact_count": s.compactCount,
+	})
+	os.WriteFile(s.statsPath, data, 0644)
 }
 
 // ensureCount 在首次需要时统计文件行数
@@ -130,6 +163,8 @@ func (s *Store) Append(entry Entry) (string, error) {
 
 	// 跟踪条目数，超过阈值时压缩
 	s.count++
+	s.totalSyncs++
+	s.saveStats()
 	if s.count > s.maxEntries*2 {
 		if err := s.compact(); err != nil {
 			log.Printf("[WARN] History compaction failed: %v", err)
@@ -196,6 +231,8 @@ func (s *Store) compact() error {
 	}
 
 	s.count = len(keep)
+	s.compactCount++
+	s.saveStats()
 
 	// compact 后重建标签缓存
 	s.tagCache = make(map[string]int)
@@ -425,11 +462,12 @@ type DayCount struct {
 
 // Stats 统计数据
 type Stats struct {
-	TotalSyncs  int         `json:"total_syncs"`
-	TextCount   int         `json:"text_count"`
-	ImageCount  int         `json:"image_count"`
-	WeeklyTrend []WeekCount `json:"weekly_trend"`
-	DailyTrend  []DayCount  `json:"daily_trend"`
+	TotalSyncs   int         `json:"total_syncs"`
+	CompactCount int         `json:"compact_count"`
+	TextCount    int         `json:"text_count"`
+	ImageCount   int         `json:"image_count"`
+	WeeklyTrend  []WeekCount `json:"weekly_trend"`
+	DailyTrend   []DayCount  `json:"daily_trend"`
 }
 
 // Stats 聚合统计历史数据
@@ -443,7 +481,7 @@ func (s *Store) Stats() (*Stats, error) {
 	}
 
 	stats := &Stats{
-		TotalSyncs:  len(entries),
+		TotalSyncs:  s.totalSyncs,
 		WeeklyTrend: make([]WeekCount, 0, 8),
 		DailyTrend:  make([]DayCount, 0, 30),
 	}
