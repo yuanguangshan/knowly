@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const defaultMaxEntries = 1000
+const defaultMaxEntries = 20000
 
 // readBlockSize 逆向读取的块大小
 const readBlockSize = 4096
@@ -48,15 +48,10 @@ type Entry struct {
 // Store 历史存储
 type Store struct {
 	path       string
-	statsPath  string // stats.json 路径
 	mu         sync.Mutex
 	maxEntries int
 	count      int  // 已追踪的条目数
 	counted    bool // 是否已统计过
-
-	totalSyncs   int            // 累计同步总数（持久化，不受 compact 影响）
-	compactCount int            // compact 次数
-	dailyCounts  map[string]int // 按天统计的同步数（持久化，格式 "2006-01-02"）
 
 	tagCache      map[string]int // 标签计数缓存，避免每次 AllTags 全量扫描
 	tagCacheBuilt bool            // 标签缓存是否已构建
@@ -64,94 +59,20 @@ type Store struct {
 
 // NewStore 创建历史存储实例
 func NewStore(dir string) *Store {
-	s := &Store{
+	return &Store{
 		path:       filepath.Join(dir, "history.jsonl"),
-		statsPath:  filepath.Join(dir, "history_stats.json"),
 		maxEntries: defaultMaxEntries,
 		tagCache:   make(map[string]int),
 	}
-	s.loadStats()
-	return s
 }
 
 // NewStoreWithLimit 创建带自定义最大条目数的存储实例
 func NewStoreWithLimit(dir string, maxEntries int) *Store {
-	s := &Store{
+	return &Store{
 		path:       filepath.Join(dir, "history.jsonl"),
-		statsPath:  filepath.Join(dir, "history_stats.json"),
 		maxEntries: maxEntries,
 		tagCache:   make(map[string]int),
 	}
-	s.loadStats()
-	return s
-}
-
-// loadStats 从 stats 文件加载累计统计
-func (s *Store) loadStats() {
-	if data, err := os.ReadFile(s.statsPath); err == nil {
-		var st struct {
-			TotalSyncs   int            `json:"total_syncs"`
-			CompactCount int            `json:"compact_count"`
-			DailyCounts  map[string]int `json:"daily_counts"`
-		}
-		if json.Unmarshal(data, &st) == nil {
-			s.totalSyncs = st.TotalSyncs
-			s.compactCount = st.CompactCount
-			s.dailyCounts = st.DailyCounts
-			if s.dailyCounts == nil {
-				s.dailyCounts = make(map[string]int)
-			}
-			return
-		}
-	}
-
-	// 无持久化文件时，用当前 history.jsonl 行数作为基准
-	s.dailyCounts = make(map[string]int)
-	if lines := s.countLines(); lines > 0 {
-		s.totalSyncs = lines
-		s.compactCount = 0
-		// 从当前文件统计每日数量
-		if f, err := os.Open(s.path); err == nil {
-			scanner := bufio.NewScanner(f)
-			scanner.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
-			for scanner.Scan() {
-				var e Entry
-				if json.Unmarshal(scanner.Bytes(), &e) == nil {
-					day := e.Timestamp.Format("2006-01-02")
-					s.dailyCounts[day]++
-				}
-			}
-			f.Close()
-		}
-		s.saveStats()
-	}
-}
-
-// countLines 快速统计文件行数
-func (s *Store) countLines() int {
-	f, err := os.Open(s.path)
-	if err != nil {
-		return 0
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
-	count := 0
-	for scanner.Scan() {
-		count++
-	}
-	return count
-}
-
-// saveStats 持久化累计统计
-func (s *Store) saveStats() {
-	data, _ := json.Marshal(map[string]interface{}{
-		"total_syncs":   s.totalSyncs,
-		"compact_count": s.compactCount,
-		"daily_counts":  s.dailyCounts,
-	})
-	os.WriteFile(s.statsPath, data, 0644)
 }
 
 // ensureCount 在首次需要时统计文件行数
@@ -209,13 +130,6 @@ func (s *Store) Append(entry Entry) (string, error) {
 
 	// 跟踪条目数，超过阈值时压缩
 	s.count++
-	s.totalSyncs++
-	day := entry.Timestamp.Format("2006-01-02")
-	if s.dailyCounts == nil {
-		s.dailyCounts = make(map[string]int)
-	}
-	s.dailyCounts[day]++
-	s.saveStats()
 	if s.count > s.maxEntries*2 {
 		if err := s.compact(); err != nil {
 			log.Printf("[WARN] History compaction failed: %v", err)
@@ -282,8 +196,6 @@ func (s *Store) compact() error {
 	}
 
 	s.count = len(keep)
-	s.compactCount++
-	s.saveStats()
 
 	// compact 后重建标签缓存
 	s.tagCache = make(map[string]int)
@@ -513,12 +425,11 @@ type DayCount struct {
 
 // Stats 统计数据
 type Stats struct {
-	TotalSyncs   int         `json:"total_syncs"`
-	CompactCount int         `json:"compact_count"`
-	TextCount    int         `json:"text_count"`
-	ImageCount   int         `json:"image_count"`
-	WeeklyTrend  []WeekCount `json:"weekly_trend"`
-	DailyTrend   []DayCount  `json:"daily_trend"`
+	TotalSyncs  int         `json:"total_syncs"`
+	TextCount   int         `json:"text_count"`
+	ImageCount  int         `json:"image_count"`
+	WeeklyTrend []WeekCount `json:"weekly_trend"`
+	DailyTrend  []DayCount  `json:"daily_trend"`
 }
 
 // Stats 聚合统计历史数据
@@ -532,7 +443,7 @@ func (s *Store) Stats() (*Stats, error) {
 	}
 
 	stats := &Stats{
-		TotalSyncs:  s.totalSyncs,
+		TotalSyncs:  len(entries),
 		WeeklyTrend: make([]WeekCount, 0, 8),
 		DailyTrend:  make([]DayCount, 0, 30),
 	}
@@ -550,40 +461,54 @@ func (s *Store) Stats() (*Stats, error) {
 	stats.TextCount = textCount
 	stats.ImageCount = imageCount
 
-	// 使用持久化的每日计数（不受 compact 影响）
+	// 按天聚合
+	dayMap := make(map[string]int)
+	for _, e := range entries {
+		day := e.Timestamp.Format("2006-01-02")
+		dayMap[day]++
+	}
+
 	// 最近 30 天趋势
 	now := time.Now()
 	for i := 29; i >= 0; i-- {
 		d := now.AddDate(0, 0, -i).Format("2006-01-02")
 		stats.DailyTrend = append(stats.DailyTrend, DayCount{
 			Date:  d,
-			Count: s.dailyCounts[d],
+			Count: dayMap[d],
 		})
 	}
 
-	// 按周聚合 — 从持久化的每日计数推导（不受 compact 影响）
-	// 由于 compact 后无法回溯类型，周趋势只显示总数
-	weekCounts := make(map[string]int)
-	for day, count := range s.dailyCounts {
-		t, err := time.Parse("2006-01-02", day)
-		if err != nil {
-			continue
+	// 按周聚合（ISO 周）
+	type weekKey struct {
+		year, week int
+	}
+	weekMap := make(map[weekKey]struct {
+		text, image int
+	})
+	for _, e := range entries {
+		y, w := e.Timestamp.ISOWeek()
+		k := weekKey{y, w}
+		s := weekMap[k]
+		if e.Type == "text" {
+			s.text++
+		} else {
+			s.image++
 		}
-		y, w := t.ISOWeek()
-		label := fmt.Sprintf("%d-W%02d", y, w)
-		weekCounts[label] += count
+		weekMap[k] = s
 	}
 
 	// 最近 8 周
 	for i := 7; i >= 0; i-- {
 		t := now.AddDate(0, 0, -7*i)
 		y, w := t.ISOWeek()
+		k := weekKey{y, w}
+		s := weekMap[k]
 		label := fmt.Sprintf("%d-W%02d", y, w)
 		stats.WeeklyTrend = append(stats.WeeklyTrend, WeekCount{
 			Label:      label,
-			Count:      weekCounts[label],
-			TextCount:  0,
-			ImageCount: 0,
+			Count:      s.text + s.image,
+			TextCount:  s.text,
+			ImageCount: s.image,
 		})
 	}
 

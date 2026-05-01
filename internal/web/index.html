@@ -1817,10 +1817,6 @@
                 <div class="stats-card-value" id="statsImageCount">-</div>
                 <div class="stats-card-label">图片</div>
               </div>
-              <div class="stats-card">
-                <div class="stats-card-value" id="statsCompactCount">-</div>
-                <div class="stats-card-label">压缩次数</div>
-              </div>
             </div>
             <div class="chart-section">
               <div class="chart-title">每周同步趋势</div>
@@ -3537,8 +3533,6 @@
           document.getElementById("statsTextCount").textContent = s.text_count;
           document.getElementById("statsImageCount").textContent =
             s.image_count;
-          document.getElementById("statsCompactCount").textContent =
-            s.compact_count || 0;
           drawWeeklyChart(s.weekly_trend || []);
           drawTypeChart(s.text_count, s.image_count);
           drawDailyChart(s.daily_trend || []);
@@ -4623,7 +4617,6 @@
           });
         }, { passive: true });
       }
-
       function attachScrollHide(selector) {
         var el = document.querySelector(selector);
         if (el) setupScrollHide(el);
