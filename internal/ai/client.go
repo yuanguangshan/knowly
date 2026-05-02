@@ -51,6 +51,7 @@ func (p *Processor) callAPI(ctx context.Context, sysPrompt, userPrompt string) (
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Client-Id", "knowly")
 	if p.cfg.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
 	}
