@@ -130,15 +130,12 @@
       }
       .theme-dropdown {
         display: none;
-        position: absolute;
-        top: 100%;
-        left: 0;
-        margin-top: 6px;
+        position: fixed;
+        z-index: 1000;
         background: var(--bg-card);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-        z-index: 100;
         min-width: 140px;
         padding: 4px 0;
       }
@@ -4458,7 +4455,15 @@
         document.getElementById("themeDropdown").classList.remove("show");
       }
       function toggleThemeMenu() {
-        document.getElementById("themeDropdown").classList.toggle("show");
+        var dd = document.getElementById("themeDropdown");
+        if (dd.classList.contains("show")) {
+          dd.classList.remove("show");
+          return;
+        }
+        var rect = document.querySelector("h1").getBoundingClientRect();
+        dd.style.top = (rect.bottom + 6) + "px";
+        dd.style.left = rect.left + "px";
+        dd.classList.add("show");
       }
       (function () {
         var t = localStorage.getItem("knowly-theme") || "default";
