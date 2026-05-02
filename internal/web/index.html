@@ -1849,6 +1849,13 @@
             >
               DeepSeek
             </div>
+            <div
+              class="ai-subtab"
+              onclick="switchAiSubTab('gemini')"
+              id="ai-subtab-gemini"
+            >
+              Gemini
+            </div>
           </div>
           <div class="ai-subpanel active" id="ai-panel-poe">
             <iframe
@@ -1877,9 +1884,27 @@
               </a>
             </div>
           </div>
+          <div class="ai-subpanel" id="ai-panel-gemini">
+            <iframe
+              id="geminiIframe"
+              class="poe-iframe"
+              allow="clipboard-read; clipboard-write"
+              style="display: none;"
+            ></iframe>
+            <div class="ai-fallback" id="geminiFallback">
+              <div class="ai-fallback-icon">🤖</div>
+              <div class="ai-fallback-text" style="color:#d32f2f;">
+                提示：普通网页无法嵌入 Gemini 官网<br>
+                <span style="color:var(--text-secondary);">（由于严格的人机验证安全策略限制）</span><br><br>
+                💡 请使用 <b>AI Studio Side Panel 侧边栏</b><br>
+                或者点击下方按钮跳转官方网页
+              </div>
+              <a class="ai-fallback-btn" href="https://aistudio.google.com/prompts/new_chat" target="_blank" rel="noopener">
+                🚀 在新标签页打开 Gemini
+              </a>
+            </div>
+          </div>
         </div>
-
-        <!-- 管理面板 -->
         <div class="tab-panel" id="panel-admin">
           <div class="admin-container">
             <!-- 系统状态 -->
@@ -2692,16 +2717,17 @@
 
       // === AI Sub-tab Switch ===
       var deepseekLoaded = false;
+      var geminiLoaded = false;
       function switchAiSubTab(sub) {
         document.querySelectorAll('.ai-subtab').forEach(function(el) { el.classList.remove('active'); });
         document.querySelectorAll('.ai-subpanel').forEach(function(el) { el.classList.remove('active'); });
         document.getElementById('ai-subtab-' + sub).classList.add('active');
         document.getElementById('ai-panel-' + sub).classList.add('active');
-        
+
         if (sub === 'deepseek') {
           var iframe = document.getElementById('deepseekIframe');
           var fallback = document.getElementById('deepseekFallback');
-          
+
           // 判断环境：如果自身不是顶层窗口，说明是在 AI Studio Side Panel 的 iframe 内
           if (window.self !== window.top) {
             fallback.classList.remove('show');
@@ -2712,6 +2738,23 @@
             }
           } else {
             // 普通页面访问
+            iframe.style.display = 'none';
+            fallback.classList.add('show');
+          }
+        }
+
+        if (sub === 'gemini') {
+          var iframe = document.getElementById('geminiIframe');
+          var fallback = document.getElementById('geminiFallback');
+
+          if (window.self !== window.top) {
+            fallback.classList.remove('show');
+            iframe.style.display = 'block';
+            if (!geminiLoaded) {
+              iframe.src = 'https://aistudio.google.com/prompts/new_chat';
+              geminiLoaded = true;
+            }
+          } else {
             iframe.style.display = 'none';
             fallback.classList.add('show');
           }
