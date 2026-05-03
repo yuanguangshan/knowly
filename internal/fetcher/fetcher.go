@@ -225,10 +225,10 @@ func extractContent(html string) string {
 	// 清理 HTML
 	text := cleanHTML(bodyHTML)
 
-	// 限制内容长度（保留前 5000 个字符）
+	// 限制内容长度（保留前 100000 个字符）
 	runes := []rune(text)
-	if len(runes) > 5000 {
-		text = string(runes[:5000]) + "\n\n[内容已截断]"
+	if len(runes) > 100000 {
+		text = string(runes[:100000]) + "\n\n[内容已截断]"
 	}
 
 	return text

@@ -238,8 +238,8 @@ func parseWebReaderResponse(text string) (*PageInfo, error) {
 
 	content := result.Content
 	runes := []rune(content)
-	if len(runes) > 5000 {
-		content = string(runes[:5000]) + "\n\n[内容已截断]"
+	if len(runes) > 100000 {
+		content = string(runes[:100000]) + "\n\n[内容已截断]"
 	}
 
 	title := result.Title
@@ -273,8 +273,8 @@ func extractFromMarkdown(markdown string) *PageInfo {
 
 	// 限制内容长度
 	runes := []rune(content)
-	if len(runes) > 5000 {
-		content = string(runes[:5000]) + "\n\n[内容已截断]"
+	if len(runes) > 100000 {
+		content = string(runes[:100000]) + "\n\n[内容已截断]"
 	}
 
 	if len(title) > 200 {
