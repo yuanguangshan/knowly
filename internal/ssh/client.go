@@ -28,6 +28,7 @@ type DirEntry struct {
 	IsDir   bool   `json:"is_dir"`
 	Size    int64  `json:"size"`
 	ModTime string `json:"mod_time"`
+	Title   string `json:"title,omitempty"` // frontmatter 中的 AI 标题
 }
 
 // ContentMetadata AI 处理后的元数据，用于扩展归档文件的 frontmatter
@@ -37,6 +38,8 @@ type ContentMetadata struct {
 	Score            int
 	OrganizedContent string
 	Processed        bool
+	Title            string
+	ManualEdit       bool
 }
 
 // whitespaceRegex 预编译的正则表达式
@@ -585,6 +588,8 @@ content_hash: %s
 tags: %s
 summary: %q
 score: %d
+title: %q
+manual_edit: %t
 ---
 
 # 核心摘要
@@ -597,6 +602,8 @@ score: %d
 			tagsStr,
 			meta.Summary,
 			meta.Score,
+			meta.Title,
+			meta.ManualEdit,
 			meta.OrganizedContent,
 			content)
 	}
@@ -837,6 +844,63 @@ func (c *Client) ListDir(remotePath string) ([]DirEntry, error) {
 	return entries, nil
 }
 
+// TitleEntry 批量提取的标题结果
+type TitleEntry struct {
+	Name  string
+	Title string
+}
+
+// BatchExtractTitles 一次性提取目录下所有 .md 文件的 frontmatter title
+func (c *Client) BatchExtractTitles(relPath string, entries []DirEntry) []TitleEntry {
+	// 过滤出 .md 文件
+	var mdFiles []string
+	for _, e := range entries {
+		if !e.IsDir && strings.HasSuffix(strings.ToLower(e.Name), ".md") {
+			mdFiles = append(mdFiles, e.Name)
+		}
+	}
+	if len(mdFiles) == 0 {
+		return nil
+	}
+
+	session, release, err := c.newSession()
+	if err != nil {
+		return nil
+	}
+	defer release()
+
+	dirPath := c.expandPath(filepath.Join(c.config.BasePath, relPath))
+
+	// 用一条命令批量提取：遍历 .md 文件，提取 title 行，输出 FILENAME<TAB>TITLE
+	cmd := fmt.Sprintf("cd %s && for f in %s; do title=$(head -12 \"$f\" | grep '^title:' | head -1 | sed 's/^title:\\s*\"//;s/\"$//'); [ -n \"$title\" ] && echo \"$f	$title\"; done",
+		shellEscape(dirPath),
+		func() string {
+			quoted := make([]string, len(mdFiles))
+			for i, f := range mdFiles {
+				quoted[i] = shellEscape(f)
+			}
+			return strings.Join(quoted, " ")
+		}())
+
+	output, err := session.Output(cmd)
+	if err != nil {
+		return nil
+	}
+
+	var result []TitleEntry
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) == 2 && parts[1] != "" {
+			result = append(result, TitleEntry{Name: parts[0], Title: parts[1]})
+		}
+	}
+	return result
+}
+
 // SearchResult 搜索结果条目
 type SearchResult struct {
 	Path    string `json:"path"`
@@ -908,4 +972,106 @@ func (c *Client) Search(keyword string, limit int) ([]SearchResult, error) {
 	}
 
 	return results, nil
+}
+
+// UpdateFileMetadata 更新远程 .md 文件的 frontmatter 元数据，保留正文内容
+func (c *Client) UpdateFileMetadata(path string, meta *ContentMetadata) error {
+	data, err := c.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read file for metadata update: %w", err)
+	}
+
+	content := string(data)
+
+	// 解析 frontmatter：保留 sync_time, source, content_hash, 正文
+	var syncTime, source, contentHash, organizedContent, body string
+	if strings.HasPrefix(content, "---") {
+		endIdx := strings.Index(content[4:], "---")
+		if endIdx >= 0 {
+			frontmatter := content[4 : 4+endIdx]
+			body = content[4+endIdx+3:]
+			// 提取现有字段
+			syncTime = extractFrontmatterValue(frontmatter, "sync_time")
+			source = extractFrontmatterValue(frontmatter, "source")
+			contentHash = extractFrontmatterValue(frontmatter, "content_hash")
+			organizedContent = extractFrontmatterQuotedValue(frontmatter, "organized_content")
+		} else {
+			body = content
+		}
+	}
+
+	// 重建 frontmatter
+	tagsStr := "[]"
+	if len(meta.Tags) > 0 {
+		tagsStr = "[" + strings.Join(meta.Tags, ", ") + "]"
+	}
+	if syncTime == "" {
+		syncTime = time.Now().Format("2006-01-02 15:04:05")
+	}
+	if source == "" {
+		source = "clipboard"
+	}
+
+	newFrontmatter := fmt.Sprintf(`---
+sync_time: %s
+source: %s
+content_hash: %s
+tags: %s
+summary: %q
+score: %d
+title: %q
+manual_edit: %t
+---
+
+# 核心摘要
+%s
+
+### 原始内容
+%s`,
+		syncTime,
+		source,
+		contentHash,
+		tagsStr,
+		meta.Summary,
+		meta.Score,
+		meta.Title,
+		meta.ManualEdit,
+		organizedContent,
+		body)
+
+	return c.WriteFile(path, newFrontmatter)
+}
+
+// extractFrontmatterValue 从 frontmatter 中提取未引用的值
+func extractFrontmatterValue(frontmatter, key string) string {
+	lines := strings.Split(frontmatter, "\n")
+	prefix := key + ": "
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(line[len(prefix):])
+		}
+	}
+	return ""
+}
+
+// extractFrontmatterQuotedValue 从 frontmatter 中提取带引号的值
+func extractFrontmatterQuotedValue(frontmatter, key string) string {
+	lines := strings.Split(frontmatter, "\n")
+	prefix := key + ": "
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			val := strings.TrimSpace(line[len(prefix):])
+			// 去除引号
+			if len(val) >= 2 && val[0] == '"' {
+				val = val[1 : len(val)-1]
+			}
+			// 处理转义字符
+			val = strings.ReplaceAll(val, `\n`, "\n")
+			val = strings.ReplaceAll(val, `\"`, `"`)
+			return val
+		}
+	}
+	return ""
 }

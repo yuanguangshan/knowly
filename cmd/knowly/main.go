@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -730,6 +731,18 @@ func showStatus(cfg *config.Config) {
 func handleCLI(args []string, cfg *config.Config, histStore *history.Store) {
 	cmd := args[0]
 	switch cmd {
+	case "start":
+		// Re-exec with --daemon flag to start the daemon
+		cmd := exec.Command(os.Args[0], "--daemon")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = nil
+		if err := cmd.Start(); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("✓ knowly daemon started (PID %d)\n", cmd.Process.Pid)
+	case "stop":
+		stopDaemon()
 	case "history":
 		n := 20
 		if len(args) > 1 {

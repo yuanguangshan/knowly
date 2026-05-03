@@ -76,42 +76,35 @@ func parseLogLine(line string) map[string]string {
 	return result
 }
 
-// handleLogs 读取日志文件
+// handleLogs 读取日志文件，从末尾逆向读取最后 N 行
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	level := r.URL.Query().Get("level")
 	limitStr := r.URL.Query().Get("limit")
-	limit := 200
+	limit := 300
 	if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
 		limit = n
 	}
 
 	logPath := config.GetLogPath()
-	f, err := os.Open(logPath)
+	lines, err := tailFile(logPath, limit)
 	if err != nil {
 		jsonError(w, "无法读取日志文件", http.StatusInternalServerError)
 		return
 	}
-	defer f.Close()
 
-	var lines []string
-	scanner := bufio.NewScanner(f)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 2*1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if level != "" && level != "all" {
-			if !strings.Contains(line, "["+level+"]") {
-				continue
+	// 按级别过滤
+	if level != "" && level != "all" {
+		filtered := make([]string, 0, len(lines))
+		pat := "[" + level + "]"
+		for _, line := range lines {
+			if strings.Contains(line, pat) {
+				filtered = append(filtered, line)
 			}
 		}
-		lines = append(lines, line)
+		lines = filtered
 	}
 
-	if len(lines) > limit {
-		lines = lines[len(lines)-limit:]
-	}
-
-	// 合并多行日志：非时间戳开头的行追加到上一条
+	// 合并多行日志
 	merged := make([]string, 0, len(lines))
 	for _, line := range lines {
 		if len(line) >= 19 && line[4] == '/' && line[7] == '/' && line[10] == ' ' {
@@ -127,6 +120,77 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResp(w, result)
+}
+
+// tailFile 从文件末尾逆向读取最后 N 行
+func tailFile(path string, n int) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fileSize := fi.Size()
+	if fileSize == 0 {
+		return nil, nil
+	}
+
+	var lines []string
+	var tailBuf []byte
+	remaining := fileSize
+	const blockSize = int64(4096)
+	bufPool := make([]byte, 0, blockSize)
+
+	for remaining > 0 && len(lines) < n {
+		readSize := blockSize
+		if remaining < readSize {
+			readSize = remaining
+		}
+		remaining -= readSize
+
+		bufPool = bufPool[:readSize]
+		if _, err := f.Seek(remaining, 0); err != nil {
+			return nil, err
+		}
+		if _, err := f.Read(bufPool); err != nil {
+			return nil, err
+		}
+
+		combined := make([]byte, int(readSize)+len(tailBuf))
+		copy(combined, bufPool)
+		copy(combined[readSize:], tailBuf)
+		tailBuf = nil
+
+		data := combined
+		for i := len(data) - 1; i >= 0 && len(lines) < n; i-- {
+			if data[i] == '\n' {
+				if i < len(data)-1 {
+					line := strings.TrimRight(string(data[i+1:]), "\r")
+					if line != "" {
+						lines = append(lines, line)
+					}
+				}
+				data = data[:i]
+			}
+		}
+		if len(data) > 0 {
+			tailBuf = data
+		}
+	}
+
+	if len(tailBuf) > 0 && len(lines) < n {
+		line := strings.TrimRight(string(tailBuf), "\r")
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+
+	// 已是最新在前的顺序（从文件末尾逆向读取）
+	return lines, nil
 }
 
 // handleLogStream SSE 实时日志流
@@ -214,6 +278,20 @@ func (s *Server) handleArchiveList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 为 .md 文件提取 frontmatter 标题（一次性批量获取）
+	titles := s.sshClient.BatchExtractTitles(fullPath, entries)
+	titleMap := make(map[string]string)
+	for _, t := range titles {
+		titleMap[t.Name] = t.Title
+	}
+	for i := range entries {
+		if !entries[i].IsDir && strings.HasSuffix(strings.ToLower(entries[i].Name), ".md") {
+			if t, ok := titleMap[entries[i].Name]; ok {
+				entries[i].Title = t
+			}
+		}
+	}
+
 	jsonResp(w, entries)
 }
 
@@ -277,7 +355,21 @@ func (s *Server) handleArchiveToday(w http.ResponseWriter, r *http.Request) {
 		case "days":
 			resp.Days = r.entries
 		case "files":
-			resp.Files = r.entries
+				// 为 .md 文件提取 frontmatter 标题
+				files := r.entries
+				titles := s.sshClient.BatchExtractTitles(year+"/"+month+"/"+day, files)
+				titleMap := make(map[string]string)
+				for _, t := range titles {
+					titleMap[t.Name] = t.Title
+				}
+				for i := range files {
+					if !files[i].IsDir && strings.HasSuffix(strings.ToLower(files[i].Name), ".md") {
+						if t, ok := titleMap[files[i].Name]; ok {
+							files[i].Title = t
+						}
+					}
+				}
+				resp.Files = files
 		}
 	}
 
@@ -390,12 +482,14 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type histEntry struct {
-		ID        string   `json:"id"`
-		Content   string   `json:"content"`
-		Type      string   `json:"type"`
-		Timestamp string   `json:"timestamp"`
-		NASPath   string   `json:"nas_path"`
-		Tags      []string `json:"tags"`
+		ID         string   `json:"id"`
+		Content    string   `json:"content"`
+		Type       string   `json:"type"`
+		Timestamp  string   `json:"timestamp"`
+		NASPath    string   `json:"nas_path"`
+		Tags       []string `json:"tags"`
+		Title      string   `json:"title,omitempty"`
+		ManualEdit bool     `json:"manual_edit"`
 	}
 
 	var result []histEntry
@@ -415,13 +509,20 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
+		// 标题优先使用用户设置的 Title，回退到 PublishTitle
+		title := e.Title
+		if title == "" {
+			title = e.PublishTitle
+		}
 		result = append(result, histEntry{
-			ID:        e.ID,
-			Content:   e.Content,
-			Type:      e.Type,
-			Timestamp: e.Timestamp.Format("2006-01-02 15:04:05"),
-			NASPath:   e.NASPath,
-			Tags:      e.Tags,
+			ID:         e.ID,
+			Content:    e.Content,
+			Type:       e.Type,
+			Timestamp:  e.Timestamp.Format("2006-01-02 15:04:05"),
+			NASPath:    e.NASPath,
+			Tags:       e.Tags,
+			Title:      title,
+			ManualEdit: e.ManualEdit,
 		})
 	}
 
@@ -1246,4 +1347,240 @@ func preserveMasked(old, new map[string]interface{}) {
 			}
 		}
 	}
+}
+
+// handleHistoryEntry GET 返回单条记录，PUT 更新条目
+func (s *Server) handleHistoryEntry(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		jsonError(w, "缺少 ID 参数", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		entry, err := s.histStore.GetByID(id)
+		if err != nil {
+			jsonError(w, fmt.Sprintf("找不到条目: %v", err), http.StatusNotFound)
+			return
+		}
+		title := entry.Title
+		if title == "" {
+			title = entry.PublishTitle
+		}
+		jsonResp(w, map[string]interface{}{
+			"id":             entry.ID,
+			"content":        entry.Content,
+			"type":           entry.Type,
+			"timestamp":      entry.Timestamp.Format("2006-01-02 15:04:05"),
+			"nas_path":       entry.NASPath,
+			"tags":           entry.Tags,
+			"title":          title,
+			"publish_summary": entry.PublishSummary,
+			"manual_edit":    entry.ManualEdit,
+		})
+
+	case http.MethodPut:
+		var req struct {
+			Title   *string  `json:"title"`
+			Tags    []string `json:"tags"`
+			Summary string   `json:"summary"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, "无效的请求体", http.StatusBadRequest)
+			return
+		}
+
+		entry, err := s.histStore.GetByID(id)
+		if err != nil {
+			jsonError(w, fmt.Sprintf("找不到条目: %v", err), http.StatusNotFound)
+			return
+		}
+
+		title := ""
+		if req.Title != nil {
+			title = *req.Title
+		}
+
+		if err := s.histStore.UpdateEntry(id, title, req.Tags, req.Summary, false); err != nil {
+			jsonError(w, fmt.Sprintf("更新失败: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// 同步更新远程 NAS 文件的 frontmatter
+		if entry.NASPath != "" && s.sshClient != nil {
+			data, err := s.sshClient.ReadFile(entry.NASPath)
+			if err == nil {
+				meta := parseContentMetadata(string(data))
+				meta.Tags = req.Tags
+				meta.Summary = req.Summary
+				if title != "" {
+					meta.Title = title
+				}
+				meta.ManualEdit = true
+				_ = s.sshClient.UpdateFileMetadata(entry.NASPath, &meta)
+			}
+		}
+
+		jsonResp(w, map[string]interface{}{"status": "saved", "manual_edit": true})
+
+	default:
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleReprocess 重新运行 AI 处理
+func (s *Server) handleReprocess(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		jsonError(w, "缺少 ID 参数", http.StatusBadRequest)
+		return
+	}
+
+	entry, err := s.histStore.GetByID(id)
+	if err != nil {
+		jsonError(w, fmt.Sprintf("找不到条目: %v", err), http.StatusNotFound)
+		return
+	}
+
+	if s.aiProcessor == nil {
+		jsonError(w, "AI 处理器未启用", http.StatusServiceUnavailable)
+		return
+	}
+
+	// 获取完整内容
+	content := entry.Content
+	if entry.NASPath != "" && s.sshClient != nil {
+		data, err := s.sshClient.ReadFile(entry.NASPath)
+		if err == nil {
+			text := string(data)
+			if strings.HasPrefix(text, "---") {
+				endIdx := strings.Index(text[4:], "---")
+				if endIdx >= 0 {
+					text = text[4+endIdx+3:]
+				}
+			}
+			content = text
+		}
+	}
+
+	if content == "" {
+		jsonError(w, "内容为空", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(s.cfg.AI.Timeout)*time.Second)
+	defer cancel()
+
+	// 重新运行 AI 处理
+	aiResult := s.aiProcessor.Process(ctx, content)
+	var title, summary string
+	var tags []string
+	var score int
+	if aiResult != nil {
+		tags = aiResult.Tags
+		summary = aiResult.Summary
+		score = aiResult.Score
+	}
+
+	// 异步生成标题和完整结果（不阻塞返回）
+	go func() {
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel2()
+		ts := s.aiProcessor.GenerateTitleAndSummary(ctx2, content)
+		finalTitle := title
+		if ts != nil {
+			finalTitle = ts.Title
+		}
+		_ = s.histStore.UpdateEntry(id, finalTitle, tags, summary, true)
+		// 更新远程文件
+		if entry.NASPath != "" && s.sshClient != nil {
+			data, err := s.sshClient.ReadFile(entry.NASPath)
+			if err == nil {
+				meta := parseContentMetadata(string(data))
+				meta.Tags = tags
+				meta.Summary = summary
+				meta.Title = finalTitle
+				meta.Score = score
+				meta.ManualEdit = false
+				if aiResult != nil {
+					meta.OrganizedContent = aiResult.OrganizedContent
+				}
+				_ = s.sshClient.UpdateFileMetadata(entry.NASPath, &meta)
+			}
+		}
+	}()
+
+	jsonResp(w, map[string]interface{}{
+		"status":  "processing",
+		"title":   title,
+		"tags":    tags,
+		"summary": summary,
+		"score":   score,
+	})
+}
+
+// parseContentMetadata 从 .md 文件内容中解析现有的 frontmatter 元数据
+func parseContentMetadata(content string) ssh.ContentMetadata {
+	meta := ssh.ContentMetadata{}
+	if !strings.HasPrefix(content, "---") {
+		return meta
+	}
+	endIdx := strings.Index(content[4:], "---")
+	if endIdx < 0 {
+		return meta
+	}
+	frontmatter := content[4 : 4+endIdx]
+
+	for _, line := range strings.Split(frontmatter, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "tags:"):
+			val := strings.TrimSpace(line[5:])
+			if strings.HasPrefix(val, "[") && strings.HasSuffix(val, "]") {
+				val = strings.Trim(val, "[]")
+				if val != "" {
+					for _, t := range strings.Split(val, ",") {
+						t = strings.TrimSpace(t)
+						if t != "" {
+							meta.Tags = append(meta.Tags, t)
+						}
+					}
+				}
+			}
+		case strings.HasPrefix(line, `summary:`):
+			val := strings.TrimSpace(line[8:])
+			if len(val) >= 2 && val[0] == '"' {
+				val = val[1 : len(val)-1]
+			}
+			meta.Summary = val
+		case strings.HasPrefix(line, "score:"):
+			fmt.Sscanf(strings.TrimSpace(line[6:]), "%d", &meta.Score)
+		case strings.HasPrefix(line, `title:`):
+			val := strings.TrimSpace(line[6:])
+			if len(val) >= 2 && val[0] == '"' {
+				val = val[1 : len(val)-1]
+			}
+			meta.Title = val
+		case strings.HasPrefix(line, "manual_edit:"):
+			meta.ManualEdit = strings.TrimSpace(line[12:]) == "true"
+		case strings.HasPrefix(line, "sync_time:"):
+			meta.Processed = true
+		}
+	}
+
+	// 提取 organized_content（# 核心摘要 到 ### 原始内容 之间）
+	if idx := strings.Index(content, "# 核心摘要"); idx >= 0 {
+		body := content[idx:]
+		if endIdx := strings.Index(body, "### 原始内容"); endIdx >= 0 {
+			meta.OrganizedContent = strings.TrimSpace(body[len("# 核心摘要"):endIdx])
+		}
+	}
+
+	return meta
 }
