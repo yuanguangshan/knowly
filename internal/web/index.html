@@ -661,6 +661,13 @@
         cursor: pointer;
         transition: background 0.2s;
       }
+      .history-item.history-new {
+        animation: historySlideIn 0.3s ease-out;
+      }
+      @keyframes historySlideIn {
+        from { opacity: 0; transform: translateY(-8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
       .history-item:hover {
         background: var(--bg-hover);
       }
@@ -2700,6 +2707,7 @@
       let currentLevel = "all";
       let currentHistoryType = "all";
       let currentTagFilter = "";
+      let lastHistoryFilter = ""; // 追踪上次过滤条件，检测筛选变化
       let historyLoading = false;
       let historyHasMore = true;
       const historyPageSize = 30;
@@ -3420,7 +3428,16 @@
 
         if (!append) {
           historyHasMore = true;
-          list.innerHTML = '<div class="empty-state">加载中...</div>';
+          // 检测筛选条件是否变化
+          const newFilter = currentHistoryType + "|" + currentTagFilter;
+          const filterChanged = newFilter !== lastHistoryFilter;
+          lastHistoryFilter = newFilter;
+
+          if (filterChanged) {
+            // 筛选条件变了：清空旧内容
+            list.innerHTML = '<div class="empty-state">加载中...</div>';
+          }
+          // 否则保持现有内容不变（增量更新模式）
         } else {
           if (!historyHasMore) return;
         }
@@ -3456,77 +3473,53 @@
           if (entries.length === 0 && !append) {
             list.innerHTML = '<div class="empty-state">暂无历史记录</div>';
           } else if (entries.length > 0) {
-            if (!append) list.innerHTML = "";
-            entries.forEach((e) => {
-              const div = document.createElement("div");
-              div.className = "history-item";
-              const typeLabel = e.type === "text" ? "文本" : "图片";
-              const title = e.title || "";
-              const lines = (e.content || "")
-                .split("\n")
-                .filter((l) => l.trim());
-              const preview =
-                lines.slice(0, 3).join("\n") +
-                (lines.length > 3 ? "\n..." : "");
-              let tagsHtml = "";
-              if (e.tags && e.tags.length) {
-                tagsHtml =
-                  '<span class="history-tags">' +
-                  e.tags
-                    .map((t) => '<span class="htag">#' + escHtml(t) + "</span>")
-                    .join("") +
-                  "</span>";
+            if (!append) {
+              // 收集已有条目 ID
+              const existingIds = new Set();
+              const existingItems = list.querySelectorAll(".history-item");
+              existingItems.forEach(el => {
+                if (el.dataset.entryId) existingIds.add(el.dataset.entryId);
+              });
+
+              // 找出真正的新条目
+              const newEntries = entries.filter(e => !existingIds.has(e.id));
+
+              if (newEntries.length === 0 && existingItems.length > 0) {
+                // 没有新数据，无需更新
+                return;
               }
-              const editBadge = e.manual_edit
-                ? '<span class="manual-edit-badge">已编辑</span>'
-                : "";
-              const titleHtml = title
-                ? '<div class="history-title">' + escHtml(title) + "</div>"
-                : "";
-              div.innerHTML =
-                '<div class="history-header">' +
-                '<span class="history-time">' +
-                escHtml(e.timestamp || "") +
-                "</span>" +
-                '<span class="history-type ' +
-                e.type +
-                '">' +
-                typeLabel +
-                "</span>" +
-                editBadge +
-                '<div class="history-quick-actions">' +
-                '<button class="history-edit-btn" data-id="' +
-                escHtml(e.id) +
-                '" title="编辑">&#9998; 编辑</button>' +
-                '<button class="quick-tag-btn" data-id="' +
-                escHtml(e.id) +
-                '" data-tag="Ima" data-target="ima" title="添加 Ima 标签并发布">+ Ima</button>' +
-                '<button class="quick-tag-btn" data-id="' +
-                escHtml(e.id) +
-                '" data-tag="Blog" data-target="blog" title="添加 Blog 标签并发布">+ Blog</button>' +
-                '<button class="quick-tag-btn" data-id="' +
-                escHtml(e.id) +
-                '" data-tag="Kindle" data-target="kindle" title="添加 Kindle 标签并发布">+ Kindle</button>' +
-                '<button class="quick-tag-btn" data-id="' +
-                escHtml(e.id) +
-                '" data-tag="Podcast" data-target="podcast" title="添加 Podcast 标签并发布">+ Podcast</button>' +
-                "</div>" +
-                "</div>" +
-                titleHtml +
-                '<div class="history-preview">' +
-                escHtml(preview) +
-                "</div>" +
-                tagsHtml;
-              div.onclick = function (ev) {
-                if (
-                  ev.target.classList.contains("quick-tag-btn") ||
-                  ev.target.classList.contains("history-edit-btn")
-                )
-                  return;
-                toggleHistoryDetail(div, e);
-              };
-              list.appendChild(div);
-            });
+
+              // 渲染新条目
+              const fragment = document.createDocumentFragment();
+              newEntries.forEach((e) => {
+                const div = buildHistoryItem(e);
+                div.classList.add("history-new");
+                fragment.appendChild(div);
+              });
+
+              // 仅在首次加载时清空
+              if (existingItems.length === 0) {
+                list.innerHTML = "";
+              }
+
+              // 新条目插入到顶部
+              if (list.firstChild) {
+                list.insertBefore(fragment, list.firstChild);
+              } else {
+                list.appendChild(fragment);
+              }
+
+              // 清理动画类
+              setTimeout(() => {
+                list.querySelectorAll(".history-new").forEach(el => el.classList.remove("history-new"));
+              }, 350);
+            } else {
+              // 追加模式（滚动到底部加载更多）
+              entries.forEach((e) => {
+                const div = buildHistoryItem(e);
+                list.appendChild(div);
+              });
+            }
           }
         } catch (e) {
           if (!append)
@@ -3537,6 +3530,79 @@
         } finally {
           historyLoading = false;
         }
+      }
+
+      // 提取：构建单个历史条目 DOM
+      function buildHistoryItem(e) {
+        const div = document.createElement("div");
+        div.className = "history-item";
+        div.dataset.entryId = e.id;
+        const typeLabel = e.type === "text" ? "文本" : "图片";
+        const title = e.title || "";
+        const lines = (e.content || "")
+          .split("\n")
+          .filter((l) => l.trim());
+        const preview =
+          lines.slice(0, 3).join("\n") +
+          (lines.length > 3 ? "\n..." : "");
+        let tagsHtml = "";
+        if (e.tags && e.tags.length) {
+          tagsHtml =
+            '<span class="history-tags">' +
+            e.tags
+              .map((t) => '<span class="htag">#' + escHtml(t) + "</span>")
+              .join("") +
+            "</span>";
+        }
+        const editBadge = e.manual_edit
+          ? '<span class="manual-edit-badge">已编辑</span>'
+          : "";
+        const titleHtml = title
+          ? '<div class="history-title">' + escHtml(title) + "</div>"
+          : "";
+        div.innerHTML =
+          '<div class="history-header">' +
+          '<span class="history-time">' +
+          escHtml(e.timestamp || "") +
+          "</span>" +
+          '<span class="history-type ' +
+          e.type +
+          '">' +
+          typeLabel +
+          "</span>" +
+          editBadge +
+          '<div class="history-quick-actions">' +
+          '<button class="history-edit-btn" data-id="' +
+          escHtml(e.id) +
+          '" title="编辑">&#9998; 编辑</button>' +
+          '<button class="quick-tag-btn" data-id="' +
+          escHtml(e.id) +
+          '" data-tag="Ima" data-target="ima" title="添加 Ima 标签并发布">+ Ima</button>' +
+          '<button class="quick-tag-btn" data-id="' +
+          escHtml(e.id) +
+          '" data-tag="Blog" data-target="blog" title="添加 Blog 标签并发布">+ Blog</button>' +
+          '<button class="quick-tag-btn" data-id="' +
+          escHtml(e.id) +
+          '" data-tag="Kindle" data-target="kindle" title="添加 Kindle 标签并发布">+ Kindle</button>' +
+          '<button class="quick-tag-btn" data-id="' +
+          escHtml(e.id) +
+          '" data-tag="Podcast" data-target="podcast" title="添加 Podcast 标签并发布">+ Podcast</button>' +
+          "</div>" +
+          "</div>" +
+          titleHtml +
+          '<div class="history-preview">' +
+          escHtml(preview) +
+          "</div>" +
+          tagsHtml;
+        div.onclick = function (ev) {
+          if (
+            ev.target.classList.contains("quick-tag-btn") ||
+            ev.target.classList.contains("history-edit-btn")
+          )
+            return;
+          toggleHistoryDetail(div, e);
+        };
+        return div;
       }
 
       // 历史列表无限滚动
