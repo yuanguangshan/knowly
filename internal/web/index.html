@@ -2707,7 +2707,6 @@
       let currentLevel = "all";
       let currentHistoryType = "all";
       let currentTagFilter = "";
-      let lastHistoryFilter = ""; // 追踪上次过滤条件，检测筛选变化
       let historyLoading = false;
       let historyHasMore = true;
       const historyPageSize = 30;
@@ -2767,7 +2766,7 @@
           loadYears();
         if (tab === "history") {
           loadTags();
-          loadHistory();
+          loadHistory({clear: true});
         }
         if (tab === "stats") loadStats();
         if (tab === "admin") {
@@ -3419,28 +3418,24 @@
       function filterByTag(tag) {
         currentTagFilter = currentTagFilter === tag ? "" : tag;
         loadTags();
-        loadHistory();
+        loadHistory({clear: true});
       }
 
-      async function loadHistory(append) {
+      async function loadHistory(opts) {
+        opts = opts || {};
+        var clear = opts.clear === true;
+        var append = opts.append === true;
         if (historyLoading) return;
         const list = document.getElementById("historyList");
 
-        if (!append) {
-          historyHasMore = true;
-          // 检测筛选条件是否变化
-          const newFilter = currentHistoryType + "|" + currentTagFilter;
-          const filterChanged = newFilter !== lastHistoryFilter;
-          lastHistoryFilter = newFilter;
-
-          if (filterChanged) {
-            // 筛选条件变了：清空旧内容
-            list.innerHTML = '<div class="empty-state">加载中...</div>';
-          }
-          // 否则保持现有内容不变（增量更新模式）
-        } else {
+        if (append) {
           if (!historyHasMore) return;
+        } else if (clear) {
+          // 明确要清空（筛选条件变化 / 首次加载）
+          historyHasMore = true;
+          list.innerHTML = '<div class="empty-state">加载中...</div>';
         }
+        // 否则：增量更新，不清空列表
 
         historyLoading = true;
         try {
@@ -3470,7 +3465,7 @@
             historyHasMore = false;
           }
 
-          if (entries.length === 0 && !append) {
+          if (entries.length === 0 && clear) {
             list.innerHTML = '<div class="empty-state">暂无历史记录</div>';
           } else if (entries.length > 0) {
             if (!append) {
@@ -3522,7 +3517,7 @@
             }
           }
         } catch (e) {
-          if (!append)
+          if (clear)
             list.innerHTML =
               '<div class="empty-state">加载失败: ' +
               escHtml(e.message || e) +
@@ -3612,7 +3607,7 @@
           if (historyLoading || !historyHasMore) return;
           const el = this;
           if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
-            loadHistory(true);
+            loadHistory({append: true});
           }
         });
 
@@ -3646,7 +3641,7 @@
           .querySelectorAll("#panel-history .toolbar .btn")
           .forEach((b) => b.classList.remove("active"));
         ev.target.classList.add("active");
-        loadHistory();
+        loadHistory({clear: true});
       }
 
       // 快捷标签按钮点击处理（事件委托）
@@ -3675,7 +3670,7 @@
             btn.textContent = "✓ 已发布";
             btn.classList.add("success");
             // 重新加载历史列表以显示更新的标签
-            setTimeout(() => loadHistory(), 1000);
+            setTimeout(() => loadHistory({clear: true}), 1000);
           } else {
             btn.textContent = "✗ 失败";
             btn.classList.add("error");
@@ -4768,7 +4763,7 @@
           showToast("已保存");
           closeEditModal();
           loadTags();
-          loadHistory();
+          loadHistory({clear: true});
         } catch (e) {
           showToast("保存失败: " + e.message);
         } finally {
@@ -4795,7 +4790,7 @@
           renderEditTagChips();
           document.getElementById("editBadge").style.display = "none";
           loadTags();
-          loadHistory();
+          loadHistory({clear: true});
         } catch (e) {
           showToast("AI 处理失败: " + e.message);
         } finally {
