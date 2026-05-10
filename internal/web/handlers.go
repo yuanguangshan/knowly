@@ -1025,7 +1025,8 @@ func (s *Server) handleTagAndPublish(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 如果 AI 生成了标题和摘要，将它们添加到内容前面
+	// 先去掉原始 frontmatter（NAS 文件自带），再加 AI header
+	content = stripFrontmatter(content)
 	if aiTitle != "" || aiSummary != "" {
 		var header strings.Builder
 		if aiTitle != "" {
@@ -1523,6 +1524,19 @@ func (s *Server) handleReprocess(w http.ResponseWriter, r *http.Request) {
 		"summary": summary,
 		"score":   score,
 	})
+}
+
+// stripFrontmatter 去除 YAML frontmatter，保留正文
+func stripFrontmatter(content string) string {
+	content = strings.TrimSpace(content)
+	if !strings.HasPrefix(content, "---") {
+		return content
+	}
+	end := strings.Index(content[3:], "---")
+	if end < 0 {
+		return content
+	}
+	return strings.TrimSpace(content[3+end+3:])
 }
 
 // parseContentMetadata 从 .md 文件内容中解析现有的 frontmatter 元数据
