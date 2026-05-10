@@ -127,6 +127,21 @@ func stripFrontmatter(md string) string {
 	return md
 }
 
+// extractOrganizedContent 提取 # 核心摘要 部分（去除 frontmatter 和 ### 原始内容）
+func extractOrganizedContent(md string) string {
+	md = stripFrontmatter(md)
+	// 提取 # 核心摘要 到 ### 原始内容 之间的内容
+	startIdx := strings.Index(md, "# 核心摘要")
+	if startIdx < 0 {
+		return md
+	}
+	body := md[startIdx+len("# 核心摘要"):]
+	if endIdx := strings.Index(body, "### 原始内容"); endIdx > 0 {
+		return strings.TrimSpace(body[:endIdx])
+	}
+	return strings.TrimSpace(body)
+}
+
 // formatHTMLForKindle 将 Markdown 转换为 Kindle 支持的 HTML 格式
 func formatHTMLForKindle(md string) string {
 	lines := strings.Split(md, "\n")
@@ -326,7 +341,7 @@ func defaultTags() string {
 
 // PublishBlog 发布博客
 func PublishBlog(cfg config.BlogConfig, contentMD string) error {
-	contentMD = stripFrontmatter(contentMD)
+	contentMD = extractOrganizedContent(contentMD)
 	title := extractTitle(contentMD)
 	formattedText := stripMarkdown(contentMD)
 	tags := cfg.Tags
@@ -372,7 +387,7 @@ func PublishBlog(cfg config.BlogConfig, contentMD string) error {
 
 // PublishPodcast 发布播客
 func PublishPodcast(cfg config.PodcastConfig, contentMD string) error {
-	contentMD = stripFrontmatter(contentMD)
+	contentMD = extractOrganizedContent(contentMD)
 	title := extractTitle(contentMD)
 	formattedText := stripMarkdown(contentMD)
 
@@ -416,7 +431,7 @@ func PublishPodcast(cfg config.PodcastConfig, contentMD string) error {
 // PublishIMA 保存到 IMA 笔记
 func PublishIMA(cfg config.IMAConfig, contentMD string) error {
 	body := map[string]any{
-		"content":        stripFrontmatter(contentMD),
+		"content":        extractOrganizedContent(contentMD),
 		"content_format": 1,
 		"folder_id":      cfg.FolderID,
 	}
