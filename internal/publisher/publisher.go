@@ -76,7 +76,27 @@ func extractTitle(content string) string {
 
 // stripMarkdown 去除常见 Markdown 格式，生成纯文本
 func stripMarkdown(md string) string {
-	text := md
+	lines := strings.Split(md, "\n")
+	var filtered []string
+	inFrontmatter := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "---" {
+			if i == 0 {
+				inFrontmatter = true
+				continue
+			}
+			if inFrontmatter {
+				inFrontmatter = false
+				continue
+			}
+		}
+		if inFrontmatter {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	text := strings.Join(filtered, "\n")
 	// 去除标题标记
 	text = regexp.MustCompile(`(?m)^#{1,6}\s+`).ReplaceAllString(text, "")
 	// 去除粗体/斜体
@@ -91,6 +111,20 @@ func stripMarkdown(md string) string {
 	// 去除代码块
 	text = regexp.MustCompile("(?s)```.*?```").ReplaceAllString(text, "")
 	return strings.TrimSpace(text)
+}
+
+// stripFrontmatter 去除 YAML frontmatter，保留正文
+func stripFrontmatter(md string) string {
+	lines := strings.Split(md, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return md
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			return strings.Join(lines[i+1:], "\n")
+		}
+	}
+	return md
 }
 
 // formatHTMLForKindle 将 Markdown 转换为 Kindle 支持的 HTML 格式
@@ -380,7 +414,7 @@ func PublishPodcast(cfg config.PodcastConfig, contentMD string) error {
 // PublishIMA 保存到 IMA 笔记
 func PublishIMA(cfg config.IMAConfig, contentMD string) error {
 	body := map[string]any{
-		"content":        contentMD,
+		"content":        stripFrontmatter(contentMD),
 		"content_format": 1,
 		"folder_id":      cfg.FolderID,
 	}
