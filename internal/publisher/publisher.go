@@ -142,6 +142,35 @@ func extractOrganizedContent(md string) string {
 	return strings.TrimSpace(body)
 }
 
+// extractContentWithOriginal 提取 AI 整理后的文章 + 原文
+func extractContentWithOriginal(md string) string {
+	md = stripFrontmatter(md)
+	startIdx := strings.Index(md, "# 核心摘要")
+	if startIdx < 0 {
+		return md
+	}
+	body := md[startIdx+len("# 核心摘要"):]
+	if endIdx := strings.Index(body, "### 原始内容"); endIdx > 0 {
+		organized := strings.TrimSpace(body[:endIdx])
+		original := strings.TrimSpace(body[endIdx+len("### 原始内容"):])
+		if original == "" {
+			return organized
+		}
+		return organized + "\n\n---\n\n### 原文\n\n" + original
+	}
+	return strings.TrimSpace(body)
+}
+
+// extractOriginalContent 只提取原文（### 原始内容之后的部分）
+func extractOriginalContent(md string) string {
+	md = stripFrontmatter(md)
+	idx := strings.Index(md, "### 原始内容")
+	if idx < 0 {
+		return md
+	}
+	return strings.TrimSpace(md[idx+len("### 原始内容"):])
+}
+
 // formatHTMLForKindle 将 Markdown 转换为 Kindle 支持的 HTML 格式
 func formatHTMLForKindle(md string) string {
 	lines := strings.Split(md, "\n")
@@ -387,7 +416,7 @@ func PublishBlog(cfg config.BlogConfig, contentMD string) error {
 
 // PublishPodcast 发布播客
 func PublishPodcast(cfg config.PodcastConfig, contentMD string) error {
-	contentMD = extractOrganizedContent(contentMD)
+	contentMD = extractOriginalContent(contentMD)
 	title := extractTitle(contentMD)
 	formattedText := stripMarkdown(contentMD)
 
@@ -431,7 +460,7 @@ func PublishPodcast(cfg config.PodcastConfig, contentMD string) error {
 // PublishIMA 保存到 IMA 笔记
 func PublishIMA(cfg config.IMAConfig, contentMD string) error {
 	body := map[string]any{
-		"content":        extractOrganizedContent(contentMD),
+		"content":        extractContentWithOriginal(contentMD),
 		"content_format": 1,
 		"folder_id":      cfg.FolderID,
 	}
@@ -480,6 +509,8 @@ func PublishIMA(cfg config.IMAConfig, contentMD string) error {
 
 // PublishKindle 发送内容到 Kindle 个人文档服务
 func PublishKindle(cfg config.KindleConfig, contentMD string) error {
+	// 只使用原文
+	contentMD = extractOriginalContent(contentMD)
 	// 先用原始内容生成标题
 	plainText := stripMarkdown(contentMD)
 	titleRunes := []rune(plainText)
