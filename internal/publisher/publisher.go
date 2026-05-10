@@ -127,48 +127,80 @@ func stripFrontmatter(md string) string {
 	return md
 }
 
-// extractOrganizedContent 提取 # 核心摘要 部分（去除 frontmatter 和 ### 原始内容）
-func extractOrganizedContent(md string) string {
+// extractOrganizedContent 提取 AI 整理后的文章（# 核心摘要 部分）
+// 如果传入 title，且整理后内容没有以 # 开头，会附加在前面
+func extractOrganizedContent(md string, title string) string {
 	md = stripFrontmatter(md)
-	// 提取 # 核心摘要 到 ### 原始内容 之间的内容
+
 	startIdx := strings.Index(md, "# 核心摘要")
 	if startIdx < 0 {
 		return md
 	}
 	body := md[startIdx+len("# 核心摘要"):]
+	var organized string
 	if endIdx := strings.Index(body, "### 原始内容"); endIdx > 0 {
-		return strings.TrimSpace(body[:endIdx])
+		organized = strings.TrimSpace(body[:endIdx])
+	} else {
+		organized = strings.TrimSpace(body)
 	}
-	return strings.TrimSpace(body)
+
+	if title != "" && !hasLeadingHeading(organized) {
+		return "# " + title + "\n\n" + organized
+	}
+	return organized
 }
 
 // extractContentWithOriginal 提取 AI 整理后的文章 + 原文
-func extractContentWithOriginal(md string) string {
+// 如果传入 title，会加在整理后的文章开头
+func extractContentWithOriginal(md string, title string) string {
 	md = stripFrontmatter(md)
+
 	startIdx := strings.Index(md, "# 核心摘要")
 	if startIdx < 0 {
 		return md
 	}
 	body := md[startIdx+len("# 核心摘要"):]
+	var organized, original string
 	if endIdx := strings.Index(body, "### 原始内容"); endIdx > 0 {
-		organized := strings.TrimSpace(body[:endIdx])
-		original := strings.TrimSpace(body[endIdx+len("### 原始内容"):])
-		if original == "" {
-			return organized
-		}
-		return organized + "\n\n---\n\n### 原文\n\n" + original
+		organized = strings.TrimSpace(body[:endIdx])
+		original = strings.TrimSpace(body[endIdx+len("### 原始内容"):])
+	} else {
+		organized = strings.TrimSpace(body)
 	}
-	return strings.TrimSpace(body)
+
+	result := organized
+	if title != "" && !hasLeadingHeading(organized) {
+		result = "# " + title + "\n\n" + organized
+	}
+	if original != "" {
+		result += "\n\n---\n\n### 原文\n\n" + original
+	}
+	return result
 }
 
 // extractOriginalContent 只提取原文（### 原始内容之后的部分）
-func extractOriginalContent(md string) string {
+// 如果传入 title，且原文没有以 # 开头，会附加在前面
+func extractOriginalContent(md string, title string) string {
 	md = stripFrontmatter(md)
+
 	idx := strings.Index(md, "### 原始内容")
+	var result string
 	if idx < 0 {
-		return md
+		result = strings.TrimSpace(md)
+	} else {
+		result = strings.TrimSpace(md[idx+len("### 原始内容"):])
 	}
-	return strings.TrimSpace(md[idx+len("### 原始内容"):])
+
+	if title != "" && !hasLeadingHeading(result) {
+		return "# " + title + "\n\n" + result
+	}
+	return result
+}
+
+// hasLeadingHeading 检查内容是否以 Markdown 标题（# 开头）
+func hasLeadingHeading(s string) bool {
+	s = strings.TrimSpace(s)
+	return len(s) > 0 && s[0] == '#'
 }
 
 // formatHTMLForKindle 将 Markdown 转换为 Kindle 支持的 HTML 格式
@@ -369,9 +401,11 @@ func defaultTags() string {
 }
 
 // PublishBlog 发布博客
-func PublishBlog(cfg config.BlogConfig, contentMD string) error {
-	contentMD = extractOrganizedContent(contentMD)
-	title := extractTitle(contentMD)
+func PublishBlog(cfg config.BlogConfig, contentMD string, title string) error {
+	contentMD = extractOrganizedContent(contentMD, title)
+	if title == "" {
+		title = extractTitle(contentMD)
+	}
 	formattedText := stripMarkdown(contentMD)
 	tags := cfg.Tags
 	if tags == "" {
@@ -415,9 +449,11 @@ func PublishBlog(cfg config.BlogConfig, contentMD string) error {
 }
 
 // PublishPodcast 发布播客
-func PublishPodcast(cfg config.PodcastConfig, contentMD string) error {
-	contentMD = extractOriginalContent(contentMD)
-	title := extractTitle(contentMD)
+func PublishPodcast(cfg config.PodcastConfig, contentMD string, title string) error {
+	contentMD = extractOriginalContent(contentMD, title)
+	if title == "" {
+		title = extractTitle(contentMD)
+	}
 	formattedText := stripMarkdown(contentMD)
 
 	body := map[string]any{
@@ -458,9 +494,9 @@ func PublishPodcast(cfg config.PodcastConfig, contentMD string) error {
 }
 
 // PublishIMA 保存到 IMA 笔记
-func PublishIMA(cfg config.IMAConfig, contentMD string) error {
+func PublishIMA(cfg config.IMAConfig, contentMD string, title string) error {
 	body := map[string]any{
-		"content":        extractContentWithOriginal(contentMD),
+		"content":        extractContentWithOriginal(contentMD, title),
 		"content_format": 1,
 		"folder_id":      cfg.FolderID,
 	}
@@ -508,16 +544,19 @@ func PublishIMA(cfg config.IMAConfig, contentMD string) error {
 }
 
 // PublishKindle 发送内容到 Kindle 个人文档服务
-func PublishKindle(cfg config.KindleConfig, contentMD string) error {
+func PublishKindle(cfg config.KindleConfig, contentMD string, title string) error {
 	// 只使用原文
-	contentMD = extractOriginalContent(contentMD)
-	// 先用原始内容生成标题
-	plainText := stripMarkdown(contentMD)
-	titleRunes := []rune(plainText)
-	if len(titleRunes) > 50 {
-		titleRunes = titleRunes[:50]
+	contentMD = extractOriginalContent(contentMD, title)
+
+	// 如果没有传入标题，从原文提取（取前50个字符）
+	if title == "" {
+		plainText := stripMarkdown(contentMD)
+		titleRunes := []rune(plainText)
+		if len(titleRunes) > 50 {
+			titleRunes = titleRunes[:50]
+		}
+		title = string(titleRunes)
 	}
-	title := string(titleRunes)
 	// 标点符号转为下划线，其他不安全字符去除
 	title = regexp.MustCompile(`[，。、；：？！""''【】（）《》—…·,\.;:?!'"()\[\]{}\-]`).ReplaceAllString(title, "_")
 	title = regexp.MustCompile(`[\\/*?:"<>|]`).ReplaceAllString(title, "")
@@ -623,7 +662,7 @@ func PublishKindle(cfg config.KindleConfig, contentMD string) error {
 func PublishIfNeeded(cfg *config.Config, content string) {
 	if cfg.Blog.Enabled {
 		go func() {
-			if err := PublishBlog(cfg.Blog, content); err != nil {
+			if err := PublishBlog(cfg.Blog, content, ""); err != nil {
 				log.Printf("[ERROR] Blog publish failed: %v", err)
 			}
 		}()
@@ -631,7 +670,7 @@ func PublishIfNeeded(cfg *config.Config, content string) {
 
 	if cfg.Podcast.Enabled {
 		go func() {
-			if err := PublishPodcast(cfg.Podcast, content); err != nil {
+			if err := PublishPodcast(cfg.Podcast, content, ""); err != nil {
 				log.Printf("[ERROR] Podcast publish failed: %v", err)
 			}
 		}()
@@ -639,7 +678,7 @@ func PublishIfNeeded(cfg *config.Config, content string) {
 
 	if cfg.IMA.Enabled && cfg.IMA.ClientID != "" && cfg.IMA.APIKey != "" {
 		go func() {
-			if err := PublishIMA(cfg.IMA, content); err != nil {
+			if err := PublishIMA(cfg.IMA, content, ""); err != nil {
 				log.Printf("[ERROR] IMA publish failed: %v", err)
 			}
 		}()
@@ -647,7 +686,7 @@ func PublishIfNeeded(cfg *config.Config, content string) {
 
 	if cfg.Kindle.Enabled && cfg.Kindle.SenderEmail != "" && cfg.Kindle.SenderPassword != "" {
 		go func() {
-			if err := PublishKindle(cfg.Kindle, content); err != nil {
+			if err := PublishKindle(cfg.Kindle, content, ""); err != nil {
 				log.Printf("[ERROR] Kindle publish failed: %v", err)
 			}
 		}()

@@ -871,14 +871,13 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 
 	// AI 生成标题和摘要
 	content := req.Content
+	var aiTitle string
 	if s.aiProcessor != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
 		if result := s.aiProcessor.GenerateTitleAndSummary(ctx, content); result != nil {
+			aiTitle = result.Title
 			var header strings.Builder
-			if result.Title != "" {
-				header.WriteString("# " + result.Title + "\n\n")
-			}
 			if result.Summary != "" {
 				header.WriteString("> " + result.Summary + "\n\n")
 			}
@@ -902,25 +901,25 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 			if s.cfg.Blog.APIURL == "" {
 				err = fmt.Errorf("Blog API URL 未配置")
 			} else {
-				err = publisher.PublishBlog(s.cfg.Blog, content)
+				err = publisher.PublishBlog(s.cfg.Blog, content, aiTitle)
 			}
 		case "podcast":
 			if s.cfg.Podcast.APIURL == "" {
 				err = fmt.Errorf("Podcast API URL 未配置")
 			} else {
-				err = publisher.PublishPodcast(s.cfg.Podcast, content)
+				err = publisher.PublishPodcast(s.cfg.Podcast, content, aiTitle)
 			}
 		case "ima":
 			if s.cfg.IMA.APIURL == "" || s.cfg.IMA.ClientID == "" || s.cfg.IMA.APIKey == "" {
 				err = fmt.Errorf("IMA 配置不完整（需要 APIURL、ClientID、APIKey）")
 			} else {
-				err = publisher.PublishIMA(s.cfg.IMA, content)
+				err = publisher.PublishIMA(s.cfg.IMA, content, aiTitle)
 			}
 		case "kindle":
 			if s.cfg.Kindle.KindleEmail == "" || s.cfg.Kindle.SenderEmail == "" || s.cfg.Kindle.SenderPassword == "" {
 				err = fmt.Errorf("Kindle 配置不完整（需要 KindleEmail、SenderEmail、SenderPassword）")
 			} else {
-				err = publisher.PublishKindle(s.cfg.Kindle, content)
+				err = publisher.PublishKindle(s.cfg.Kindle, content, aiTitle)
 			}
 		default:
 			results = append(results, publishResult{Target: target, Error: "未知目标"})
@@ -1025,16 +1024,11 @@ func (s *Server) handleTagAndPublish(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 先去掉原始 frontmatter（NAS 文件自带），再加 AI header
+	// 先去掉原始 frontmatter（NAS 文件自带），再加 AI 摘要
 	content = stripFrontmatter(content)
-	if aiTitle != "" || aiSummary != "" {
+	if aiSummary != "" {
 		var header strings.Builder
-		if aiTitle != "" {
-			header.WriteString("# " + aiTitle + "\n\n")
-		}
-		if aiSummary != "" {
-			header.WriteString("> " + aiSummary + "\n\n")
-		}
+		header.WriteString("> " + aiSummary + "\n\n")
 		header.WriteString("---\n\n")
 		content = header.String() + content
 	}
@@ -1048,28 +1042,28 @@ func (s *Server) handleTagAndPublish(w http.ResponseWriter, r *http.Request) {
 		if s.cfg.Blog.APIURL == "" {
 			publishErr = fmt.Errorf("Blog API URL 未配置")
 		} else {
-			publishErr = publisher.PublishBlog(s.cfg.Blog, content)
+			publishErr = publisher.PublishBlog(s.cfg.Blog, content, aiTitle)
 		}
 	case "podcast":
 		// 检查必要配置
 		if s.cfg.Podcast.APIURL == "" {
 			publishErr = fmt.Errorf("Podcast API URL 未配置")
 		} else {
-			publishErr = publisher.PublishPodcast(s.cfg.Podcast, content)
+			publishErr = publisher.PublishPodcast(s.cfg.Podcast, content, aiTitle)
 		}
 	case "ima":
 		// 检查必要配置
 		if s.cfg.IMA.APIURL == "" || s.cfg.IMA.ClientID == "" || s.cfg.IMA.APIKey == "" {
 			publishErr = fmt.Errorf("IMA 配置不完整（需要 APIURL、ClientID、APIKey）")
 		} else {
-			publishErr = publisher.PublishIMA(s.cfg.IMA, content)
+			publishErr = publisher.PublishIMA(s.cfg.IMA, content, aiTitle)
 		}
 	case "kindle":
 		// 检查必要配置
 		if s.cfg.Kindle.KindleEmail == "" || s.cfg.Kindle.SenderEmail == "" || s.cfg.Kindle.SenderPassword == "" {
 			publishErr = fmt.Errorf("Kindle 配置不完整（需要 KindleEmail、SenderEmail、SenderPassword）")
 		} else {
-			publishErr = publisher.PublishKindle(s.cfg.Kindle, content)
+			publishErr = publisher.PublishKindle(s.cfg.Kindle, content, aiTitle)
 		}
 	}
 
