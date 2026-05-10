@@ -326,6 +326,7 @@ func defaultTags() string {
 
 // PublishBlog 发布博客
 func PublishBlog(cfg config.BlogConfig, contentMD string) error {
+	contentMD = stripFrontmatter(contentMD)
 	title := extractTitle(contentMD)
 	formattedText := stripMarkdown(contentMD)
 	tags := cfg.Tags
@@ -371,6 +372,7 @@ func PublishBlog(cfg config.BlogConfig, contentMD string) error {
 
 // PublishPodcast 发布播客
 func PublishPodcast(cfg config.PodcastConfig, contentMD string) error {
+	contentMD = stripFrontmatter(contentMD)
 	title := extractTitle(contentMD)
 	formattedText := stripMarkdown(contentMD)
 
