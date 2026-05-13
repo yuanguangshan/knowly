@@ -83,6 +83,7 @@ func (s *Server) buildHandler() http.Handler {
 	// 历史 API
 	mux.HandleFunc("/api/history", s.handleHistory)
 	mux.HandleFunc("/api/history/{id}", s.handleHistoryEntry)
+	mux.HandleFunc("/api/history/{id}/full", s.handleHistoryEntryFull)
 	mux.HandleFunc("/api/history/{id}/reprocess", s.handleReprocess)
 	mux.HandleFunc("/api/tags", s.handleTags)
 

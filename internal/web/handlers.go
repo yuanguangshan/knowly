@@ -1344,6 +1344,35 @@ func preserveMasked(old, new map[string]interface{}) {
 	}
 }
 
+// handleHistoryEntryFull 返回历史条目的完整内容（从 NAS 读取）
+func (s *Server) handleHistoryEntryFull(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		jsonError(w, "缺少 ID 参数", http.StatusBadRequest)
+		return
+	}
+
+	entry, err := s.histStore.GetByID(id)
+	if err != nil {
+		jsonError(w, fmt.Sprintf("找不到条目: %v", err), http.StatusNotFound)
+		return
+	}
+
+	content := entry.Content
+
+	// 如果有 NASPath，从 NAS 读取完整内容
+	if entry.NASPath != "" && s.sshClient != nil {
+		data, err := s.sshClient.ReadFile(entry.NASPath)
+		if err != nil {
+			log.Printf("[WARN] Failed to read NAS file %s: %v, using local content", entry.NASPath, err)
+		} else {
+			content = string(data)
+		}
+	}
+
+	jsonResp(w, map[string]string{"content": content})
+}
+
 // handleHistoryEntry GET 返回单条记录，PUT 更新条目
 func (s *Server) handleHistoryEntry(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

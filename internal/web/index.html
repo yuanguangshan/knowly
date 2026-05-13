@@ -3622,15 +3622,31 @@
         detail.className = "history-detail";
         detail.innerHTML =
           escHtml(entry.content || "") +
-          '<span class="copy-btn btn" data-copy="' +
-          escHtml(entry.content || "") +
+          '<span class="copy-btn btn" data-id="' +
+          escHtml(entry.id || "") +
           '"></span>';
 
         detail
           .querySelector(".copy-btn")
-          .addEventListener("click", function (e) {
+          .addEventListener("click", async function (e) {
             e.stopPropagation();
-            copyText(this.dataset.copy || "");
+            const id = this.dataset.id;
+            if (!id) {
+              showToast("无内容可复制");
+              return;
+            }
+            try {
+              const resp = await api("/api/history/" + id + "/full");
+              const content = resp.content || "";
+              if (content) {
+                copyText(content);
+              } else {
+                showToast("无内容可复制");
+              }
+            } catch (err) {
+              // API 失败，回退到复制预览内容
+              copyText(entry.content || "");
+            }
           });
         el.appendChild(detail);
       }
