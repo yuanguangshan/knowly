@@ -2887,12 +2887,18 @@
       function fallbackCopy(text) {
         const ta = document.createElement("textarea");
         ta.value = text;
-        ta.style.cssText = "position:fixed;left:-9999px";
+        ta.style.cssText = "position:fixed;left:-9999px;top:-9999px";
+        ta.setAttribute("readonly", "");
         document.body.appendChild(ta);
         ta.select();
-        document.execCommand("copy");
+        ta.setSelectionRange(0, ta.value.length);
+        const success = document.execCommand("copy");
         document.body.removeChild(ta);
-        showToast("已复制");
+        if (success) {
+          showToast("已复制");
+        } else {
+          showToast("复制失败，请手动复制");
+        }
       }
 
       // === Logs ===
@@ -3644,7 +3650,7 @@
                 showToast("无内容可复制");
               }
             } catch (err) {
-              // API 失败，回退到复制预览内容
+              showToast("获取完整内容失败，尝试复制预览内容");
               copyText(entry.content || "");
             }
           });
