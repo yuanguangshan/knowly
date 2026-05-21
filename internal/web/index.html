@@ -1392,6 +1392,126 @@
         }
       }
 
+      /* API Docs Modal */
+      .api-docs-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 200;
+        justify-content: center;
+        align-items: flex-start;
+        padding: 40px 20px;
+        overflow-y: auto;
+      }
+      .api-docs-overlay.show {
+        display: flex;
+      }
+      .api-docs-modal {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        width: 95%;
+        max-width: 800px;
+        max-height: 85vh;
+        overflow-y: auto;
+      }
+      .api-docs-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border);
+        position: sticky;
+        top: 0;
+        background: var(--bg-card);
+        z-index: 1;
+      }
+      .api-docs-header h2 {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--accent);
+        margin: 0;
+      }
+      .api-docs-close {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        font-size: 24px;
+        cursor: pointer;
+        padding: 0 4px;
+        line-height: 1;
+      }
+      .api-docs-close:hover {
+        color: var(--text-primary);
+      }
+      .api-docs-body {
+        padding: 20px 24px;
+      }
+      .api-docs-section {
+        margin-bottom: 24px;
+      }
+      .api-docs-section-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 10px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid var(--border);
+      }
+      .api-endpoint {
+        background: var(--bg-primary);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+      }
+      .api-endpoint-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
+      }
+      .api-method {
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 6px;
+        border-radius: 3px;
+        text-transform: uppercase;
+        flex-shrink: 0;
+      }
+      .api-method.get {
+        background: rgba(80, 200, 120, 0.15);
+        color: #50c878;
+      }
+      .api-method.post {
+        background: rgba(100, 180, 255, 0.15);
+        color: var(--info);
+      }
+      .api-method.put {
+        background: rgba(255, 180, 50, 0.15);
+        color: #ffb432;
+      }
+      .api-path {
+        font-family: monospace;
+        font-size: 13px;
+        color: var(--text-primary);
+      }
+      .api-desc {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin: 0;
+      }
+      .api-params {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 6px;
+        font-family: monospace;
+      }
+
       /* Edit Modal */
       .edit-modal-overlay {
         display: none;
@@ -2031,6 +2151,12 @@
                 保存所有设置
               </button>
 
+              <div style="margin-bottom: 16px; text-align: center">
+                <a href="javascript:void(0)" onclick="openApiDocs()" style="color: var(--info); font-size: 13px; text-decoration: none">
+                  &#x1f4d6; API 帮助文档
+                </a>
+              </div>
+
               <!-- SSH 连接 -->
               <div class="settings-card">
                 <div class="settings-card-header" onclick="toggleCard(this)">
@@ -2495,6 +2621,255 @@
           <button class="btn btn-accent" id="btnSaveEdit" onclick="saveEdit()">
             保存
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- API Docs Modal -->
+    <div class="api-docs-overlay" id="apiDocsModal" onclick="closeApiDocs()">
+      <div class="api-docs-modal" onclick="event.stopPropagation()">
+        <div class="api-docs-header">
+          <h2>&#x1f4d6; API 帮助文档</h2>
+          <button class="api-docs-close" onclick="closeApiDocs()">&times;</button>
+        </div>
+        <div class="api-docs-body">
+          <!-- 系统状态 -->
+          <div class="api-docs-section">
+            <div class="api-docs-section-title">系统状态</div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/status</span>
+              </div>
+              <p class="api-desc">返回系统状态：SSH 连接、运行状态、版本、发布渠道配置等</p>
+            </div>
+          </div>
+
+          <!-- 历史记录 -->
+          <div class="api-docs-section">
+            <div class="api-docs-section-title">历史记录</div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/history</span>
+              </div>
+              <p class="api-desc">获取历史记录列表</p>
+              <p class="api-params">参数：?limit=50&type=all&tag=xxx&after=2006-01-02 15:04:05</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/history/{id}</span>
+              </div>
+              <p class="api-desc">获取单条历史记录</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method put">PUT</span>
+                <span class="api-path">/api/history/{id}</span>
+              </div>
+              <p class="api-desc">编辑记录（标题/标签/摘要）</p>
+              <p class="api-params">Body: {"title": "...", "tags": [...], "summary": "..."}</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/history/{id}/full</span>
+              </div>
+              <p class="api-desc">获取记录完整内容（从 NAS 读取）</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method post">POST</span>
+                <span class="api-path">/api/history/{id}/reprocess</span>
+              </div>
+              <p class="api-desc">重新运行 AI 处理</p>
+            </div>
+          </div>
+
+          <!-- 标签与搜索 -->
+          <div class="api-docs-section">
+            <div class="api-docs-section-title">标签与搜索</div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/tags</span>
+              </div>
+              <p class="api-desc">获取所有标签及计数</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/search</span>
+              </div>
+              <p class="api-desc">全文搜索归档内容</p>
+              <p class="api-params">参数：?q=关键词&limit=50</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/stats</span>
+              </div>
+              <p class="api-desc">获取统计数据</p>
+            </div>
+          </div>
+
+          <!-- 归档管理 -->
+          <div class="api-docs-section">
+            <div class="api-docs-section-title">归档管理</div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/archive/list</span>
+              </div>
+              <p class="api-desc">列出归档目录</p>
+              <p class="api-params">参数：?path=2026/05</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/archive/today</span>
+              </div>
+              <p class="api-desc">一次性返回归档初始化数据（年/月/日 + 当日文件）</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/archive/file</span>
+              </div>
+              <p class="api-desc">读取归档文件内容</p>
+              <p class="api-params">参数：?path=2026/05/22/article.md</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/archive/download</span>
+              </div>
+              <p class="api-desc">下载归档文件</p>
+              <p class="api-params">参数：?path=2026/05/22/article.md</p>
+            </div>
+          </div>
+
+          <!-- 文件上传/下载 -->
+          <div class="api-docs-section">
+            <div class="api-docs-section-title">文件上传/下载</div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method post">POST</span>
+                <span class="api-path">/api/upload</span>
+              </div>
+              <p class="api-desc">上传文件到 NAS（.txt/.md 自动触发 AI 同步）</p>
+              <p class="api-params">multipart/form-data，字段：file</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/uploads/download</span>
+              </div>
+              <p class="api-desc">下载上传的文件</p>
+              <p class="api-params">参数：?filename=example.txt</p>
+            </div>
+          </div>
+
+          <!-- 发布 -->
+          <div class="api-docs-section">
+            <div class="api-docs-section-title">内容发布</div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method post">POST</span>
+                <span class="api-path">/api/publish</span>
+              </div>
+              <p class="api-desc">发布内容到 Blog/Podcast/IMA/Kindle</p>
+              <p class="api-params">Body: {"content": "...", "targets": ["blog", "podcast"]}</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method post">POST</span>
+                <span class="api-path">/api/tag-and-publish</span>
+              </div>
+              <p class="api-desc">添加标签并发布（从 NAS 读取完整内容）</p>
+              <p class="api-params">Body: {"id": "...", "tag": "...", "target": "blog"}</p>
+            </div>
+          </div>
+
+          <!-- 日志 -->
+          <div class="api-docs-section">
+            <div class="api-docs-section-title">日志</div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/logs</span>
+              </div>
+              <p class="api-desc">获取日志列表</p>
+              <p class="api-params">参数：?level=info&limit=300</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/logs/stream</span>
+              </div>
+              <p class="api-desc">实时日志流（SSE）</p>
+            </div>
+          </div>
+
+          <!-- 管理 -->
+          <div class="api-docs-section">
+            <div class="api-docs-section-title">管理</div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method post">POST</span>
+                <span class="api-path">/api/admin/restart</span>
+              </div>
+              <p class="api-desc">重启 knowly daemon</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method post">POST</span>
+                <span class="api-path">/api/admin/update</span>
+              </div>
+              <p class="api-desc">从源码编译并替换二进制，重启服务（SSE 进度流）</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method post">POST</span>
+                <span class="api-path">/api/admin/release</span>
+              </div>
+              <p class="api-desc">版本发布：git push → npm version minor → git push --tags</p>
+            </div>
+          </div>
+
+          <!-- 配置 -->
+          <div class="api-docs-section">
+            <div class="api-docs-section-title">配置管理</div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/config</span>
+              </div>
+              <p class="api-desc">获取完整配置（敏感字段脱敏）</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method put">PUT</span>
+                <span class="api-path">/api/config</span>
+              </div>
+              <p class="api-desc">更新完整配置</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method get">GET</span>
+                <span class="api-path">/api/config/ai</span>
+              </div>
+              <p class="api-desc">获取 AI 配置（含预设和 prompt 模板）</p>
+            </div>
+            <div class="api-endpoint">
+              <div class="api-endpoint-header">
+                <span class="api-method put">PUT</span>
+                <span class="api-path">/api/config/ai</span>
+              </div>
+              <p class="api-desc">更新 AI 配置</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -4717,6 +5092,15 @@
         editingEntryTags = [];
       }
 
+      // === API Docs Modal ===
+      function openApiDocs() {
+        document.getElementById("apiDocsModal").classList.add("show");
+      }
+
+      function closeApiDocs() {
+        document.getElementById("apiDocsModal").classList.remove("show");
+      }
+
       function renderEditTagChips() {
         const editor = document.getElementById("editTagEditor");
         const input = document.getElementById("editTagInput");
@@ -4763,7 +5147,10 @@
 
       // Escape 键关闭 modal
       document.addEventListener("keydown", function (e) {
-        if (e.key === "Escape") closeEditModal();
+        if (e.key === "Escape") {
+          closeEditModal();
+          closeApiDocs();
+        }
       });
 
       async function saveEdit() {
