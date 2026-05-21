@@ -571,7 +571,7 @@ AI 会自动生成标题。
 
 ### 9.1 POST /api/upload
 
-上传文件到 Go 后端所在机器的本地目录。
+上传文件到远程 NAS（通过 SSH 连接）。
 
 **URL:** [https://knowly.want.biz/api/upload](https://knowly.want.biz/api/upload)
 
@@ -585,7 +585,7 @@ AI 会自动生成标题。
 
 **大小限制:** 最大 200MB
 
-**文件保存位置:** `$HOME/.knowly/uploads/<timestamp>_<filename>`（`$HOME` 为 Go 后端运行用户的家目录）
+**文件保存位置:** `{ssh.base_path}/uploads/<filename>`（同名文件自动追加时间戳避免覆盖）
 
 **响应:**
 
@@ -593,8 +593,8 @@ AI 会自动生成标题。
 {
   "status": "ok",
   "filename": "report.pdf",
-  "saved_as": "20260521_181343_report.pdf",
-  "path": "/home/user/.knowly/uploads/20260521_181343_report.pdf",
+  "saved_as": "report.pdf",
+  "path": "/data/archive/uploads/report.pdf",
   "size": 1234567
 }
 ```

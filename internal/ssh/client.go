@@ -791,6 +791,20 @@ func (c *Client) WriteBinary(path string, data []byte) error {
 	return nil
 }
 
+// FileExists 检查远程文件是否存在
+func (c *Client) FileExists(remotePath string) bool {
+	session, release, err := c.newSession()
+	if err != nil {
+		return false
+	}
+	defer release()
+
+	fullPath := c.expandPath(remotePath)
+	cmd := fmt.Sprintf("test -e %s", shellEscape(fullPath))
+	_, err = session.CombinedOutput(cmd)
+	return err == nil
+}
+
 // ListDir 列出远程目录内容
 func (c *Client) ListDir(remotePath string) ([]DirEntry, error) {
 	session, release, err := c.newSession()

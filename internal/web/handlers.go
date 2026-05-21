@@ -1652,10 +1652,8 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 按日期组织目录结构
-	now := time.Now()
-	relPath := filepath.Join(now.Format("2006"), now.Format("01"), now.Format("02"))
-	remoteDir := filepath.Join(s.cfg.SSH.BasePath, "uploads", relPath)
+	// 所有文件放在同一个 uploads 目录下
+	remoteDir := filepath.Join(s.cfg.SSH.BasePath, "uploads")
 
 	// 创建远程目录
 	if err := s.sshClient.MkdirAll(remoteDir); err != nil {
@@ -1664,9 +1662,16 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 使用时间戳+原文件名避免冲突
-	timestamp := now.Format("20060102_150405")
 	safeName := strings.ReplaceAll(header.Filename, "/", "_")
-	destPath := filepath.Join(remoteDir, timestamp+"_"+safeName)
+	destPath := filepath.Join(remoteDir, safeName)
+
+	// 如果文件已存在，追加时间戳避免覆盖
+	if s.sshClient.FileExists(destPath) {
+		timestamp := time.Now().Format("20060102_150405")
+		ext := filepath.Ext(safeName)
+		base := strings.TrimSuffix(safeName, ext)
+		destPath = filepath.Join(remoteDir, base+"_"+timestamp+ext)
+	}
 
 	// 写入远程 NAS
 	if err := s.sshClient.WriteBinary(destPath, data); err != nil {
