@@ -1621,3 +1621,62 @@ func parseContentMetadata(content string) ssh.ContentMetadata {
 
 	return meta
 }
+
+// handleUpload 处理文件上传，保存到 Go 后端所在机器的本地目录
+// 请求格式: multipart/form-data，字段名 "file"
+func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 限制最大 200MB
+	const maxUploadSize = 200 << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		http.Error(w, "file too large or invalid form", http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "missing 'file' field", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// 保存到本地 uploads 目录
+	uploadDir := filepath.Join(config.GetConfigDir(), "uploads")
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		http.Error(w, "failed to create upload directory", http.StatusInternalServerError)
+		return
+	}
+
+	// 使用时间戳+原文件名避免冲突
+	timestamp := time.Now().Format("20060102_150405")
+	safeName := strings.ReplaceAll(header.Filename, "/", "_")
+	destPath := filepath.Join(uploadDir, timestamp+"_"+safeName)
+
+	dst, err := os.Create(destPath)
+	if err != nil {
+		http.Error(w, "failed to create file", http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+
+	written, err := io.Copy(dst, file)
+	if err != nil {
+		os.Remove(destPath)
+		http.Error(w, "failed to save file", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[INFO] File uploaded: %s (%d bytes) -> %s", header.Filename, written, destPath)
+	jsonResp(w, map[string]interface{}{
+		"status":    "ok",
+		"filename":  header.Filename,
+		"saved_as":  filepath.Base(destPath),
+		"path":      destPath,
+		"size":      written,
+	})
+}
