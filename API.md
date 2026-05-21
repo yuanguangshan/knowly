@@ -615,6 +615,42 @@ curl -X POST https://knowly.want.biz/api/upload \
   -F "file=@/path/to/report.pdf"
 ```
 
+### 9.2 GET /api/uploads/download
+
+从 uploads 目录下载文件。
+
+**URL:** `https://knowly.want.biz/api/uploads/download`
+
+**Query 参数:**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `filename` | string | 是 | 文件名（仅 basename，不支持路径） |
+
+**响应:** 文件二进制流（根据扩展名设置 Content-Type）。
+
+**错误响应:**
+
+```json
+{
+  "error": "无法读取文件: ..."
+}
+```
+
+**curl 示例:**
+
+```bash
+# 下载文件
+curl -G https://knowly.want.biz/api/uploads/download \
+  -u "user:password" \
+  -d "filename=report.md" \
+  -o report.md
+
+# 查看文件内容（纯文本）
+curl -s -G https://knowly.want.biz/api/uploads/download \
+  -d "filename=test.txt"
+```
+
 ---
 
 ## 10. 前端页面
