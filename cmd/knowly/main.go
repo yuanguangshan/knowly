@@ -122,7 +122,9 @@ func main() {
 	var webSrv *web.Server
 	if cfg.Web.IsEnabled() {
 		webAddr := fmt.Sprintf(":%d", cfg.Web.Port)
-		webSrv = web.NewServerWithDeps(cfg, webAddr, client, histStore)
+		webSrv = web.NewServerWithDeps(cfg, webAddr, client, histStore, func(content string, timestamp time.Time) {
+			syncText(client, cfg, content, timestamp, histStore, aiProcessor, outboxStore, "Upload")
+		})
 		webSrv.StartAsync()
 	}
 

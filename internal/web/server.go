@@ -16,6 +16,9 @@ import (
 	"github.com/yuanguangshan/knowly/internal/ssh"
 )
 
+// SyncTextFn 异步文本同步回调函数（由 main.go 提供，指向 syncText）
+type SyncTextFn func(content string, timestamp time.Time)
+
 // Server Web 管理界面服务器
 type Server struct {
 	cfg        *config.Config
@@ -25,6 +28,7 @@ type Server struct {
 	addr       string
 	startTime  time.Time
 	httpServer *http.Server
+	syncTextFn SyncTextFn
 }
 
 // NewServer 创建 Web 服务器实例（创建新的 SSH 和 History 依赖）
@@ -51,15 +55,16 @@ func NewServer(cfg *config.Config, addr string) *Server {
 }
 
 // NewServerWithDeps 创建 Web 服务器实例（使用已有的 SSH 和 History 依赖）
-func NewServerWithDeps(cfg *config.Config, addr string, sshClient *ssh.Client, histStore *history.Store) *Server {
+func NewServerWithDeps(cfg *config.Config, addr string, sshClient *ssh.Client, histStore *history.Store, syncTextFn SyncTextFn) *Server {
 	aiProcessor := ai.NewProcessor(&cfg.AI)
 	return &Server{
-		cfg:         cfg,
+		cfg:        cfg,
 		sshClient:   sshClient,
 		histStore:   histStore,
 		aiProcessor: aiProcessor,
-		addr:        addr,
-		startTime:   time.Now(),
+		addr:       addr,
+		startTime:  time.Now(),
+		syncTextFn: syncTextFn,
 	}
 }
 

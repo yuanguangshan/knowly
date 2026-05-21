@@ -1681,6 +1681,17 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	written := int64(len(data))
 	log.Printf("[INFO] File uploaded to NAS: %s (%d bytes) -> %s", header.Filename, written, destPath)
+
+	// 如果是 .txt 或 .md 文件，异步投递到 syncText 流水线
+	if s.syncTextFn != nil {
+		ext := strings.ToLower(filepath.Ext(safeName))
+		if ext == ".txt" || ext == ".md" {
+			content := string(data)
+			log.Printf("[INFO] Upload text file detected (%s), queuing async sync", ext)
+			go s.syncTextFn(content, time.Now())
+		}
+	}
+
 	jsonResp(w, map[string]interface{}{
 		"status":   "ok",
 		"filename": header.Filename,
