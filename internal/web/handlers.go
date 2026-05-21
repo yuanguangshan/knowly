@@ -1622,7 +1622,7 @@ func parseContentMetadata(content string) ssh.ContentMetadata {
 	return meta
 }
 
-// handleUpload 处理文件上传，保存到 Go 后端所在机器的本地目录
+// handleUpload 处理文件上传，保存到 NAS（远程 SSH 目录）
 // 请求格式: multipart/form-data，字段名 "file"
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1645,38 +1645,42 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// 保存到本地 uploads 目录
-	uploadDir := filepath.Join(config.GetConfigDir(), "uploads")
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+	// 读取文件内容
+	data, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "failed to read file", http.StatusInternalServerError)
+		return
+	}
+
+	// 按日期组织目录结构
+	now := time.Now()
+	relPath := filepath.Join(now.Format("2006"), now.Format("01"), now.Format("02"))
+	remoteDir := filepath.Join(s.cfg.SSH.BasePath, "uploads", relPath)
+
+	// 创建远程目录
+	if err := s.sshClient.MkdirAll(remoteDir); err != nil {
 		http.Error(w, "failed to create upload directory", http.StatusInternalServerError)
 		return
 	}
 
 	// 使用时间戳+原文件名避免冲突
-	timestamp := time.Now().Format("20060102_150405")
+	timestamp := now.Format("20060102_150405")
 	safeName := strings.ReplaceAll(header.Filename, "/", "_")
-	destPath := filepath.Join(uploadDir, timestamp+"_"+safeName)
+	destPath := filepath.Join(remoteDir, timestamp+"_"+safeName)
 
-	dst, err := os.Create(destPath)
-	if err != nil {
-		http.Error(w, "failed to create file", http.StatusInternalServerError)
-		return
-	}
-	defer dst.Close()
-
-	written, err := io.Copy(dst, file)
-	if err != nil {
-		os.Remove(destPath)
+	// 写入远程 NAS
+	if err := s.sshClient.WriteBinary(destPath, data); err != nil {
 		http.Error(w, "failed to save file", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("[INFO] File uploaded: %s (%d bytes) -> %s", header.Filename, written, destPath)
+	written := int64(len(data))
+	log.Printf("[INFO] File uploaded to NAS: %s (%d bytes) -> %s", header.Filename, written, destPath)
 	jsonResp(w, map[string]interface{}{
-		"status":    "ok",
-		"filename":  header.Filename,
-		"saved_as":  filepath.Base(destPath),
-		"path":      destPath,
-		"size":      written,
+		"status":   "ok",
+		"filename": header.Filename,
+		"saved_as": filepath.Base(destPath),
+		"path":     destPath,
+		"size":     written,
 	})
 }
