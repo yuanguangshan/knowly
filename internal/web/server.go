@@ -110,8 +110,9 @@ func (s *Server) buildHandler() http.Handler {
 	// 搜索 API
 	mux.HandleFunc("/api/search", s.handleSearch)
 
-	// 文件上传 API
+	// 文件上传/下载 API
 	mux.HandleFunc("/api/upload", s.handleUpload)
+	mux.HandleFunc("/api/uploads/download", s.handleUploadsDownload)
 
 	// AI 配置 API
 	mux.HandleFunc("/api/config/ai", s.handleAIConfig)

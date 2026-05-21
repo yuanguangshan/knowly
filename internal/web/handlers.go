@@ -1700,3 +1700,47 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		"size":     written,
 	})
 }
+
+// handleUploadsDownload 从 uploads 目录下载文件（供 API 调用）
+func (s *Server) handleUploadsDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		jsonError(w, "缺少 filename 参数", http.StatusBadRequest)
+		return
+	}
+
+	// 防止路径穿越
+	filename = filepath.Base(filename)
+	fullPath := filepath.Join(s.cfg.SSH.BasePath, "uploads", filename)
+
+	data, err := s.sshClient.ReadFile(fullPath)
+	if err != nil {
+		jsonError(w, fmt.Sprintf("无法读取文件: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".png":
+		w.Header().Set("Content-Type", "image/png")
+	case ".jpg", ".jpeg":
+		w.Header().Set("Content-Type", "image/jpeg")
+	case ".gif":
+		w.Header().Set("Content-Type", "image/gif")
+	case ".md":
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	case ".txt":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	default:
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+
+	w.Write(data)
+}
