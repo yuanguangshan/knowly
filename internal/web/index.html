@@ -3221,24 +3221,22 @@
       }
 
       // === Hash Routing for Archive Direct Links ===
-      // Only handles initial page load with a hash (bookmark/shared link).
-      // Normal preview clicks do NOT update the hash, so no re-routing occurs.
-      var hashRouteHandled = false;
+      // Handles initial page load with a hash (bookmark/shared link).
+      // Also handles subsequent hash changes (e.g., clicking feed articles).
+      var hashRouteLock = false;
 
       async function handleHashRoute() {
-        if (hashRouteHandled) return;
+        if (hashRouteLock) return;
         const hash = window.location.hash;
         if (!hash.startsWith("#/archive/") && !hash.startsWith("#/feed/")) return;
 
-        hashRouteHandled = true;
+        hashRouteLock = true;
 
         // Ensure archive tab is active
         if (currentTab !== "archive") {
           switchTab("archive");
+          await waitForArchiveReady();
         }
-
-        // Wait for archive data to load
-        await waitForArchiveReady();
 
         if (hash.startsWith("#/feed/")) {
           const dateStr = hash.substring("#/feed/".length);
@@ -3246,40 +3244,40 @@
           if (parts.length >= 3) {
             loadDailyFeed(parts[0], parts[1], parts[2]);
           }
+          hashRouteLock = false;
           return;
         }
 
         // #/archive/YYYY/MM/DD/file.md
         const relPath = hash.substring("#/archive/".length);
         const parts = relPath.split("/");
-        if (parts.length < 4) return;
+        if (parts.length < 4) { hashRouteLock = false; return; }
 
         const year = parts[0], month = parts[1], day = parts[2];
         const fileName = parts.slice(3).join("/");
+
+        // Wait for dropdowns if needed
+        await waitForArchiveReady();
 
         // Set dropdown values without re-triggering loads
         const selYear = document.getElementById("selYear");
         if (selYear.querySelector('option[value="' + year + '"]')) {
           selYear.value = year;
         }
-
         const selMonth = document.getElementById("selMonth");
         if (selMonth.querySelector('option[value="' + month + '"]')) {
           selMonth.value = month;
           selMonth.disabled = false;
         }
-
         const selDay = document.getElementById("selDay");
         if (selDay.querySelector('option[value="' + day + '"]')) {
           selDay.value = day;
           selDay.disabled = false;
         }
 
-        // Load file list for the day
-        loadFiles();
-        await new Promise(function(resolve) { setTimeout(resolve, 200); });
+        hashRouteLock = false;
 
-        // Preview the file directly
+        // Preview the file directly (don't wait for loadFiles)
         previewFile(relPath, fileName, null);
       }
 
