@@ -3864,7 +3864,7 @@
           data.items.forEach(function(item) {
             const hashLink = "#/archive/" + item.rel_path;
             html += '<div class="daily-article">';
-            html += '<h4><a href="' + hashLink + '" onclick="handleHashRoute(); return false;">' + escHtml(item.title) + '</a></h4>';
+            html += '<h4><a href="' + hashLink + '">' + escHtml(item.title) + '</a></h4>';
             if (item.summary) {
               html += '<p class="daily-summary">' + escHtml(item.summary) + '</p>';
             }
