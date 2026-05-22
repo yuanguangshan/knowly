@@ -3249,7 +3249,7 @@
         }
 
         // #/archive/YYYY/MM/DD/file.md
-        const relPath = hash.substring("#/archive/".length);
+        const relPath = decodeURIComponent(hash.substring("#/archive/".length));
         const parts = relPath.split("/");
         if (parts.length < 4) { hashRouteLock = false; return; }
 
