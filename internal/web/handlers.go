@@ -417,20 +417,22 @@ func (s *Server) handleArchiveFeed(w http.ResponseWriter, r *http.Request) {
 				RelPath:  relPath + "/" + e.Name,
 				ModTime:  e.ModTime,
 				Size:     e.Size,
+				Title:    e.Name,
 			}
-			// 读取文件内容，提取 frontmatter
-			data, err := s.sshClient.ReadFile(filepath.Join(fullPath, e.Name))
-			if err == nil {
-				content := string(data)
-				if strings.HasPrefix(content, "---") {
-					meta := parseContentMetadata(content)
-					item.Title = meta.Title
-					item.Summary = meta.Summary
-					item.Tags = meta.Tags
+			// 只读取第一个文件提取 frontmatter（避免消耗过多 SSH session）
+			if len(items) == 0 {
+				data, err := s.sshClient.ReadFile(filepath.Join(fullPath, e.Name))
+				if err == nil {
+					content := string(data)
+					if strings.HasPrefix(content, "---") {
+						meta := parseContentMetadata(content)
+						if meta.Title != "" {
+							item.Title = meta.Title
+						}
+						item.Summary = meta.Summary
+						item.Tags = meta.Tags
+					}
 				}
-			}
-			if item.Title == "" {
-				item.Title = e.Name
 			}
 			items = append(items, item)
 		}
