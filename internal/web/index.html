@@ -3221,62 +3221,81 @@
       }
 
       // === Hash Routing for Archive Direct Links ===
-      var hashRoutingInProgress = false;
+      // Only handles initial page load with a hash (bookmark/shared link).
+      // Normal preview clicks do NOT update the hash, so no re-routing occurs.
+      var hashRouteHandled = false;
 
-      function handleHashRoute() {
-        if (hashRoutingInProgress) return;
+      async function handleHashRoute() {
+        if (hashRouteHandled) return;
         const hash = window.location.hash;
-        if (hash.startsWith("#/archive/")) {
-          const relPath = hash.substring("#/archive/".length);
-          // Don't re-navigate if we're already previewing this file
-          if (relPath === currentFilePath && currentFileContent) return;
-          const parts = relPath.split("/");
-          if (parts.length >= 4) {
-            const year = parts[0], month = parts[1], day = parts[2];
-            const fileName = parts.slice(3).join("/");
+        if (!hash.startsWith("#/archive/") && !hash.startsWith("#/feed/")) return;
 
-            switchTab("archive");
+        hashRouteHandled = true;
 
-            // Wait for year dropdown to be populated, then set values
-            setTimeout(function() {
-              const selYear = document.getElementById("selYear");
-              if (selYear.querySelector('option[value="' + year + '"]')) {
-                selYear.value = year;
-              }
-              // Load months for the year
-              loadMonths();
-              setTimeout(function() {
-                const selMonth = document.getElementById("selMonth");
-                if (selMonth.querySelector('option[value="' + month + '"]')) {
-                  selMonth.value = month;
-                  selMonth.disabled = false;
-                }
-                loadDays();
-                setTimeout(function() {
-                  const selDay = document.getElementById("selDay");
-                  if (selDay.querySelector('option[value="' + day + '"]')) {
-                    selDay.value = day;
-                    selDay.disabled = false;
-                  }
-                  loadFiles();
-                  setTimeout(function() {
-                    previewFile(relPath, fileName, null);
-                  }, 100);
-                }, 100);
-              }, 100);
-            }, 100);
-          }
-        } else if (hash.startsWith("#/feed/")) {
+        // Ensure archive tab is active
+        if (currentTab !== "archive") {
+          switchTab("archive");
+        }
+
+        // Wait for archive data to load
+        await waitForArchiveReady();
+
+        if (hash.startsWith("#/feed/")) {
           const dateStr = hash.substring("#/feed/".length);
-          // e.g. 2026/05/22
           const parts = dateStr.split("/");
           if (parts.length >= 3) {
-            switchTab("archive");
-            setTimeout(function() {
-              loadDailyFeed(parts[0], parts[1], parts[2]);
-            }, 200);
+            loadDailyFeed(parts[0], parts[1], parts[2]);
           }
+          return;
         }
+
+        // #/archive/YYYY/MM/DD/file.md
+        const relPath = hash.substring("#/archive/".length);
+        const parts = relPath.split("/");
+        if (parts.length < 4) return;
+
+        const year = parts[0], month = parts[1], day = parts[2];
+        const fileName = parts.slice(3).join("/");
+
+        // Set dropdown values without re-triggering loads
+        const selYear = document.getElementById("selYear");
+        if (selYear.querySelector('option[value="' + year + '"]')) {
+          selYear.value = year;
+        }
+
+        const selMonth = document.getElementById("selMonth");
+        if (selMonth.querySelector('option[value="' + month + '"]')) {
+          selMonth.value = month;
+          selMonth.disabled = false;
+        }
+
+        const selDay = document.getElementById("selDay");
+        if (selDay.querySelector('option[value="' + day + '"]')) {
+          selDay.value = day;
+          selDay.disabled = false;
+        }
+
+        // Load file list for the day
+        loadFiles();
+        await new Promise(function(resolve) { setTimeout(resolve, 200); });
+
+        // Preview the file directly
+        previewFile(relPath, fileName, null);
+      }
+
+      function waitForArchiveReady() {
+        return new Promise(function(resolve) {
+          var check = setInterval(function() {
+            if (archiveInitialized) {
+              clearInterval(check);
+              resolve();
+            }
+          }, 100);
+          setTimeout(function() {
+            clearInterval(check);
+            resolve(); // timeout, proceed anyway
+          }, 5000);
+        });
       }
 
       // === AI Sub-tab Switch ===
@@ -3744,9 +3763,6 @@
         if (itemEl) itemEl.classList.add("selected");
         selectedFileItem = itemEl;
         currentFilePath = path;
-
-        // Update URL hash for direct link sharing
-        window.location.hash = "/archive/" + path;
 
         const preview = document.getElementById("previewContent");
         const toolbar = document.getElementById("previewToolbar");
