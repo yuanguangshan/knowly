@@ -573,7 +573,8 @@ func (s *Store) AllTags() ([]TagCount, error) {
 
 	if !s.tagCacheBuilt {
 		if err := s.buildTagCache(); err != nil {
-			return nil, err
+			log.Printf("[WARN] AllTags: buildTagCache failed, returning empty: %v", err)
+			s.tagCacheBuilt = true // mark as built to avoid repeated failed attempts
 		}
 	}
 
