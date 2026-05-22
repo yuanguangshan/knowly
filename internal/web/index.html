@@ -3634,11 +3634,13 @@
         const year = document.getElementById("selYear").value;
         const selMonth = document.getElementById("selMonth");
         const selDay = document.getElementById("selDay");
+        const fileList = document.getElementById("fileList");
         selMonth.innerHTML = '<option value="">月份</option>';
         selMonth.disabled = true;
         selDay.innerHTML = '<option value="">日期</option>';
         selDay.disabled = true;
-        document.getElementById("fileList").innerHTML =
+        fileList.style.display = "";
+        fileList.innerHTML =
           '<div class="empty-state">请选择日期查看文件</div>';
         clearPreview();
         if (!year) return;
@@ -3659,9 +3661,11 @@
         const year = document.getElementById("selYear").value;
         const month = document.getElementById("selMonth").value;
         const selDay = document.getElementById("selDay");
+        const fileList = document.getElementById("fileList");
         selDay.innerHTML = '<option value="">日期</option>';
         selDay.disabled = true;
-        document.getElementById("fileList").innerHTML =
+        fileList.style.display = "";
+        fileList.innerHTML =
           '<div class="empty-state">请选择日期查看文件</div>';
         clearPreview();
         if (!month) return;
@@ -3740,6 +3744,7 @@
         const month = document.getElementById("selMonth").value;
         const day = document.getElementById("selDay").value;
         const list = document.getElementById("fileList");
+        list.style.display = "";
         clearPreview();
 
         if (!day) {
