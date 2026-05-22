@@ -1511,6 +1511,34 @@
         margin-top: 6px;
         font-family: monospace;
       }
+      .api-example-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-top: 8px;
+        margin-bottom: 2px;
+      }
+      .api-code {
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        font-size: 11px;
+        line-height: 1.5;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 4px;
+        padding: 8px 10px;
+        margin: 4px 0 6px;
+        color: #a8b4c0;
+        white-space: pre;
+        overflow-x: auto;
+      }
+      .api-note {
+        font-size: 12px;
+        color: #e74c3c;
+        margin-bottom: 10px;
+        padding: 6px 10px;
+        background: rgba(231, 76, 60, 0.08);
+        border-radius: 4px;
+      }
 
       /* Edit Modal */
       .edit-modal-overlay {
@@ -2643,6 +2671,25 @@
                 <span class="api-path">/api/status</span>
               </div>
               <p class="api-desc">返回系统状态：SSH 连接、运行状态、版本、发布渠道配置等</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" https://knowly.want.biz/api/status</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">{
+  "ssh": { "host": "1.2.3.4", "user": "root", "port": "22", "base_path": "/data/archive" },
+  "daemon_running": true,
+  "total_syncs": 500,
+  "ssh_connected": true,
+  "start_time": "2026-05-21 10:00:00",
+  "uptime": 28800,
+  "pid": 12345,
+  "version": "6.50.0",
+  "publishers": {
+    "blog":    { "enabled": true },
+    "podcast": { "enabled": false },
+    "ima":     { "enabled": true },
+    "kindle":  { "enabled": true }
+  }
+}</pre>
             </div>
           </div>
 
@@ -2656,6 +2703,23 @@
               </div>
               <p class="api-desc">获取历史记录列表</p>
               <p class="api-params">参数：?limit=50&type=all&tag=xxx&after=2006-01-02 15:04:05</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" "https://knowly.want.biz/api/history?limit=20&type=clipboard"
+curl -u "user:password" "https://knowly.want.biz/api/history?tag=AI"
+curl -u "user:password" "https://knowly.want.biz/api/history?limit=20&after=2026-05-20 12:00:00"</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">[
+  {
+    "id": "abc123",
+    "content": "剪贴板内容...",
+    "type": "clipboard",
+    "timestamp": "2026-05-21 18:00:00",
+    "nas_path": "/data/archive/2026/05/21/180000_article.md",
+    "tags": ["AI", "技术"],
+    "title": "文章标题",
+    "manual_edit": false
+  }
+]</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
@@ -2663,28 +2727,61 @@
                 <span class="api-path">/api/history/{id}</span>
               </div>
               <p class="api-desc">获取单条历史记录</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" https://knowly.want.biz/api/history/abc123</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">{
+  "id": "abc123",
+  "content": "完整内容...",
+  "type": "clipboard",
+  "timestamp": "2026-05-21 18:00:00",
+  "nas_path": "/data/archive/2026/05/21/180000_article.md",
+  "tags": ["AI"],
+  "title": "标题",
+  "publish_summary": "AI 生成的摘要...",
+  "manual_edit": false
+}</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method put">PUT</span>
                 <span class="api-path">/api/history/{id}</span>
               </div>
-              <p class="api-desc">编辑记录（标题/标签/摘要）</p>
-              <p class="api-params">Body: {"title": "...", "tags": [...], "summary": "..."}</p>
+              <p class="api-desc">更新条目（标题/标签/摘要）</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -X PUT -u "user:password" https://knowly.want.biz/api/history/abc123 \
+  -H "Content-Type: application/json" \
+  -d '{"title": "新标题", "tags": ["AI", "技术"], "summary": "新摘要"}'</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">{"status": "saved", "manual_edit": true}</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/history/{id}/full</span>
               </div>
-              <p class="api-desc">获取记录完整内容（从 NAS 读取）</p>
+              <p class="api-desc">获取记录完整内容（如本地只有预览内容，会从 NAS 读取全文）</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" https://knowly.want.biz/api/history/abc123/full</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">{ "content": "完整内容..." }</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method post">POST</span>
                 <span class="api-path">/api/history/{id}/reprocess</span>
               </div>
-              <p class="api-desc">重新运行 AI 处理</p>
+              <p class="api-desc">重新对该条目运行 AI 处理（生成标签、摘要、评分等），异步执行</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -X POST -u "user:password" https://knowly.want.biz/api/history/abc123/reprocess</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">{
+  "status": "processing",
+  "title": "...",
+  "tags": ["AI"],
+  "summary": "...",
+  "score": 5
+}</pre>
             </div>
           </div>
 
@@ -2696,22 +2793,45 @@
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/tags</span>
               </div>
-              <p class="api-desc">获取所有标签及计数</p>
+              <p class="api-desc">返回所有标签及使用次数</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" https://knowly.want.biz/api/tags</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">[
+  { "name": "AI", "count": 42 },
+  { "name": "技术", "count": 15 },
+  { "name": "Go", "count": 8 }
+]</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/search</span>
               </div>
-              <p class="api-desc">全文搜索归档内容</p>
+              <p class="api-desc">在远程 NAS 归档中全文搜索内容</p>
               <p class="api-params">参数：?q=关键词&limit=50</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" "https://knowly.want.biz/api/search?q=AI&limit=20"</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">[
+  {
+    "path": "2026/05/21/180000_article.md",
+    "title": "AI 技术趋势",
+    "snippet": "...AI 正在改变软件开发流程...",
+    "mod_time": "2026-05-21T18:00:00Z"
+  }
+]</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/stats</span>
               </div>
-              <p class="api-desc">获取统计数据</p>
+              <p class="api-desc">获取本地历史记录统计信息</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" https://knowly.want.biz/api/stats</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">{ "total": 1234, "by_type": { "clipboard": 800, "sync": 434 } }</pre>
             </div>
           </div>
 
@@ -2723,31 +2843,61 @@
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/archive/list</span>
               </div>
-              <p class="api-desc">列出归档目录</p>
-              <p class="api-params">参数：?path=2026/05</p>
+              <p class="api-desc">列出指定目录下的文件和子目录</p>
+              <p class="api-params">参数：?path=2026/05（相对于 ssh.base_path）</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" "https://knowly.want.biz/api/archive/list?path=2026/05/21"</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">[
+  { "name": "article.md", "is_dir": false, "size": 4096, "mod_time": "2026-05-21T10:00:00Z", "title": "文章标题" },
+  { "name": "images", "is_dir": true, "size": 0, "mod_time": "2026-05-21T10:00:00Z" }
+]</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/archive/today</span>
               </div>
-              <p class="api-desc">一次性返回归档初始化数据（年/月/日 + 当日文件）</p>
+              <p class="api-desc">一次性返回归档初始化数据（年/月/日层级 + 当日文件），避免前端多次请求</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" https://knowly.want.biz/api/archive/today</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">{
+  "years":  [{ "name": "2026", "is_dir": true, ... }],
+  "months": [{ "name": "05", "is_dir": true, ... }],
+  "days":   [{ "name": "21", "is_dir": true, ... }],
+  "files":  [{ "name": "article.md", "is_dir": false, ... }],
+  "year":  "2026",
+  "month": "05",
+  "day":   "21"
+}</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/archive/file</span>
               </div>
-              <p class="api-desc">读取归档文件内容</p>
+              <p class="api-desc">读取归档文件内容（在线预览），根据扩展名自动设置 Content-Type</p>
               <p class="api-params">参数：?path=2026/05/22/article.md</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" "https://knowly.want.biz/api/archive/file?path=2026/05/21/article.md"</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">---
+title: "文章标题"
+tags: ["AI", "技术"]
+---
+
+正文内容...</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/archive/download</span>
               </div>
-              <p class="api-desc">下载归档文件</p>
+              <p class="api-desc">下载归档文件（强制下载对话框，带 Content-Disposition: attachment）</p>
               <p class="api-params">参数：?path=2026/05/22/article.md</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" -O -J "https://knowly.want.biz/api/archive/download?path=2026/05/21/article.md"</pre>
             </div>
           </div>
 
@@ -2759,16 +2909,36 @@
                 <span class="api-method post">POST</span>
                 <span class="api-path">/api/upload</span>
               </div>
-              <p class="api-desc">上传文件到 NAS（.txt/.md 自动触发 AI 同步）</p>
+              <p class="api-desc">上传文件到远程 NAS（{ssh.base_path}/uploads/），最大 200MB。上传 .txt/.md 文件时自动触发 AI 同步流程</p>
               <p class="api-params">multipart/form-data，字段：file</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -X POST -u "user:password" https://knowly.want.biz/api/upload \
+  -F "file=@/path/to/report.pdf"
+
+# .md/.txt 文件上传后会自动触发：AI 处理 → 归档写入 → 历史索引 → 自动发布
+curl -X POST -u "user:password" https://knowly.want.biz/api/upload \
+  -F "file=@/path/to/notes.md"</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">{
+  "status": "ok",
+  "filename": "report.pdf",
+  "saved_as": "report.pdf",
+  "path": "/data/archive/uploads/report.pdf",
+  "size": 1234567
+}</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/uploads/download</span>
               </div>
-              <p class="api-desc">下载上传的文件</p>
-              <p class="api-params">参数：?filename=example.txt</p>
+              <p class="api-desc">从 uploads 目录下载文件</p>
+              <p class="api-params">参数：?filename=example.txt（仅文件名，不含路径）</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" -O -J "https://knowly.want.biz/api/uploads/download?filename=report.md"
+
+# 直接查看内容
+curl -s -u "user:password" "https://knowly.want.biz/api/uploads/download?filename=test.txt"</pre>
             </div>
           </div>
 
@@ -2780,16 +2950,38 @@
                 <span class="api-method post">POST</span>
                 <span class="api-path">/api/publish</span>
               </div>
-              <p class="api-desc">发布内容到 Blog/Podcast/IMA/Kindle</p>
-              <p class="api-params">Body: {"content": "...", "targets": ["blog", "podcast"]}</p>
+              <p class="api-desc">发布内容到 Blog/Podcast/IMA/Kindle，AI 自动生成标题</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -X POST -u "user:password" https://knowly.want.biz/api/publish \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "# 我的文章\n\n这是正文内容...",
+    "targets": ["blog", "ima", "kindle", "podcast"]
+  }'</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">[
+  { "target": "blog",    "ok": true },
+  { "target": "ima",     "ok": true },
+  { "target": "kindle",  "ok": false, "error": "Kindle 配置不完整" },
+  { "target": "podcast", "ok": true }
+]</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method post">POST</span>
                 <span class="api-path">/api/tag-and-publish</span>
               </div>
-              <p class="api-desc">添加标签并发布（从 NAS 读取完整内容）</p>
-              <p class="api-params">Body: {"id": "...", "tag": "...", "target": "blog"}</p>
+              <p class="api-desc">为已有历史条目添加标签并发布到指定渠道（从 NAS 读取完整内容，优先使用预生成标题）</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -X POST -u "user:password" https://knowly.want.biz/api/tag-and-publish \
+  -H "Content-Type: application/json" \
+  -d '{"id": "abc123", "tag": "待发布", "target": "blog"}'</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">{
+  "tag_added": true,
+  "target": "blog",
+  "published": true
+}</pre>
             </div>
           </div>
 
@@ -2801,41 +2993,82 @@
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/logs</span>
               </div>
-              <p class="api-desc">获取日志列表</p>
-              <p class="api-params">参数：?level=info&limit=300</p>
+              <p class="api-desc">获取最近的日志条目（最新在前）</p>
+              <p class="api-params">参数：?level=info&limit=300（level: info/warn/error/all）</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" "https://knowly.want.biz/api/logs?level=info&limit=50"</pre>
+              <p class="api-example-title">响应示例</p>
+              <pre class="api-code">[
+  {
+    "timestamp": "2026-05-21 18:00:00",
+    "level": "INFO",
+    "message": "knowly started"
+  },
+  {
+    "timestamp": "2026-05-21 18:00:01",
+    "level": "WARN",
+    "message": "AI timeout, retrying..."
+  }
+]</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/logs/stream</span>
               </div>
-              <p class="api-desc">实时日志流（SSE）</p>
+              <p class="api-desc">SSE 实时日志流，连接保持持续接收新日志</p>
+              <p class="api-params">参数：?level=info（可选，按级别过滤）</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" https://knowly.want.biz/api/logs/stream</pre>
+              <p class="api-example-title">响应（SSE 流，每行一条）</p>
+              <pre class="api-code">data: {"timestamp":"2026-05-21 18:00:00","level":"INFO","message":"sync started"}
+data: {"timestamp":"2026-05-21 18:00:01","level":"WARN","message":"retry attempt 1"}</pre>
             </div>
           </div>
 
           <!-- 管理 -->
           <div class="api-docs-section">
             <div class="api-docs-section-title">管理</div>
+            <p class="api-note" style="color: #e74c3c;">注意：管理操作（restart/update/release）不应并发调用，同时发起多个请求可能导致状态混乱或服务异常。</p>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method post">POST</span>
                 <span class="api-path">/api/admin/restart</span>
               </div>
-              <p class="api-desc">重启 knowly daemon</p>
+              <p class="api-desc">重启守护进程（读取 PID 文件，发送 SIGTERM 后重新启动）</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -X POST -u "user:password" https://knowly.want.biz/api/admin/restart</pre>
+              <p class="api-example-title">响应</p>
+              <pre class="api-code">{"status": "restarting"}</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method post">POST</span>
                 <span class="api-path">/api/admin/update</span>
               </div>
-              <p class="api-desc">从源码编译并替换二进制，重启服务（SSE 进度流）</p>
+              <p class="api-desc">从源码重新编译、替换二进制文件并重启，返回 SSE 进度流</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -X POST -u "user:password" https://knowly.want.biz/api/admin/update</pre>
+              <p class="api-example-title">SSE 响应（各步骤进度）</p>
+              <pre class="api-code">data: {"step":"building","message":"编译中..."}
+data: {"step":"replacing","message":"替换二进制文件..."}
+data: {"step":"pushing","message":"提交并推送到远程..."}
+data: {"step":"done","message":"更新完成，页面即将刷新"}</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method post">POST</span>
                 <span class="api-path">/api/admin/release</span>
               </div>
-              <p class="api-desc">版本发布：git push → npm version minor → git push --tags</p>
+              <p class="api-desc">版本发布流程：git commit → git push → npm version minor → git push --tags，返回 SSE 进度流</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -X POST -u "user:password" https://knowly.want.biz/api/admin/release</pre>
+              <p class="api-example-title">SSE 响应（各步骤进度）</p>
+              <pre class="api-code">data: {"step":"commit","message":"代码已提交"}
+data: {"step":"push","message":"推送完成"}
+data: {"step":"version","message":"版本: 6.51.0"}
+data: {"step":"tags","message":"推送标签"}
+data: {"step":"done","message":"发布完成"}</pre>
             </div>
           </div>
 
@@ -2847,28 +3080,133 @@
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/config</span>
               </div>
-              <p class="api-desc">获取完整配置（敏感字段脱敏）</p>
+              <p class="api-desc">获取完整配置 JSON（敏感字段如 api_key、secret、auth、sender_password 自动脱敏为 ****xxxx）</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" https://knowly.want.biz/api/config</pre>
+              <p class="api-example-title">响应（部分字段示例）</p>
+              <pre class="api-code">{
+  "ssh": {
+    "host": "your-server.com",
+    "port": "22",
+    "user": "root",
+    "key_path": "~/.ssh/id_ed25519",
+    "base_path": "/data/archive",
+    "filename_prefix_length": 16
+  },
+  "web": {
+    "port": 8090,
+    "auth": "****xxxx",
+    "refresh_sec": 30,
+    "log_refresh_sec": 30
+  },
+  "ai": {
+    "enabled": true,
+    "api_key": "****abcd",
+    "endpoint": "https://openrouter.ai/api/v1",
+    "model": "anthropic/claude-sonnet-4-20250514",
+    "preset": "openrouter",
+    "timeout_sec": 60,
+    "min_content_len": 100,
+    "max_content_len": 10000
+  }
+  // ... 其余字段
+}</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method put">PUT</span>
                 <span class="api-path">/api/config</span>
               </div>
-              <p class="api-desc">更新完整配置</p>
+              <p class="api-desc">更新完整配置。建议先 GET 获取当前配置，修改所需字段后再 PUT 回传。脱敏字段（api_key、secret、auth、sender_password）若传 **** 开头或空值，保留原值。</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -X PUT -u "user:password" https://knowly.want.biz/api/config \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ssh": {
+      "host": "your-server.com",
+      "port": "22",
+      "user": "root",
+      "key_path": "~/.ssh/id_ed25519",
+      "base_path": "/data/archive",
+      "filename_prefix_length": 16
+    },
+    "web": {
+      "port": 8090,
+      "auth": "admin:secret123",
+      "refresh_sec": 30,
+      "log_refresh_sec": 30
+    },
+    "ai": {
+      "enabled": true,
+      "api_key": "sk-...",
+      "endpoint": "https://openrouter.ai/api/v1",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "preset": "openrouter",
+      "timeout_sec": 60,
+      "min_content_len": 100,
+      "max_content_len": 10000
+    }
+  }'</pre>
+              <p class="api-example-title">响应</p>
+              <pre class="api-code">{"status": "saved"}</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/config/ai</span>
               </div>
-              <p class="api-desc">获取 AI 配置（含预设和 prompt 模板）</p>
+              <p class="api-desc">获取当前 AI 配置（API Key 已脱敏），同时返回预设服务商列表和提示词模板</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -u "user:password" https://knowly.want.biz/api/config/ai</pre>
+              <p class="api-example-title">响应</p>
+              <pre class="api-code">{
+  "config": {
+    "enabled": true,
+    "api_key": "****abcd",
+    "endpoint": "https://openrouter.ai/api/v1",
+    "model": "anthropic/claude-sonnet-4-20250514",
+    "preset": "openrouter",
+    "timeout_sec": 60,
+    "min_content_len": 100,
+    "max_content_len": 10000,
+    "prompt": "",
+    "prompt_template": ""
+  },
+  "presets": {
+    "openrouter": { "endpoint": "https://openrouter.ai/api/v1", "model": "openrouter/free", "label": "OpenRouter（推荐）" },
+    "ollama":     { "endpoint": "http://localhost:11434/v1", "model": "llama3", "label": "Ollama（本地，无需 Key）" },
+    "deepseek":   { "endpoint": "https://api.deepseek.com/v1", "model": "deepseek-chat", "label": "DeepSeek" },
+    "openai":     { "endpoint": "https://api.openai.com/v1", "model": "gpt-4o-mini", "label": "OpenAI" }
+  },
+  "prompt_templates": {
+    "通用模式": "",
+    "代码模式": "你是一个专注于代码分析的助手..."
+  }
+}</pre>
             </div>
             <div class="api-endpoint">
               <div class="api-endpoint-header">
                 <span class="api-method put">PUT</span>
                 <span class="api-path">/api/config/ai</span>
               </div>
-              <p class="api-desc">更新 AI 配置</p>
+              <p class="api-desc">更新 AI 配置。如果 api_key 传空值或脱敏值（**** 开头），保留原 key 不变。</p>
+              <p class="api-example-title">curl 示例</p>
+              <pre class="api-code">curl -X PUT -u "user:password" https://knowly.want.biz/api/config/ai \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled": true,
+    "api_key": "sk-...",
+    "endpoint": "https://openrouter.ai/api/v1",
+    "model": "anthropic/claude-sonnet-4-20250514",
+    "preset": "openrouter",
+    "prompt": "自定义 prompt（可选）",
+    "prompt_template": "代码模式",
+    "timeout_sec": 60,
+    "min_content_len": 100,
+    "max_content_len": 10000
+  }'</pre>
+              <p class="api-example-title">响应</p>
+              <pre class="api-code">{"status": "saved"}</pre>
             </div>
           </div>
         </div>
