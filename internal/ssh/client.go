@@ -746,7 +746,6 @@ func (c *Client) ReadFile(path string) ([]byte, error) {
 
 	fullPath := c.expandPath(path)
 	cmd := fmt.Sprintf("cat %s", shellEscape(fullPath))
-	log.Printf("[DEBUG] ReadFile: cmd=%q", cmd)
 
 	output, err := session.Output(cmd)
 	if err != nil {
