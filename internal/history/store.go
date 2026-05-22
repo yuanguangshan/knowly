@@ -91,7 +91,7 @@ func (s *Store) ensureCount() {
 
 	scanner := bufio.NewScanner(f)
 	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 2*1024*1024)
+	scanner.Buffer(buf, 20*1024*1024)
 	for scanner.Scan() {
 		s.count++
 	}
@@ -231,7 +231,7 @@ func (s *Store) readAll() ([]Entry, error) {
 	var entries []Entry
 	scanner := bufio.NewScanner(f)
 	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 2*1024*1024)
+	scanner.Buffer(buf, 20*1024*1024)
 	for scanner.Scan() {
 		var e Entry
 		if err := json.Unmarshal(scanner.Bytes(), &e); err == nil {
@@ -529,7 +529,7 @@ func (s *Store) Find(id string) (*Entry, error) {
 
 	scanner := bufio.NewScanner(f)
 	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 2*1024*1024)
+	scanner.Buffer(buf, 20*1024*1024)
 	for scanner.Scan() {
 		var e Entry
 		if json.Unmarshal(scanner.Bytes(), &e) == nil && (e.ID == id || strings.HasPrefix(e.ID, id)) {
