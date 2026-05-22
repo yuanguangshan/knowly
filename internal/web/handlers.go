@@ -453,6 +453,7 @@ func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fullPath := filepath.Join(s.cfg.SSH.BasePath, relPath)
+	log.Printf("[DEBUG] handleArchiveFile: relPath=%q, fullPath=%q, basePath=%q", relPath, fullPath, s.cfg.SSH.BasePath)
 	data, err := s.sshClient.ReadFile(fullPath)
 	if err != nil {
 		jsonError(w, fmt.Sprintf("无法读取文件: %v", err), http.StatusServiceUnavailable)
