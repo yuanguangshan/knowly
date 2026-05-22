@@ -649,67 +649,6 @@
         color: var(--text-secondary);
         font-size: 14px;
       }
-      /* Daily Feed */
-      .daily-feed {
-        padding: 8px 0;
-      }
-      .daily-feed-header {
-        padding: 8px 16px 16px;
-        border-bottom: 1px solid var(--border);
-        margin-bottom: 8px;
-      }
-      .daily-feed-header h3 {
-        font-size: 16px;
-        color: var(--accent);
-        margin: 0;
-      }
-      .daily-article {
-        padding: 12px 16px;
-        border-bottom: 1px solid var(--border);
-        transition: background 0.15s;
-      }
-      .daily-article:hover {
-        background: var(--bg-hover);
-      }
-      .daily-article:last-child {
-        border-bottom: none;
-      }
-      .daily-article h4 {
-        margin: 0 0 6px;
-        font-size: 14px;
-      }
-      .daily-article h4 a {
-        color: var(--text-primary);
-        text-decoration: none;
-      }
-      .daily-article h4 a:hover {
-        color: var(--accent);
-      }
-      .daily-summary {
-        font-size: 13px;
-        color: var(--text-secondary);
-        margin: 4px 0 8px;
-        line-height: 1.5;
-      }
-      .daily-tags {
-        display: flex;
-        gap: 6px;
-        flex-wrap: wrap;
-        margin-bottom: 4px;
-      }
-      .daily-tags .badge {
-        font-size: 11px;
-        padding: 2px 8px;
-        border-radius: 12px;
-        background: var(--bg-card);
-        color: var(--text-secondary);
-        border: 1px solid var(--border);
-      }
-      .daily-meta {
-        font-size: 11px;
-        color: var(--text-secondary);
-        opacity: 0.7;
-      }
       /* History */
       .history-list {
         flex: 1;
@@ -1888,13 +1827,6 @@
                     title="折叠列表"
                   >
                     📂
-                  </button>
-                  <button
-                    class="icon-btn"
-                    onclick="loadTodayFeed()"
-                    title="今日简报"
-                  >
-                    📰
                   </button>
                 </div>
               </div>
@@ -3228,7 +3160,7 @@
       async function handleHashRoute() {
         if (hashRouteLock) return;
         const hash = window.location.hash;
-        if (!hash.startsWith("#/archive/") && !hash.startsWith("#/feed/")) return;
+        if (!hash.startsWith("#/archive/")) return;
 
         hashRouteLock = true;
 
@@ -3236,16 +3168,6 @@
         if (currentTab !== "archive") {
           switchTab("archive");
           await waitForArchiveReady();
-        }
-
-        if (hash.startsWith("#/feed/")) {
-          const dateStr = hash.substring("#/feed/".length);
-          const parts = dateStr.split("/");
-          if (parts.length >= 3) {
-            loadDailyFeed(parts[0], parts[1], parts[2]);
-          }
-          hashRouteLock = false;
-          return;
         }
 
         // #/archive/YYYY/MM/DD/file.md
@@ -3849,65 +3771,6 @@
         if (!currentFilePath) { showToast("请先选择文件"); return; }
         const link = window.location.origin + window.location.pathname + "#/archive/" + currentFilePath;
         copyText(link);
-      }
-
-      // === Daily Feed ===
-      function loadTodayFeed() {
-        const now = new Date();
-        const year = String(now.getFullYear());
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-        // Show in preview panel, expand the file list area
-        clearPreview();
-        document.getElementById("fileList").style.display = "none";
-        document.getElementById("previewContent").parentElement.style.flex = "1";
-        loadDailyFeed(year, month, day);
-      }
-
-      async function loadDailyFeed(year, month, day) {
-        const dateStr = year + '/' + month + '/' + day;
-        const preview = document.getElementById("previewContent");
-        const toolbar = document.getElementById("previewToolbar");
-        toolbar.style.display = "none";
-        preview.innerHTML = '<div class="empty-state">加载中...</div>';
-
-        try {
-          const data = await api("/api/archive/feed?date=" + year + "-" + month + "-" + day);
-          if (!data.items || data.items.length === 0) {
-            preview.innerHTML = '<div class="empty-state">' + escHtml(dateStr) + ' 暂无归档</div>';
-            return;
-          }
-
-          let html = '<div class="daily-feed">';
-          html += '<div class="daily-feed-header"><h3>' + escHtml(dateStr) + ' 归档 (' + data.items.length + ' 篇)</h3></div>';
-          data.items.forEach(function(item) {
-            const hashLink = "#/archive/" + item.rel_path;
-            html += '<div class="daily-article">';
-            html += '<h4><a href="' + hashLink + '">' + escHtml(item.title) + '</a></h4>';
-            if (item.summary) {
-              html += '<p class="daily-summary">' + escHtml(item.summary) + '</p>';
-            }
-            if (item.tags && item.tags.length) {
-              html += '<div class="daily-tags">';
-              item.tags.forEach(function(tag) {
-                html += '<span class="badge">' + escHtml(tag) + '</span>';
-              });
-              html += '</div>';
-            }
-            html += '<div class="daily-meta">' + escHtml(item.mod_time) + ' · ' + formatSize(item.size) + '</div>';
-            html += '</div>';
-          });
-          html += '</div>';
-          preview.innerHTML = html;
-        } catch (e) {
-          preview.innerHTML = '<div class="empty-state">加载失败</div>';
-        }
-      }
-
-      function formatSize(bytes) {
-        if (bytes < 1024) return bytes + ' B';
-        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
       }
 
       // === Markdown Renderer ===
