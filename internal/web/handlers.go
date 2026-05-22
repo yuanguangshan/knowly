@@ -376,6 +376,72 @@ func (s *Server) handleArchiveToday(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, resp)
 }
 
+// handleArchiveFeed 返回指定日期的归档文件列表（含 frontmatter 元数据）
+func (s *Server) handleArchiveFeed(w http.ResponseWriter, r *http.Request) {
+	dateStr := r.URL.Query().Get("date")
+	if dateStr == "" {
+		now := time.Now()
+		dateStr = fmt.Sprintf("%04d-%02d-%02d", now.Year(), now.Month(), now.Day())
+	}
+
+	parts := strings.Split(dateStr, "-")
+	if len(parts) != 3 {
+		jsonError(w, "日期格式应为 YYYY-MM-DD", http.StatusBadRequest)
+		return
+	}
+	year, month, day := parts[0], parts[1], parts[2]
+	relPath := year + "/" + month + "/" + day
+	fullPath := filepath.Join(s.cfg.SSH.BasePath, relPath)
+
+	entries, err := s.sshClient.ListDir(fullPath)
+	if err != nil {
+		jsonError(w, fmt.Sprintf("无法列出目录: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+
+	type feedItem struct {
+		FileName    string   `json:"file_name"`
+		RelPath     string   `json:"rel_path"`
+		Title       string   `json:"title"`
+		Summary     string   `json:"summary"`
+		Tags        []string `json:"tags"`
+		ModTime     string   `json:"mod_time"`
+		Size        int64    `json:"size"`
+	}
+
+	var items []feedItem
+	for _, e := range entries {
+		if !e.IsDir && strings.HasSuffix(strings.ToLower(e.Name), ".md") {
+			item := feedItem{
+				FileName: e.Name,
+				RelPath:  relPath + "/" + e.Name,
+				ModTime:  e.ModTime,
+				Size:     e.Size,
+			}
+			// 读取文件内容，提取 frontmatter
+			data, err := s.sshClient.ReadFile(filepath.Join(fullPath, e.Name))
+			if err == nil {
+				content := string(data)
+				if strings.HasPrefix(content, "---") {
+					meta := parseContentMetadata(content)
+					item.Title = meta.Title
+					item.Summary = meta.Summary
+					item.Tags = meta.Tags
+				}
+			}
+			if item.Title == "" {
+				item.Title = e.Name
+			}
+			items = append(items, item)
+		}
+	}
+
+	jsonResp(w, map[string]interface{}{
+		"date":  dateStr,
+		"items": items,
+	})
+}
+
 // handleArchiveFile 读取归档文件内容
 func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
 	relPath := r.URL.Query().Get("path")
@@ -399,6 +465,8 @@ func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/jpeg")
 	case ".gif":
 		w.Header().Set("Content-Type", "image/gif")
+	case ".pdf":
+		w.Header().Set("Content-Type", "application/pdf")
 	case ".md", ".txt":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	default:
@@ -430,6 +498,8 @@ func (s *Server) handleArchiveDownload(w http.ResponseWriter, r *http.Request) {
 	switch ext {
 	case ".png":
 		w.Header().Set("Content-Type", "image/png")
+	case ".pdf":
+		w.Header().Set("Content-Type", "application/pdf")
 	case ".md":
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	default:
@@ -1738,6 +1808,8 @@ func (s *Server) handleUploadsDownload(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	case ".txt":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	case ".pdf":
+		w.Header().Set("Content-Type", "application/pdf")
 	default:
 		w.Header().Set("Content-Type", "application/octet-stream")
 	}
