@@ -439,7 +439,8 @@ func (s *Store) Stats() (*Stats, error) {
 
 	entries, err := s.readAll()
 	if err != nil {
-		return nil, err
+		log.Printf("[WARN] Stats: readAll failed, returning empty stats: %v", err)
+		entries = nil
 	}
 
 	stats := &Stats{

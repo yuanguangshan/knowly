@@ -43,6 +43,11 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// serveFavicon 返回空响应，避免 404 报错
+func (s *Server) serveFavicon(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // jsonResp 写入 JSON 响应
 func jsonResp(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

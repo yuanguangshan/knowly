@@ -74,6 +74,7 @@ func (s *Server) buildHandler() http.Handler {
 
 	// 静态文件
 	mux.HandleFunc("/", s.serveIndex)
+	mux.HandleFunc("/favicon.ico", s.serveFavicon)
 
 	// 日志 API
 	mux.HandleFunc("/api/logs", s.handleLogs)
