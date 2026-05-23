@@ -43,12 +43,21 @@ var (
 	wechatTitleRegex   = regexp.MustCompile(`(?is)title:\s*JsDecode\(['"](.*?)['"]\)`)
 	wechatContentRegex = regexp.MustCompile(`(?is)content_noencode:\s*JsDecode\(['"](.*?)['"]\)`)
 	wechatHexRegex     = regexp.MustCompile(`\\x([a-fA-F0-9]{2})`)
+
+	// 微信 DOM 提取：#js_content 容器内的文本（与 weclaw 一致的策略）
+	jsContentRegex = regexp.MustCompile(`(?is)<div[^>]*id=["']js_content["'][^>]*>(.*?)</div>`)
 )
 
 // PageInfo 包含页面标题和正文内容
 type PageInfo struct {
 	Title   string
 	Content string
+}
+
+// isWeChatURL 检查 URL 是否为微信公众号文章
+func isWeChatURL(url string) bool {
+	return strings.Contains(strings.ToLower(url), "mp.weixin.qq.com") ||
+		strings.Contains(strings.ToLower(url), "weixin.qq.com/s/")
 }
 
 // FetchPage 从 URL 抓取页面标题和正文内容
@@ -124,7 +133,7 @@ func fetchHTML(ctx context.Context, url string) ([]byte, error) {
 	}
 
 	// 设置完整的 User-Agent 和极其逼真的请求头，模拟真实浏览器访问
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("Connection", "keep-alive")
@@ -136,7 +145,12 @@ func fetchHTML(ctx context.Context, url string) ([]byte, error) {
 	req.Header.Set("Cache-Control", "max-age=0")
 
 	// 针对严格的反爬虫平台：把 Referer 设置为它自己，假装是从站内点击进去的
-	req.Header.Set("Referer", url)
+	if isWeChatURL(url) {
+		// 微信公众号必须使用站内 Referer，否则返回空内容
+		req.Header.Set("Referer", "https://mp.weixin.qq.com/")
+	} else {
+		req.Header.Set("Referer", url)
+	}
 
 	// 发送请求
 	resp, err := client.Do(req)
@@ -194,15 +208,23 @@ func extractTitle(html string) string {
 
 // extractContent 从 HTML 中提取正文内容
 func extractContent(html string) string {
-	// 1. 尝试微信专项提取（微信正文常在 JS 中）
+	// 1. 微信 DOM 提取：#js_content 容器（与 weclaw 一致的策略，更稳定）
+	if m := jsContentRegex.FindStringSubmatch(html); len(m) >= 2 {
+		content := cleanHTML(m[1])
+		if len(content) > 100 {
+			return content
+		}
+	}
+
+	// 2. 尝试微信 JS 变量提取（备用方案，应对微信改版导致 DOM 结构变化）
 	if wm := wechatContentRegex.FindStringSubmatch(html); len(wm) >= 2 {
 		decoded := decodeWechatHex(wm[1])
-		if len(decoded) > 100 { // 确保提取到的是有意义的内容
+		if len(decoded) > 100 {
 			return cleanHTML(decoded)
 		}
 	}
 
-	// 2. 尝试从语义化标签中提取正文
+	// 3. 尝试从语义化标签中提取正文
 	var bodyHTML string
 
 	// 按优先级尝试提取正文区域
@@ -305,7 +327,7 @@ func IsPDFURL(ctx context.Context, url string) bool {
 	if err != nil {
 		return false
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
 	// 强制 HTTP/1.1 + 禁用连接复用，避免 HTTP/2 protocol error 和 idle channel 乱响应
 	client := &http.Client{
@@ -332,7 +354,7 @@ func FetchPDF(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
 	client := &http.Client{}
 	resp, err := client.Do(req)

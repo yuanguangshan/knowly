@@ -32,6 +32,11 @@ type knasyncRequest struct {
 	URL     string `json:"url,omitempty"`
 }
 
+// containsOK 检查响应文本中是否包含 OK
+func containsOK(text string) bool {
+	return strings.Contains(strings.ToUpper(text), "OK")
+}
+
 // SubmitToKnasync 提交链接到 knasync 中继服务
 func SubmitToKnasync(ctx context.Context, url string) error {
 	if knasyncAuthKey == "" {
