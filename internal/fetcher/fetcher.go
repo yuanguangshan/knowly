@@ -125,7 +125,7 @@ func fetchHTML(ctx context.Context, url string) ([]byte, error) {
 	// 创建 HTTP 客户端
 	// 强制 HTTP/1.1 + 禁用连接复用，避免微信服务器 HTTP/2 unexpected EOF
 	client := &http.Client{
-		Timeout: 15 * time.Second,
+		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			DisableKeepAlives: true,
 			TLSNextProto:      make(map[string]func(string, *tls.Conn) http.RoundTripper),

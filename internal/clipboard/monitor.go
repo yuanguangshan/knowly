@@ -289,10 +289,9 @@ func (m *Monitor) enhanceAndSend(content string, hash string) {
 		if isPDF {
 			log.Printf("[INFO] PDF URL detected, skipping HTML enhancement")
 		} else {
-			ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel2()
-
+			ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
 			info, err := fetcher.FetchPage(ctx2, urlStr)
+			cancel2()
 			if err == nil && info != nil {
 				if info.Title != "" && info.Content != "" {
 					enhanced = fmt.Sprintf("%s\n\n# %s\n\n%s", content, info.Title, info.Content)
