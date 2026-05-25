@@ -3665,18 +3665,43 @@ data: {"step":"done","message":"发布完成"}</pre>
         }
       }
       function fallbackCopy(text) {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.cssText = "position:fixed;left:-9999px;top:-9999px";
-        ta.setAttribute("readonly", "");
-        document.body.appendChild(ta);
-        ta.select();
-        ta.setSelectionRange(0, ta.value.length);
-        const success = document.execCommand("copy");
-        document.body.removeChild(ta);
-        if (success) {
-          showToast("已复制");
-        } else {
+        try {
+          const range = document.createRange();
+          const sel = window.getSelection();
+          // Try selecting content from the history-detail div if visible
+          const detail = document.querySelector(".history-detail");
+          if (detail && detail.childNodes.length > 0) {
+            const textNode = Array.from(detail.childNodes).find(
+              (n) => n.nodeType === Node.TEXT_NODE && n.textContent.trim()
+            );
+            if (textNode) {
+              range.selectNodeContents(textNode);
+              sel.removeAllRanges();
+              sel.addRange(range);
+              const success = document.execCommand("copy");
+              sel.removeAllRanges();
+              if (success) {
+                showToast("已复制");
+                return;
+              }
+            }
+          }
+          // Fallback: create off-screen textarea
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.cssText =
+            "position:fixed;left:0;top:0;opacity:0;width:1px;height:1px";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          const ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+          if (ok) {
+            showToast("已复制");
+          } else {
+            showToast("复制失败，请手动复制");
+          }
+        } catch (err) {
           showToast("复制失败，请手动复制");
         }
       }
