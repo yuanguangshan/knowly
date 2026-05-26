@@ -1749,6 +1749,20 @@ func (s *Server) handleUploadsDownload(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	case ".pdf":
 		w.Header().Set("Content-Type", "application/pdf")
+	case ".mp3":
+		w.Header().Set("Content-Type", "audio/mpeg")
+	case ".mp4":
+		w.Header().Set("Content-Type", "video/mp4")
+	case ".wav":
+		w.Header().Set("Content-Type", "audio/wav")
+	case ".m4a":
+		w.Header().Set("Content-Type", "audio/mp4")
+	case ".ogg":
+		w.Header().Set("Content-Type", "audio/ogg")
+	case ".webm":
+		w.Header().Set("Content-Type", "video/webm")
+	case ".zip":
+		w.Header().Set("Content-Type", "application/zip")
 	default:
 		w.Header().Set("Content-Type", "application/octet-stream")
 	}
