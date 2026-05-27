@@ -644,8 +644,16 @@ func rotateLogIfNeeded(sshClient *ssh.Client, cfg *config.Config) {
 		return
 	}
 
-	if err := sshClient.WriteFile(filepath.Join(remoteDir, archiveName), string(data)); err != nil {
-		log.Printf("[WARN] Log rotate: failed to upload to NAS: %v", err)
+	retryCfg := retry.Config{
+		MaxRetries: cfg.Sync.MaxRetries,
+		BaseDelay:  time.Duration(cfg.Sync.RetryDelay) * time.Millisecond,
+		MaxDelay:   30 * time.Second,
+	}
+	if err := retry.Do(context.Background(), retryCfg, func() error {
+		return sshClient.WriteFile(filepath.Join(remoteDir, archiveName), string(data))
+	}); err != nil {
+		log.Printf("[WARN] Log rotate: failed to upload to NAS after retries: %v", err)
+		sshClient.ForceReset()
 		return
 	}
 
