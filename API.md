@@ -19,6 +19,8 @@ curl -u "user:password" https://knowly.want.biz/api/status
 - [8. 管理 API](#8-管理-api)
 - [9. 文件上传 API](#9-文件上传-api)
 - [10. 前端页面](#10-前端页面)
+- [11. 内部服务交互渠道](#11-内部服务交互渠道)
+- [12. 发布渠道协议详情](#12-发布渠道协议详情)
 - [错误响应格式](#错误响应格式)
 
 ---
@@ -667,6 +669,146 @@ Web 管理界面，提供以下功能：
 - **管理操作** — 重启服务、源码编译更新、版本发布
 
 **URL:** [https://knowly.want.biz/](https://knowly.want.biz/)
+
+---
+
+## 11. 内部服务交互渠道
+
+> 以下渠道为 knowly 守护进程与外部服务之间的交互协议，不直接面向前端调用。配置项均位于 `config.json`。
+
+### 11.1 Relay 中继服务（跨设备同步）
+
+**配置:** `config.json` → `relay.enabled`, `relay.endpoint`, `relay.secret`, `relay.pull_interval_sec`
+
+Relay 是双向通道，用于手机/Mac 等设备间的文本同步。基于 Cloudflare Worker 实现队列存储。
+
+| 方向 | 方法 | 端点 | 说明 |
+|------|------|------|------|
+| **拉取** | `GET` | `{endpoint}/pull?queue=general` | 拉取 general 队列中的文本内容，返回 JSON 数组 `["content1", "content2"]` 或 `204 No Content` |
+| **推送** | `POST` | `{endpoint}/push` | 推送已处理的内容到结果队列（广播给所有客户端），请求体 `{"content": "..."}` |
+| **结果拉取** | `GET` | `{endpoint}/results?since={cursor}&limit=10` | 带游标的结果队列拉取，返回 `{"cursor": 123, "items": [{"t": 123, "c": "..."}]}` |
+
+**认证:** 所有请求携带 `X-Auth-Key: <secret>` header。
+
+**行为:**
+- Puller 按 `pull_interval_sec` 周期轮询（默认 5s）
+- Result Puller 维护持久化游标（写入本地文件），避免重复消费
+- zhihu 队列由 Chrome 扩展独立处理，knowly 仅消费 general 队列
+
+### 11.2 Knasync 服务（URL 异步处理）
+
+**配置:** `config.json` → `knasync.endpoint`, `knasync.auth_key`
+**默认端点:** `https://knasync.yuanguangshan.workers.dev`
+
+用于将知乎等复杂 URL 的处理卸载到远端 Chrome Extension / Worker。
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| `POST` | `{endpoint}/submit` | 提交 URL 异步处理，请求体 `{"url": "https://..."}` |
+
+**认证:** `X-Auth-Key: <auth_key>` header。
+
+**行为:**
+- 提交后 HTTP 200 即视为成功（远端可能返回 `"OK (zhihu)"` 或 `"Duplicate ignored"` 等）
+- 实际内容由 Relay Result Puller 从结果队列拉取
+
+### 11.3 Web Reader MCP（知乎页面抓取回退）
+
+**配置:** `config.json` → `web_reader.api_key`
+**端点:** `https://open.bigmodel.cn/api/mcp/web_reader/mcp`
+
+当 knasync 未启用时，知乎 URL 抓取回退到智谱 AI 的 web_reader MCP 服务。
+
+**MCP 协议流程:**
+
+| 步骤 | 方法 | 说明 |
+|------|------|------|
+| 1. Initialize | `POST` | `initialize` JSON-RPC 调用，获取 `mcp-session-id` |
+| 2. Notify | `POST` | `notifications/initialized` 通知（无需解析响应） |
+| 3. Tool Call | `POST` | `tools/call` 调用 `webReader` 工具，参数 `{"url": "..."}` |
+
+**认证:** `Authorization: Bearer <api_key>` header。
+
+**响应:** SSE 格式，从 `data:` 行提取 JSON-RPC 响应，解析后获得 `{"title": "...", "content": "..."}`。
+
+### 11.4 剪贴板监听（OS 级输入）
+
+**库:** `golang.design/x/clipboard`
+**配置:** 内置（`minLength`, `maxLength`, `excludeWords` 通过守护进程参数控制）
+
+knowly 启动后以 500ms 间隔轮询 macOS 剪贴板，是核心输入源之一。
+
+**监听流程:**
+
+```
+剪贴板变更 → 读取（优先图片，回退文本）
+  → 去重检查（MD5 hash vs status.json 缓存）
+  → 长度/敏感词过滤
+  → URL 检测 → 网页抓取（FetchPage，30s 超时）/ PDF 检测
+  → 增强内容（追加标题/正文）→ 送入 itemChan → 同步/归档/AI 处理
+```
+
+**状态持久化:** `status.json` 保存上次 hash、类型、预览，防止重启后重复处理。
+
+**支持的载荷类型:**
+
+| 类型 | 处理 |
+|------|------|
+| `TextPayload` | 文本去重、过滤、URL 增强后送入同步流程 |
+| `ImagePayload` | 图片直接送入归档流程（PNG/JPG 等） |
+
+---
+
+## 12. 发布渠道协议详情
+
+> 以下描述 `/api/publish` 触发时各发布渠道的具体交互协议。
+
+### 12.1 Blog 发布
+
+**配置:** `config.json` → `blog.enabled`, `blog.api_url`, `blog.tags`
+**默认 URL:** `https://api.yuangs.cc/api/publish`
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| `POST` | `{api_url}/api/publish` | 发布文章，AI 自动生成标题 |
+
+**请求体:** 包含内容、AI 生成的标题和标签。
+
+### 12.2 播客发布
+
+**配置:** `config.json` → `podcast.enabled`, `podcast.api_url`, `podcast.app_id`
+**默认 URL:** `https://api.yuangs.cc/api/publish`
+**默认 AppID:** `nanobot-podcast-publisher`
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| `POST` | `{api_url}/api/publish` | 将内容转为播客/音频格式 |
+
+**认证:** `X-App-ID: <app_id>` header。
+
+### 12.3 IMA (QQ 笔记) 发布
+
+**配置:** `config.json` → `ima.enabled`, `ima.api_url`, `ima.client_id`, `ima.api_key`, `ima.folder_id`
+**默认 URL:** `https://ima.qq.com/openapi/note/v1/import_doc`
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| `POST` | `{api_url}/import_doc` | 导入内容为 QQ 笔记 |
+
+**认证:**
+- `ima-openapi-clientid: <client_id>` header
+- `ima-openapi-apikey: <api_key>` header
+
+### 12.4 Kindle 邮件推送
+
+**配置:** `config.json` → `kindle.sender_email`, `kindle.sender_password`, `kindle.smtp_server`, `kindle.smtp_port`, `kindle.kindle_email`
+**默认 SMTP:** `smtp.qq.com:465`
+
+| 协议 | 端口 | 说明 |
+|------|------|------|
+| SMTP over TLS | 465 | 发送 HTML 邮件，附件为 Markdown 格式内容 |
+
+**行为:** 将内容包装为 HTML 邮件，以 `.mobi`/`.md` 附件形式发送至 Kindle 个人文档服务。
 
 ---
 
