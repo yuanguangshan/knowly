@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -752,6 +753,69 @@ func (c *Client) ReadFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 	return output, nil
+}
+
+// FileSize 获取远程文件大小（字节），通过 wc -c 实现，跨 Linux/macOS 兼容
+func (c *Client) FileSize(path string) (int64, error) {
+	session, release, err := c.newSession()
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+
+	fullPath := c.expandPath(path)
+	// wc -c 输出格式：<size> <filename>，需要截取第一列
+	cmd := fmt.Sprintf("wc -c %s", shellEscape(fullPath))
+
+	output, err := session.Output(cmd)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get file size: %w", err)
+	}
+
+	fields := strings.Fields(string(output))
+	if len(fields) == 0 {
+		return 0, fmt.Errorf("unexpected wc output: %s", string(output))
+	}
+
+	size, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse file size %q: %w", fields[0], err)
+	}
+	return size, nil
+}
+
+// ReadFileToWriter 流式读取远程文件到 writer，避免全量内存缓冲
+func (c *Client) ReadFileToWriter(path string, w io.Writer) error {
+	session, release, err := c.newSession()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	fullPath := c.expandPath(path)
+	cmd := fmt.Sprintf("cat %s", shellEscape(fullPath))
+
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stdout pipe: %w", err)
+	}
+
+	var stderr bytes.Buffer
+	session.Stderr = &stderr
+
+	if err := session.Start(cmd); err != nil {
+		return fmt.Errorf("failed to start command: %w", err)
+	}
+
+	if _, err := io.Copy(w, stdout); err != nil {
+		return fmt.Errorf("failed to stream file: %w", err)
+	}
+
+	if err := session.Wait(); err != nil {
+		return fmt.Errorf("command failed: %s, stderr: %s", err, stderr.String())
+	}
+
+	return nil
 }
 
 // WriteBinary 二进制安全写入

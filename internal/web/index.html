@@ -2909,7 +2909,7 @@ tags: ["AI", "技术"]
                 <span class="api-method post">POST</span>
                 <span class="api-path">/api/upload</span>
               </div>
-              <p class="api-desc">上传文件到远程 NAS（{ssh.base_path}/uploads/），最大 200MB。上传 .txt/.md 文件时自动触发 AI 同步流程</p>
+              <p class="api-desc">上传文件到远程 NAS（{ssh.base_path}/uploads/），最大 500MB（可通过配置调整）。上传 .txt/.md 文件时自动触发 AI 同步流程</p>
               <p class="api-params">multipart/form-data，字段：file</p>
               <p class="api-example-title">curl 示例</p>
               <pre class="api-code">curl -X POST -u "user:password" https://knowly.want.biz/api/upload \
@@ -2932,7 +2932,7 @@ curl -X POST -u "user:password" https://knowly.want.biz/api/upload \
                 <span class="api-method get">GET</span>
                 <span class="api-path">/api/uploads/download</span>
               </div>
-              <p class="api-desc">从 uploads 目录下载文件</p>
+              <p class="api-desc">从 uploads 目录流式下载文件，最大 500MB（可通过配置调整）</p>
               <p class="api-params">参数：?filename=example.txt（仅文件名，不含路径）</p>
               <p class="api-example-title">curl 示例</p>
               <pre class="api-code">curl -u "user:password" -O -J "https://knowly.want.biz/api/uploads/download?filename=report.md"

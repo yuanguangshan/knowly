@@ -50,6 +50,8 @@ type WebConfig struct {
 	Auth       string `json:"auth"`        // HTTP Basic Auth 凭证，格式 "user:password"，留空则不启用认证
 	RefreshSec    int    `json:"refresh_sec"`     // 自动刷新间隔（秒），0=不自动刷新，默认30
 	LogRefreshSec int    `json:"log_refresh_sec"` // 日志页刷新间隔（秒），0=不自动刷新，默认30
+	MaxUploadSize   int64 `json:"max_upload_size"`   // 上传文件大小上限（字节），0=默认 500MB
+	MaxDownloadSize int64 `json:"max_download_size"` // 下载文件大小上限（字节），0=默认 500MB
 }
 
 func (w *WebConfig) IsEnabled() bool {
@@ -314,6 +316,12 @@ func Load() (*Config, error) {
 	if config.Web.LogRefreshSec == 0 {
 		config.Web.LogRefreshSec = 30
 	}
+	if config.Web.MaxUploadSize == 0 {
+		config.Web.MaxUploadSize = 500 << 20 // 默认 500MB
+	}
+	if config.Web.MaxDownloadSize == 0 {
+		config.Web.MaxDownloadSize = 500 << 20 // 默认 500MB
+	}
 
 	// 补全 Knasync 默认值
 	if config.Knasync.Endpoint == "" {
@@ -404,7 +412,9 @@ func DefaultConfig() *Config {
 			Timeout:       60,
 		},
 		Web: WebConfig{
-			Port: 8090,
+			Port:             8090,
+			MaxUploadSize:   500 << 20, // 500MB
+			MaxDownloadSize: 500 << 20, // 500MB
 		},
 		Knasync: KnasyncConfig{
 			Enabled:  false,

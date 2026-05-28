@@ -381,7 +381,45 @@ func (s *Server) handleArchiveToday(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, resp)
 }
 
-// handleArchiveFile 读取归档文件内容
+// contentTypeByExt 根据文件扩展名返回 Content-Type
+func contentTypeByExt(ext string) string {
+	if ext == "" {
+		return "application/octet-stream"
+	}
+	ext = strings.ToLower(ext)
+	switch ext {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".md":
+		return "text/markdown; charset=utf-8"
+	case ".txt":
+		return "text/plain; charset=utf-8"
+	case ".pdf":
+		return "application/pdf"
+	case ".mp3":
+		return "audio/mpeg"
+	case ".mp4":
+		return "video/mp4"
+	case ".wav":
+		return "audio/wav"
+	case ".m4a":
+		return "audio/mp4"
+	case ".ogg":
+		return "audio/ogg"
+	case ".webm":
+		return "video/webm"
+	case ".zip":
+		return "application/zip"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// handleArchiveFile 流式读取归档文件内容
 func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
 	relPath := r.URL.Query().Get("path")
 	if relPath == "" {
@@ -390,32 +428,28 @@ func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fullPath := filepath.Join(s.cfg.SSH.BasePath, relPath)
-	data, err := s.sshClient.ReadFile(fullPath)
+
+	// 检查文件大小
+	maxSize := s.cfg.Web.MaxDownloadSize
+	size, err := s.sshClient.FileSize(fullPath)
 	if err != nil {
-		jsonError(w, fmt.Sprintf("无法读取文件: %v", err), http.StatusServiceUnavailable)
+		jsonError(w, fmt.Sprintf("无法读取文件信息: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	if size > maxSize {
+		jsonError(w, fmt.Sprintf("文件过大（%d bytes），超过下载限制（%d bytes）", size, maxSize), http.StatusRequestEntityTooLarge)
 		return
 	}
 
 	ext := strings.ToLower(filepath.Ext(relPath))
-	switch ext {
-	case ".png":
-		w.Header().Set("Content-Type", "image/png")
-	case ".jpg", ".jpeg":
-		w.Header().Set("Content-Type", "image/jpeg")
-	case ".gif":
-		w.Header().Set("Content-Type", "image/gif")
-	case ".pdf":
-		w.Header().Set("Content-Type", "application/pdf")
-	case ".md", ".txt":
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	default:
-		w.Header().Set("Content-Type", "application/octet-stream")
-	}
+	w.Header().Set("Content-Type", contentTypeByExt(ext))
 
-	w.Write(data)
+	if err := s.sshClient.ReadFileToWriter(fullPath, w); err != nil {
+		log.Printf("[ERROR] failed to stream file %s: %v", fullPath, err)
+	}
 }
 
-// handleArchiveDownload 下载归档文件
+// handleArchiveDownload 流式下载归档文件
 func (s *Server) handleArchiveDownload(w http.ResponseWriter, r *http.Request) {
 	relPath := r.URL.Query().Get("path")
 	if relPath == "" {
@@ -424,28 +458,26 @@ func (s *Server) handleArchiveDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fullPath := filepath.Join(s.cfg.SSH.BasePath, relPath)
-	data, err := s.sshClient.ReadFile(fullPath)
+
+	// 检查文件大小
+	maxSize := s.cfg.Web.MaxDownloadSize
+	size, err := s.sshClient.FileSize(fullPath)
 	if err != nil {
-		jsonError(w, fmt.Sprintf("无法读取文件: %v", err), http.StatusServiceUnavailable)
+		jsonError(w, fmt.Sprintf("无法读取文件信息: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	if size > maxSize {
+		jsonError(w, fmt.Sprintf("文件过大（%d bytes），超过下载限制（%d bytes）", size, maxSize), http.StatusRequestEntityTooLarge)
 		return
 	}
 
 	fileName := filepath.Base(relPath)
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+fileName+"\"")
+	w.Header().Set("Content-Type", contentTypeByExt(filepath.Ext(relPath)))
 
-	ext := strings.ToLower(filepath.Ext(relPath))
-	switch ext {
-	case ".png":
-		w.Header().Set("Content-Type", "image/png")
-	case ".pdf":
-		w.Header().Set("Content-Type", "application/pdf")
-	case ".md":
-		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-	default:
-		w.Header().Set("Content-Type", "application/octet-stream")
+	if err := s.sshClient.ReadFileToWriter(fullPath, w); err != nil {
+		log.Printf("[ERROR] failed to stream file %s: %v", fullPath, err)
 	}
-
-	w.Write(data)
 }
 
 // handleHistory 读取本地历史记录
@@ -1639,8 +1671,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 限制最大 200MB
-	const maxUploadSize = 200 << 20
+	// 限制最大上传大小（默认 500MB，可通过配置修改）
+	maxUploadSize := s.cfg.Web.MaxUploadSize
+	if maxUploadSize <= 0 {
+		maxUploadSize = 500 << 20
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
 		http.Error(w, "file too large or invalid form", http.StatusBadRequest)
@@ -1710,7 +1745,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleUploadsDownload 从 uploads 目录下载文件（供 API 调用）
+// handleUploadsDownload 从 uploads 目录流式下载文件（供 API 调用）
 func (s *Server) handleUploadsDownload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1727,45 +1762,22 @@ func (s *Server) handleUploadsDownload(w http.ResponseWriter, r *http.Request) {
 	filename = filepath.Base(filename)
 	fullPath := filepath.Join(s.cfg.SSH.BasePath, "uploads", filename)
 
-	data, err := s.sshClient.ReadFile(fullPath)
+	// 检查文件大小
+	maxSize := s.cfg.Web.MaxDownloadSize
+	size, err := s.sshClient.FileSize(fullPath)
 	if err != nil {
-		jsonError(w, fmt.Sprintf("无法读取文件: %v", err), http.StatusServiceUnavailable)
+		jsonError(w, fmt.Sprintf("无法读取文件信息: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	if size > maxSize {
+		jsonError(w, fmt.Sprintf("文件过大（%d bytes），超过下载限制（%d bytes）", size, maxSize), http.StatusRequestEntityTooLarge)
 		return
 	}
 
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Header().Set("Content-Type", contentTypeByExt(filepath.Ext(filename)))
 
-	ext := strings.ToLower(filepath.Ext(filename))
-	switch ext {
-	case ".png":
-		w.Header().Set("Content-Type", "image/png")
-	case ".jpg", ".jpeg":
-		w.Header().Set("Content-Type", "image/jpeg")
-	case ".gif":
-		w.Header().Set("Content-Type", "image/gif")
-	case ".md":
-		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-	case ".txt":
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	case ".pdf":
-		w.Header().Set("Content-Type", "application/pdf")
-	case ".mp3":
-		w.Header().Set("Content-Type", "audio/mpeg")
-	case ".mp4":
-		w.Header().Set("Content-Type", "video/mp4")
-	case ".wav":
-		w.Header().Set("Content-Type", "audio/wav")
-	case ".m4a":
-		w.Header().Set("Content-Type", "audio/mp4")
-	case ".ogg":
-		w.Header().Set("Content-Type", "audio/ogg")
-	case ".webm":
-		w.Header().Set("Content-Type", "video/webm")
-	case ".zip":
-		w.Header().Set("Content-Type", "application/zip")
-	default:
-		w.Header().Set("Content-Type", "application/octet-stream")
+	if err := s.sshClient.ReadFileToWriter(fullPath, w); err != nil {
+		log.Printf("[ERROR] failed to stream file %s: %v", fullPath, err)
 	}
-
-	w.Write(data)
 }
