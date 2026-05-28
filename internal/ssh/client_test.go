@@ -254,9 +254,9 @@ func TestFormatContent(t *testing.T) {
 }
 
 func TestContentHash(t *testing.T) {
-	h1 := contentHash([]byte("hello"))
-	h2 := contentHash([]byte("hello"))
-	h3 := contentHash([]byte("world"))
+	h1 := ContentHash([]byte("hello"))
+	h2 := ContentHash([]byte("hello"))
+	h3 := ContentHash([]byte("world"))
 
 	if h1 != h2 {
 		t.Error("same content should produce same hash")
@@ -305,7 +305,7 @@ func TestSyncImagePathGeneration(t *testing.T) {
 	}
 
 	// 验证图片路径包含哈希前缀
-	testHash := contentHash([]byte("test image data"))
+	testHash := ContentHash([]byte("test image data"))
 	fileName := timeStr + "_" + testHash[:8] + "_image.png"
 	if !strings.Contains(fileName, testHash[:8]) {
 		t.Errorf("image filename should contain hash prefix, got %q", fileName)

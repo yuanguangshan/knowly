@@ -47,9 +47,9 @@ func TestExpandPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := expandPath(tt.input)
+			result := ExpandPath(tt.input)
 			if result != tt.expected {
-				t.Errorf("expandPath() = %v, want %v", result, tt.expected)
+				t.Errorf("ExpandPath() = %v, want %v", result, tt.expected)
 			}
 		})
 	}

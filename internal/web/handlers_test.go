@@ -10,6 +10,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/yuanguangshan/knowly/internal/config"
+	"github.com/yuanguangshan/knowly/internal/ssh"
 )
 
 // newTestMultipartForm 构建一个 multipart/form-data 请求体
@@ -43,6 +46,7 @@ func TestHandleUpload_TextFileTriggersSync(t *testing.T) {
 	}
 
 	s := &Server{
+		cfg:        testConfig(),
 		sshClient:  &mockSSHClient{files: make(map[string]bool)},
 		syncTextFn: syncFn,
 	}
@@ -90,6 +94,7 @@ func TestHandleUpload_NonTextNoSync(t *testing.T) {
 	}
 
 	s := &Server{
+		cfg:        testConfig(),
 		sshClient:  &mockSSHClient{files: make(map[string]bool)},
 		syncTextFn: syncFn,
 	}
@@ -122,6 +127,7 @@ func TestHandleUpload_NonTextNoSync(t *testing.T) {
 func TestHandleUpload_NilSyncFn(t *testing.T) {
 	// syncTextFn 为 nil 时不应 panic
 	s := &Server{
+		cfg:        testConfig(),
 		sshClient:  &mockSSHClient{files: make(map[string]bool)},
 		syncTextFn: nil,
 	}
@@ -152,6 +158,16 @@ func TestHandleUpload_WrongMethod(t *testing.T) {
 	}
 }
 
+// testConfig 返回最小配置用于测试
+func testConfig() *config.Config {
+	return &config.Config{
+		Web: config.WebConfig{
+			MaxUploadSize:   500 << 20,
+			MaxDownloadSize: 500 << 20,
+		},
+	}
+}
+
 // mockSSHClient 是 ssh.Client 的轻量级 mock，仅用于测试 upload 路径
 type mockSSHClient struct {
 	files map[string]bool
@@ -167,5 +183,38 @@ func (m *mockSSHClient) FileExists(path string) bool {
 
 func (m *mockSSHClient) WriteBinary(path string, data []byte) error {
 	m.files[path] = true
+	return nil
+}
+
+func (m *mockSSHClient) FileSize(path string) (int64, error) {
+	return 1024, nil // mock 返回 1KB
+}
+
+func (m *mockSSHClient) ReadFileToWriter(path string, w io.Writer) error {
+	_, err := w.Write([]byte("mock content"))
+	return err
+}
+
+func (m *mockSSHClient) ReadFile(path string) ([]byte, error) {
+	return []byte("mock content"), nil
+}
+
+func (m *mockSSHClient) ListDir(path string) ([]ssh.DirEntry, error) {
+	return nil, nil
+}
+
+func (m *mockSSHClient) BatchExtractTitles(basePath string, entries []ssh.DirEntry) []ssh.TitleEntry {
+	return nil
+}
+
+func (m *mockSSHClient) Search(keyword string, limit int) ([]ssh.SearchResult, error) {
+	return nil, nil
+}
+
+func (m *mockSSHClient) UpdateFileMetadata(path string, meta *ssh.ContentMetadata) error {
+	return nil
+}
+
+func (m *mockSSHClient) Connect() error {
 	return nil
 }

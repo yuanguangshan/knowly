@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -13,16 +14,34 @@ import (
 	"github.com/yuanguangshan/knowly/internal/ai"
 	"github.com/yuanguangshan/knowly/internal/config"
 	"github.com/yuanguangshan/knowly/internal/history"
+
 	"github.com/yuanguangshan/knowly/internal/ssh"
 )
 
 // SyncTextFn 异步文本同步回调函数（由 main.go 提供，指向 syncText）
 type SyncTextFn func(content string, timestamp time.Time)
 
+// SSHClient 接口抽象，便于测试 mock
+//
+//go:generate go run golang.org/x/tools/cmd/stringer -type=SSHClient 2>/dev/null
+type SSHClient interface {
+	Connect() error
+	MkdirAll(path string) error
+	FileExists(path string) bool
+	FileSize(path string) (int64, error)
+	ReadFile(path string) ([]byte, error)
+	ReadFileToWriter(path string, w io.Writer) error
+	WriteBinary(path string, data []byte) error
+	ListDir(path string) ([]ssh.DirEntry, error)
+	BatchExtractTitles(basePath string, entries []ssh.DirEntry) []ssh.TitleEntry
+	Search(keyword string, limit int) ([]ssh.SearchResult, error)
+	UpdateFileMetadata(path string, meta *ssh.ContentMetadata) error
+}
+
 // Server Web 管理界面服务器
 type Server struct {
 	cfg        *config.Config
-	sshClient  *ssh.Client
+	sshClient  SSHClient
 	histStore  *history.Store
 	aiProcessor *ai.Processor
 	addr       string
