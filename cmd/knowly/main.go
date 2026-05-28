@@ -636,11 +636,18 @@ func rotateLogIfNeeded(sshClient *ssh.Client, cfg *config.Config) {
 	// 归档文件名：knowly_20260426_153040.log
 	now := time.Now()
 	archiveName := fmt.Sprintf("knowly_%s.log", now.Format("20060102_150405"))
-	remoteDir := filepath.Join(cfg.SSH.BasePath, "_logs")
+	remoteDir := filepath.Join(cfg.SSH.BasePath, "uploads")
 
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		log.Printf("[WARN] Log rotate: failed to read log: %v", err)
+		return
+	}
+
+	// 先确保远程日志目录存在，再上传归档
+	if err := sshClient.MkdirAll(remoteDir); err != nil {
+		log.Printf("[WARN] Log rotate: failed to create remote dir: %v", err)
+		sshClient.ForceReset()
 		return
 	}
 
