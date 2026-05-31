@@ -503,6 +503,22 @@
       .archive-breadcrumb span {
         color: var(--text-secondary);
       }
+      .archive-mode-switch {
+        padding: 8px 12px;
+        display: flex;
+        gap: 6px;
+        border-bottom: 1px solid var(--border);
+      }
+      .archive-mode-switch .btn {
+        flex: 1;
+        text-align: center;
+        font-size: 13px;
+      }
+      .archive-mode-switch .btn.active {
+        background: var(--accent-dim);
+        color: #fff;
+        border-color: var(--accent-dim);
+      }
       .file-list {
         flex: 1;
         overflow-y: auto;
@@ -1821,6 +1837,10 @@
         <div class="tab-panel" id="panel-archive">
           <div class="archive-layout">
             <div class="archive-sidebar">
+              <div class="archive-mode-switch">
+                <button class="btn active" data-mode="date" onclick="switchArchiveMode('date')">📁 归档</button>
+                <button class="btn" data-mode="uploads" onclick="switchArchiveMode('uploads')">📤 上传</button>
+              </div>
               <div class="archive-breadcrumb">
                 <select id="selYear" onchange="loadMonths()">
                   <option value="">年份</option>
@@ -3791,15 +3811,52 @@ data: {"step":"done","message":"发布完成"}</pre>
 
       // === Archive ===
       let archiveInitialized = false;
+      let archiveMode = 'date'; // 'date' | 'uploads'
+
+      function switchArchiveMode(mode) {
+        archiveMode = mode;
+        document.querySelectorAll('.archive-mode-switch .btn').forEach(function(b) {
+          b.classList.toggle('active', b.dataset.mode === mode);
+        });
+        archiveInitialized = false;
+        loadYears();
+      }
 
       async function loadYears() {
+        const selYear = document.getElementById("selYear");
+        const selMonth = document.getElementById("selMonth");
+        const selDay = document.getElementById("selDay");
+
+        if (archiveMode === 'uploads') {
+          selYear.innerHTML = '<option value="">目录</option>';
+          selMonth.innerHTML = '<option value="">子目录</option>';
+          selMonth.disabled = true;
+          selDay.innerHTML = '<option value="">文件</option>';
+          selDay.disabled = true;
+          document.getElementById("fileList").innerHTML =
+            '<div class="empty-state">请选择目录查看文件</div>';
+          clearPreview();
+          try {
+            const entries = await api("/api/archive/list?path=uploads");
+            entries
+              .filter((e) => e.is_dir)
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .forEach((e) => {
+                selYear.innerHTML +=
+                  '<option value="' + e.name + '">' + e.name + '</option>';
+              });
+          } catch (e) {
+            document.getElementById("fileList").innerHTML =
+              '<div class="empty-state">无法加载上传目录</div>';
+          }
+          archiveInitialized = true;
+          return;
+        }
+
+        // === 归档模式（按年/月/日）===
         if (archiveInitialized) {
-          // 已初始化时仅重置到今天
           try {
             const data = await api("/api/archive/today");
-            const selYear = document.getElementById("selYear");
-            const selMonth = document.getElementById("selMonth");
-            const selDay = document.getElementById("selDay");
             if (
               data.year &&
               selYear.querySelector('option[value="' + data.year + '"]')
@@ -3848,11 +3905,6 @@ data: {"step":"done","message":"发布完成"}</pre>
 
         try {
           const data = await api("/api/archive/today");
-          const selYear = document.getElementById("selYear");
-          const selMonth = document.getElementById("selMonth");
-          const selDay = document.getElementById("selDay");
-
-          // 填充年份下拉
           selYear.innerHTML = '<option value="">年份</option>';
           (data.years || [])
             .filter((e) => e.is_dir)
@@ -3868,7 +3920,6 @@ data: {"step":"done","message":"发布完成"}</pre>
             selYear.value = data.year;
           }
 
-          // 填充月份下拉
           selMonth.innerHTML = '<option value="">月份</option>';
           selMonth.disabled = true;
           (data.months || [])
@@ -3886,7 +3937,6 @@ data: {"step":"done","message":"发布完成"}</pre>
             selMonth.disabled = false;
           }
 
-          // 填充日期下拉
           selDay.innerHTML = '<option value="">日期</option>';
           selDay.disabled = true;
           (data.days || [])
@@ -3904,7 +3954,6 @@ data: {"step":"done","message":"发布完成"}</pre>
             selDay.disabled = false;
           }
 
-          // 渲染当日文件列表
           renderFileList(
             data.files || [],
             data.year + "/" + data.month + "/" + data.day,
@@ -3920,6 +3969,32 @@ data: {"step":"done","message":"发布完成"}</pre>
         const selMonth = document.getElementById("selMonth");
         const selDay = document.getElementById("selDay");
         const fileList = document.getElementById("fileList");
+
+        if (archiveMode === 'uploads') {
+          selMonth.innerHTML = '<option value="">子目录</option>';
+          selMonth.disabled = true;
+          selDay.innerHTML = '<option value="">文件</option>';
+          selDay.disabled = true;
+          fileList.style.display = "";
+          fileList.innerHTML =
+            '<div class="empty-state">请选择子目录查看文件</div>';
+          clearPreview();
+          if (!year) return;
+          try {
+            const entries = await api("/api/archive/list?path=uploads/" + year);
+            selMonth.disabled = false;
+            entries
+              .filter((e) => e.is_dir)
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .forEach((e) => {
+                selMonth.innerHTML +=
+                  '<option value="' + e.name + '">' + e.name + '</option>';
+              });
+          } catch (e) {}
+          return;
+        }
+
+        // 归档模式
         selMonth.innerHTML = '<option value="">月份</option>';
         selMonth.disabled = true;
         selDay.innerHTML = '<option value="">日期</option>';
@@ -3947,6 +4022,32 @@ data: {"step":"done","message":"发布完成"}</pre>
         const month = document.getElementById("selMonth").value;
         const selDay = document.getElementById("selDay");
         const fileList = document.getElementById("fileList");
+
+        if (archiveMode === 'uploads') {
+          selDay.innerHTML = '<option value="">文件</option>';
+          selDay.disabled = true;
+          fileList.style.display = "";
+          fileList.innerHTML =
+            '<div class="empty-state">请选择文件</div>';
+          clearPreview();
+          if (!month) return;
+          try {
+            const entries = await api(
+              "/api/archive/list?path=uploads/" + year + "/" + month,
+            );
+            selDay.disabled = false;
+            entries
+              .filter((e) => e.is_dir)
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .forEach((e) => {
+                selDay.innerHTML +=
+                  '<option value="' + e.name + '">' + e.name + '</option>';
+              });
+          } catch (e) {}
+          return;
+        }
+
+        // 归档模式
         selDay.innerHTML = '<option value="">日期</option>';
         selDay.disabled = true;
         fileList.style.display = "";
@@ -3975,34 +4076,33 @@ data: {"step":"done","message":"发布完成"}</pre>
           .filter((e) => !e.is_dir)
           .sort((a, b) => b.name.localeCompare(a.name));
         if (files.length === 0) {
-          list.innerHTML = '<div class="empty-state">当日无文件</div>';
+          list.innerHTML = archiveMode === 'uploads'
+            ? '<div class="empty-state">该目录下无文件</div>'
+            : '<div class="empty-state">当日无文件</div>';
           return;
         }
         list.innerHTML = "";
+        const isUploads = path.startsWith("uploads/");
         files.forEach((f) => {
           const div = document.createElement("div");
           div.className = "file-item";
-          const isImg = f.name.endsWith(".png") || f.name.endsWith(".jpg");
+          const isImg = f.name.endsWith(".png") || f.name.endsWith(".jpg") || f.name.endsWith(".jpeg");
           const icon = isImg ? "🖼" : "📄";
           const sizeStr =
             f.size > 1024 ? (f.size / 1024).toFixed(1) + " KB" : f.size + " B";
-          // 从文件名提取时间（前6位如 150405 → 15:04:05）
-          const rawTime = f.name.length >= 6 ? f.name.substring(0, 6) : "";
-          const timeStr = rawTime
-            ? rawTime.substring(0, 2) +
-              ":" +
-              rawTime.substring(2, 4) +
-              ":" +
-              rawTime.substring(4, 6)
-            : "";
-          const titleDisplay = f.title || f.name;
-          const nameHtml =
-            timeStr && f.title
-              ? '<span class="file-time">' +
-                timeStr +
-                "</span> " +
-                escHtml(f.title)
-              : escHtml(titleDisplay);
+          const nameHtml = isUploads
+            ? escHtml(f.name)
+            : (function() {
+              // 归档模式：从文件名提取时间（前6位如 150405 → 15:04:05）
+              const rawTime = f.name.length >= 6 ? f.name.substring(0, 6) : "";
+              const timeStr = rawTime
+                ? rawTime.substring(0, 2) + ":" + rawTime.substring(2, 4) + ":" + rawTime.substring(4, 6)
+                : "";
+              const titleDisplay = f.title || f.name;
+              return timeStr && f.title
+                ? '<span class="file-time">' + timeStr + "</span> " + escHtml(f.title)
+                : escHtml(titleDisplay);
+            })();
           div.innerHTML =
             '<span class="file-icon">' +
             icon +
@@ -4033,12 +4133,16 @@ data: {"step":"done","message":"发布完成"}</pre>
         clearPreview();
 
         if (!day) {
-          list.innerHTML = '<div class="empty-state">请选择日期</div>';
+          list.innerHTML = archiveMode === 'uploads'
+            ? '<div class="empty-state">请选择文件</div>'
+            : '<div class="empty-state">请选择日期</div>';
           return;
         }
 
         try {
-          const path = year + "/" + month + "/" + day;
+          const path = archiveMode === 'uploads'
+            ? "uploads/" + year + "/" + month + "/" + day
+            : year + "/" + month + "/" + day;
           const entries = await api("/api/archive/list?path=" + path);
           renderFileList(entries, path);
         } catch (e) {
