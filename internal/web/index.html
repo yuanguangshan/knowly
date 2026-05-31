@@ -1841,7 +1841,10 @@
                 <button class="btn active" data-mode="date" onclick="switchArchiveMode('date')">📁 归档</button>
                 <button class="btn" data-mode="uploads" onclick="switchArchiveMode('uploads')">📤 上传</button>
               </div>
-              <div class="uploads-path" id="uploadsPath" style="display:none;padding:8px 12px;font-size:13px;color:var(--text-secondary);border-bottom:1px solid var(--border);word-break:break-all;"></div>
+              <div class="uploads-path" id="uploadsPath" style="display:none;padding:8px 12px;font-size:13px;color:var(--text-secondary);border-bottom:1px solid var(--border);word-break:break-all;align-items:center;">
+                <span id="uploadsPathLabel"></span>
+                <button class="icon-btn" onclick="toggleFileList()" title="折叠列表" style="margin-left:auto;">📂</button>
+              </div>
               <div class="archive-breadcrumb">
                 <select id="selYear" onchange="loadMonths()">
                   <option value="">年份</option>
@@ -3823,7 +3826,7 @@ data: {"step":"done","message":"发布完成"}</pre>
         });
         // 显示/隐藏面包屑和上传路径
         document.querySelector('.archive-breadcrumb').style.display = mode === 'uploads' ? 'none' : '';
-        document.getElementById('uploadsPath').style.display = mode === 'uploads' ? 'block' : 'none';
+        document.getElementById('uploadsPath').style.display = mode === 'uploads' ? 'flex' : 'none';
         clearPreview();
         if (mode === 'uploads') {
           uploadsPath = 'uploads';
@@ -3838,7 +3841,7 @@ data: {"step":"done","message":"发布完成"}</pre>
       async function loadUploadsBrowser() {
         const list = document.getElementById("fileList");
         list.style.display = "";
-        document.getElementById('uploadsPath').textContent = '📤 /' + uploadsPath + '/';
+        document.getElementById('uploadsPathLabel').textContent = '📤 /' + uploadsPath + '/';
         try {
           const entries = await api("/api/archive/list?path=" + uploadsPath);
           renderUploadsBrowser(entries);
