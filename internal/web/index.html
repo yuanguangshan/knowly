@@ -3828,16 +3828,17 @@ data: {"step":"done","message":"发布完成"}</pre>
         const selDay = document.getElementById("selDay");
 
         if (archiveMode === 'uploads') {
-          selYear.innerHTML = '<option value="">目录</option>';
+          selYear.innerHTML = '<option value="">根目录</option>';
           selMonth.innerHTML = '<option value="">子目录</option>';
           selMonth.disabled = true;
           selDay.innerHTML = '<option value="">文件</option>';
           selDay.disabled = true;
-          document.getElementById("fileList").innerHTML =
-            '<div class="empty-state">请选择目录查看文件</div>';
           clearPreview();
           try {
             const entries = await api("/api/archive/list?path=uploads");
+            // 显示根目录下的文件
+            renderFileList(entries, "uploads");
+            // 填充子目录下拉
             entries
               .filter((e) => e.is_dir)
               .sort((a, b) => a.name.localeCompare(b.name))
@@ -3975,17 +3976,16 @@ data: {"step":"done","message":"发布完成"}</pre>
           selMonth.disabled = true;
           selDay.innerHTML = '<option value="">文件</option>';
           selDay.disabled = true;
-          fileList.style.display = "";
-          fileList.innerHTML =
-            '<div class="empty-state">请选择子目录查看文件</div>';
           clearPreview();
           if (!year) return;
           try {
             const entries = await api("/api/archive/list?path=uploads/" + year);
-            selMonth.disabled = false;
-            entries
-              .filter((e) => e.is_dir)
-              .sort((a, b) => a.name.localeCompare(b.name))
+            // 显示该目录下的文件
+            renderFileList(entries, "uploads/" + year);
+            // 填充子目录下拉
+            const dirs = entries.filter((e) => e.is_dir);
+            selMonth.disabled = dirs.length === 0;
+            dirs.sort((a, b) => a.name.localeCompare(b.name))
               .forEach((e) => {
                 selMonth.innerHTML +=
                   '<option value="' + e.name + '">' + e.name + '</option>';
@@ -4026,19 +4026,17 @@ data: {"step":"done","message":"发布完成"}</pre>
         if (archiveMode === 'uploads') {
           selDay.innerHTML = '<option value="">文件</option>';
           selDay.disabled = true;
-          fileList.style.display = "";
-          fileList.innerHTML =
-            '<div class="empty-state">请选择文件</div>';
           clearPreview();
           if (!month) return;
           try {
-            const entries = await api(
-              "/api/archive/list?path=uploads/" + year + "/" + month,
-            );
-            selDay.disabled = false;
-            entries
-              .filter((e) => e.is_dir)
-              .sort((a, b) => a.name.localeCompare(b.name))
+            const path = "uploads/" + year + "/" + month;
+            const entries = await api("/api/archive/list?path=" + path);
+            // 显示该目录下的文件
+            renderFileList(entries, path);
+            // 填充子目录下拉（供继续深入）
+            const dirs = entries.filter((e) => e.is_dir);
+            selDay.disabled = dirs.length === 0;
+            dirs.sort((a, b) => a.name.localeCompare(b.name))
               .forEach((e) => {
                 selDay.innerHTML +=
                   '<option value="' + e.name + '">' + e.name + '</option>';
