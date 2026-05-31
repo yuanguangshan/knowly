@@ -3853,8 +3853,8 @@ data: {"step":"done","message":"发布完成"}</pre>
 
         var dirs = entries.filter(function(e) { return e.is_dir; });
         var files = entries.filter(function(e) { return !e.is_dir; });
-        dirs.sort(function(a, b) { return a.name.localeCompare(b.name); });
-        files.sort(function(a, b) { return a.name.localeCompare(b.name); });
+        dirs.sort(function(a, b) { return b.mod_time.localeCompare(a.mod_time); });
+        files.sort(function(a, b) { return b.mod_time.localeCompare(a.mod_time); });
 
         // ".." 返回上层
         if (uploadsPath !== 'uploads') {
