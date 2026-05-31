@@ -215,6 +215,14 @@ func (m *mockSSHClient) UpdateFileMetadata(path string, meta *ssh.ContentMetadat
 	return nil
 }
 
+func (m *mockSSHClient) MoveFile(src, dst string) error {
+	if m.files[src] {
+		m.files[dst] = true
+	}
+	delete(m.files, src)
+	return nil
+}
+
 func (m *mockSSHClient) Connect() error {
 	return nil
 }

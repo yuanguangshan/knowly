@@ -869,6 +869,28 @@ func (c *Client) FileExists(remotePath string) bool {
 	return err == nil
 }
 
+// MoveFile 远程移动/重命名文件
+func (c *Client) MoveFile(src, dst string) error {
+	session, release, err := c.newSession()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	srcPath := c.expandPath(src)
+	dstPath := c.expandPath(dst)
+	cmd := fmt.Sprintf("mv %s %s", shellEscape(srcPath), shellEscape(dstPath))
+
+	var stderr bytes.Buffer
+	session.Stderr = &stderr
+
+	if err := session.Run(cmd); err != nil {
+		return fmt.Errorf("failed to move file: %w, stderr: %s", err, stderr.String())
+	}
+
+	return nil
+}
+
 // ListDir 列出远程目录内容
 func (c *Client) ListDir(remotePath string) ([]DirEntry, error) {
 	session, release, err := c.newSession()

@@ -36,6 +36,7 @@ type SSHClient interface {
 	BatchExtractTitles(basePath string, entries []ssh.DirEntry) []ssh.TitleEntry
 	Search(keyword string, limit int) ([]ssh.SearchResult, error)
 	UpdateFileMetadata(path string, meta *ssh.ContentMetadata) error
+	MoveFile(src, dst string) error
 }
 
 // Server Web 管理界面服务器

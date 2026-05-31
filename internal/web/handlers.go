@@ -1709,12 +1709,16 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	safeName := strings.ReplaceAll(header.Filename, "/", "_")
 	destPath := filepath.Join(remoteDir, safeName)
 
-	// 如果文件已存在，追加时间戳避免覆盖
+	// 如果文件已存在，旧文件重命名加时间戳，新文件保持原文件名
 	if s.sshClient.FileExists(destPath) {
 		timestamp := time.Now().Format("20060102_150405")
 		ext := filepath.Ext(safeName)
 		base := strings.TrimSuffix(safeName, ext)
-		destPath = filepath.Join(remoteDir, base+"_"+timestamp+ext)
+		archiveName := base + "_" + timestamp + ext
+		archivePath := filepath.Join(remoteDir, archiveName)
+		if err := s.sshClient.MoveFile(destPath, archivePath); err != nil {
+			log.Printf("[WARN] Failed to archive old file %s: %v, will overwrite", destPath, err)
+		}
 	}
 
 	// 写入远程 NAS
