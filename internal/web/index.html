@@ -3883,7 +3883,8 @@ data: {"step":"done","message":"发布完成"}</pre>
           var isImg = f.name.endsWith('.png') || f.name.endsWith('.jpg') || f.name.endsWith('.jpeg');
           var icon = isImg ? '🖼' : '📄';
           var sizeStr = f.size > 1024 ? (f.size / 1024).toFixed(1) + ' KB' : f.size + ' B';
-          div.innerHTML = '<span class="file-icon">' + icon + '</span><div class="file-info"><div class="file-name">' + escHtml(f.name) + '</div><div class="file-meta">' + f.mod_time + ' · ' + sizeStr + '</div></div>';
+          var displayName = f.title ? escHtml(f.title) : escHtml(f.name);
+          div.innerHTML = '<span class="file-icon">' + icon + '</span><div class="file-info"><div class="file-name">' + displayName + '</div><div class="file-meta">' + f.mod_time + ' · ' + sizeStr + '</div></div>';
           div.onclick = function() { previewFile(uploadsPath + '/' + f.name, f.name, div); };
           list.appendChild(div);
         });
@@ -4113,15 +4114,21 @@ data: {"step":"done","message":"发布完成"}</pre>
           const icon = isImg ? "🖼" : "📄";
           const sizeStr =
             f.size > 1024 ? (f.size / 1024).toFixed(1) + " KB" : f.size + " B";
-          // 从文件名提取时间（前6位如 150405 → 15:04:05）
+          // 优先展示 title（AI 生成或 frontmatter），没有则回退到原逻辑
           const rawTime = f.name.length >= 6 ? f.name.substring(0, 6) : "";
           const timeStr = rawTime
             ? rawTime.substring(0, 2) + ":" + rawTime.substring(2, 4) + ":" + rawTime.substring(4, 6)
             : "";
-          const titleDisplay = f.title || f.name;
-          const nameHtml = timeStr && f.title
-            ? '<span class="file-time">' + timeStr + "</span> " + escHtml(f.title)
-            : escHtml(titleDisplay);
+          var nameHtml;
+          if (f.title) {
+            nameHtml = (timeStr ? '<span class="file-time">' + timeStr + '</span> ' : '') + escHtml(f.title);
+          } else {
+            // 原逻辑：从文件名提取时间展示
+            const displayName = f.name;
+            nameHtml = timeStr
+              ? '<span class="file-time">' + timeStr + '</span> ' + escHtml(displayName.substring(7))
+              : escHtml(displayName);
+          }
           div.innerHTML =
             '<span class="file-icon">' +
             icon +
