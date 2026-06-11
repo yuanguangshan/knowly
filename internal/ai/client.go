@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -52,8 +53,10 @@ func (p *Processor) callAPI(ctx context.Context, sysPrompt, userPrompt string) (
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Client-Id", "knowly")
+	log.Printf("[DEBUG] API call: endpoint=%s, key_len=%d, key_empty=%v", endpoint, len(p.cfg.APIKey), p.cfg.APIKey == "")
 	if p.cfg.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
+		log.Printf("[DEBUG] Authorization header set: Bearer %s...", p.cfg.APIKey[:min(8, len(p.cfg.APIKey))])
 	}
 
 	resp, err := p.client.Do(req)
