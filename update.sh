@@ -6,6 +6,7 @@ cd "$(dirname "$0")"
 BINARY_NAME="knowly-darwin-arm64"
 INSTALL_DIR="/Users/ygs/.nvm/versions/node/v22.14.0/lib/node_modules/knowly/bin"
 TARGET="$INSTALL_DIR/$BINARY_NAME"
+TARGET_X64="$INSTALL_DIR/knowly-darwin"
 
 echo "Building $BINARY_NAME..."
 go build -o "$BINARY_NAME" ./cmd/knowly
@@ -16,6 +17,7 @@ sleep 1
 
 echo "Replacing binary..."
 cp "$BINARY_NAME" "$TARGET"
+cp "$BINARY_NAME" "$TARGET_X64"
 rm -f "$BINARY_NAME"
 
 echo "Starting knowly daemon..."
