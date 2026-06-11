@@ -92,13 +92,7 @@ func main() {
 				promptMode = "自定义"
 			}
 		}
-		keyMask := ""
-		if cfg.AI.APIKey != "" {
-			keyMask = fmt.Sprintf("key_len=%d", len(cfg.AI.APIKey))
-		} else {
-			keyMask = "key=EMPTY"
-		}
-		log.Printf("[INFO] AI processing enabled (preset: %s, model: %s, endpoint: %s, prompt: %s, %s)", preset, cfg.AI.Model, cfg.AI.Endpoint, promptMode, keyMask)
+		log.Printf("[INFO] AI processing enabled (preset: %s, model: %s, endpoint: %s, prompt: %s)", preset, cfg.AI.Model, cfg.AI.Endpoint, promptMode)
 	}
 
 	mon := clipboard.NewMonitor(clipboard.MonitorConfig{
