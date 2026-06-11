@@ -4,7 +4,7 @@ set -e
 cd "$(dirname "$0")"
 
 BINARY_NAME="knowly-darwin-arm64"
-INSTALL_DIR="/opt/homebrew/lib/node_modules/knowly/bin"
+INSTALL_DIR="/Users/ygs/.nvm/versions/node/v22.14.0/lib/node_modules/knowly/bin"
 TARGET="$INSTALL_DIR/$BINARY_NAME"
 
 echo "Building $BINARY_NAME..."
