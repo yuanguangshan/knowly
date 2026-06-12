@@ -135,11 +135,16 @@ func fetchHTML(ctx context.Context, url string) ([]byte, error) {
 	}
 
 	var body []byte
+	var attempt int
 	err := retry.Do(ctx, retry.Config{
 		MaxRetries: 2,
 		BaseDelay:  2 * time.Second,
 		MaxDelay:   10 * time.Second,
 	}, func() error {
+		attempt++
+		if attempt > 1 {
+			log.Printf("[WARN] Fetch failed (attempt %d/3), retrying: %s", attempt, url)
+		}
 		// 每次重试重新创建请求（body 已被消费）
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
