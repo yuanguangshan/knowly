@@ -127,7 +127,7 @@ func fetchHTML(ctx context.Context, url string) ([]byte, error) {
 	// 创建 HTTP 客户端（整个重试周期复用同一个 client）
 	// 强制 HTTP/1.1 + 禁用连接复用，避免微信服务器 HTTP/2 unexpected EOF
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 20 * time.Second,
 		Transport: &http.Transport{
 			DisableKeepAlives: true,
 			TLSNextProto:      make(map[string]func(string, *tls.Conn) http.RoundTripper),
@@ -136,7 +136,12 @@ func fetchHTML(ctx context.Context, url string) ([]byte, error) {
 
 	var body []byte
 	var attempt int
-	err := retry.Do(ctx, retry.Config{
+	// 为整个抓取（含重试）创建独立的超时控制
+	// 剥离调用方过短的 deadline（15s/30s），但保留取消信号
+	fetchCtx, fetchCancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
+	defer fetchCancel()
+
+	err := retry.Do(fetchCtx, retry.Config{
 		MaxRetries: 2,
 		BaseDelay:  2 * time.Second,
 		MaxDelay:   10 * time.Second,
@@ -146,7 +151,7 @@ func fetchHTML(ctx context.Context, url string) ([]byte, error) {
 			log.Printf("[WARN] Fetch failed (attempt %d/3), retrying: %s", attempt, url)
 		}
 		// 每次重试重新创建请求（body 已被消费）
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		req, err := http.NewRequestWithContext(fetchCtx, "GET", url, nil)
 		if err != nil {
 			return fmt.Errorf("failed to create request: %w", err)
 		}
