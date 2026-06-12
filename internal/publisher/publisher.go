@@ -659,6 +659,91 @@ func PublishKindle(cfg config.KindleConfig, contentMD string, title string) erro
 }
 
 // PublishIfNeeded 根据配置异步发布到所有已启用的渠道
+// PublishWebhook 通过通用 Webhook 推送内容到所有已配置的目标
+func PublishWebhook(cfg config.WebhookConfig, content string) error {
+	if !cfg.Enabled || len(cfg.Targets) == 0 {
+		return nil
+	}
+
+	var lastErr error
+	for _, target := range cfg.Targets {
+		if err := PublishWebhookTarget(target, content); err != nil {
+			log.Printf("[WARN] Webhook %q failed: %v", target.Name, err)
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
+// PublishWebhookTarget 发送到单个 Webhook 目标
+func PublishWebhookTarget(target config.WebhookTarget, content string) error {
+	var body []byte
+	var err error
+
+	// 截取标题（前 50 字）
+	title := content
+	runes := []rune(title)
+	if len(runes) > 50 {
+		title = string(runes[:47]) + "..."
+	}
+
+	switch target.MsgType {
+	case "wechat":
+		payload := map[string]interface{}{
+			"msgtype": "text",
+			"content": content,
+			"to_user": "@all",
+		}
+		body, err = json.Marshal(payload)
+	case "podcast-read":
+		payload := map[string]interface{}{
+			"title":      "[Clip] " + title,
+			"content":    content,
+			"content_md": content,
+			"targets":    []string{"nas"},
+			"transform":  "read",
+		}
+		body, err = json.Marshal(payload)
+	case "podcast-multi":
+		payload := map[string]interface{}{
+			"title":      "[Clip] " + title,
+			"content":    content,
+			"content_md": content,
+			"targets":    []string{"nas"},
+			"transform":  "podcast",
+		}
+		body, err = json.Marshal(payload)
+	default:
+		payload := map[string]string{"content": content}
+		body, err = json.Marshal(payload)
+	}
+	if err != nil {
+		return fmt.Errorf("webhook marshal: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", target.URL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("webhook create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if target.Secret != "" {
+		req.Header.Set("Authorization", "Bearer "+target.Secret)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("webhook request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("webhook returned status %d", resp.StatusCode)
+	}
+
+	log.Printf("[INFO] Webhook %q sent: %s (%d bytes)", target.Name, target.URL, len(content))
+	return nil
+}
+
 func PublishIfNeeded(cfg *config.Config, content string) {
 	if cfg.Blog.Enabled {
 		go func() {
@@ -691,4 +776,7 @@ func PublishIfNeeded(cfg *config.Config, content string) {
 			}
 		}()
 	}
+
+	// Webhook 不在自动发布时推送，由用户从 Web 界面手动触发
+	// 见 handlers.handlePublish 中的 "webhook-*" targets
 }

@@ -1935,6 +1935,28 @@
                     >
                       Kindle
                     </div>
+                    <div style="height:1px;background:var(--border);margin:4px 0;"></div>
+                    <div
+                      class="publish-menu-item"
+                      data-target="wechat"
+                      onclick="publishContent('wechat')"
+                    >
+                      💬 微信推送
+                    </div>
+                    <div
+                      class="publish-menu-item"
+                      data-target="podcast-read"
+                      onclick="publishContent('podcast-read')"
+                    >
+                      🎧 单人播客
+                    </div>
+                    <div
+                      class="publish-menu-item"
+                      data-target="podcast-multi"
+                      onclick="publishContent('podcast-multi')"
+                    >
+                      🎙️ 多人播客
+                    </div>
                   </div>
                 </div>
                 <button class="btn" onclick="copyPreviewContent()">
@@ -3809,6 +3831,12 @@ data: {"step":"done","message":"发布完成"}</pre>
         eventSource.onerror = function () {
           eventSource.close();
           eventSource = null;
+          // 3秒后自动重连（仅当仍在日志页时）
+          setTimeout(function () {
+            if (!eventSource && currentTab === "logs") {
+              connectLogStream();
+            }
+          }, 3000);
         };
       }
 

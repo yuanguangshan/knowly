@@ -65,6 +65,8 @@ type Client struct {
 	connMu     sync.RWMutex   // 保护重连逻辑（读锁：并发操作，写锁：重连）
 	homeDir    string         // 缓存的远程家目录
 	sessionSem chan struct{}  // 会话信号量，限制并发 SSH 会话数
+	titleCache   map[string]titleCacheEntry // TTL 缓存：key=目录路径
+	titleCacheMu sync.Mutex
 }
 
 const maxConcurrentSessions = 3
@@ -126,6 +128,7 @@ func NewClient(config *Config) *Client {
 	return &Client{
 		config:     config,
 		sessionSem: sem,
+		titleCache: make(map[string]titleCacheEntry),
 	}
 }
 
@@ -956,8 +959,25 @@ type TitleEntry struct {
 	Title string
 }
 
-// BatchExtractTitles 一次性提取目录下所有 .md 文件的 frontmatter title
+// titleCacheTTL 标题缓存的过期时间（5 分钟）
+const titleCacheTTL = 5 * time.Minute
+
+// titleCacheEntry 缓存条目
+type titleCacheEntry struct {
+	titles   []TitleEntry
+	expireAt time.Time
+}
+
+// BatchExtractTitles 一次性提取目录下所有 .md 文件的 frontmatter title（带 5 分钟 TTL 缓存）
 func (c *Client) BatchExtractTitles(relPath string, entries []DirEntry) []TitleEntry {
+	// 检查缓存
+	c.titleCacheMu.Lock()
+	if cached, ok := c.titleCache[relPath]; ok && time.Now().Before(cached.expireAt) {
+		c.titleCacheMu.Unlock()
+		return cached.titles
+	}
+	c.titleCacheMu.Unlock()
+
 	// 过滤出 .md 文件
 	var mdFiles []string
 	for _, e := range entries {
@@ -1004,6 +1024,12 @@ func (c *Client) BatchExtractTitles(relPath string, entries []DirEntry) []TitleE
 			result = append(result, TitleEntry{Name: parts[0], Title: parts[1]})
 		}
 	}
+
+	// 写入缓存
+	c.titleCacheMu.Lock()
+	c.titleCache[relPath] = titleCacheEntry{titles: result, expireAt: time.Now().Add(titleCacheTTL)}
+	c.titleCacheMu.Unlock()
+
 	return result
 }
 

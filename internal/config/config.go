@@ -20,6 +20,7 @@ type Config struct {
 	AI           AIConfig           `json:"ai"`
 	WebReader    WebReaderConfig    `json:"web_reader"`
 	Knasync      KnasyncConfig      `json:"knasync"`
+	Webhook      WebhookConfig      `json:"webhook"`
 }
 
 type SSHConfig struct {
@@ -115,6 +116,20 @@ type KnasyncConfig struct {
 	Enabled  bool   `json:"enabled"`  // 是否启用 knasync 远程处理知乎链接
 	Endpoint string `json:"endpoint"` // knasync 端点
 	AuthKey  string `json:"auth_key"` // knasync 认证密钥
+}
+
+// WebhookTarget 单个 Webhook 推送目标
+type WebhookTarget struct {
+	Name    string `json:"name"`    // 名称（日志用）
+	URL     string `json:"url"`     // Webhook 地址
+	Secret  string `json:"secret"`  // Authorization Bearer token（可选）
+	MsgType string `json:"msgtype"` // 消息类型：""（默认JSON）、"wechat"（微信推送）、"podcast-read"（单人播客）、"podcast-multi"（多人播客）
+}
+
+// WebhookConfig 通用 Webhook 推送配置
+type WebhookConfig struct {
+	Enabled bool            `json:"enabled"` // 是否启用 Webhook 推送
+	Targets []WebhookTarget `json:"targets"` // 推送目标列表
 }
 
 // AIPresetOption 服务商预设选项
@@ -420,6 +435,10 @@ func DefaultConfig() *Config {
 			Enabled:  false,
 			Endpoint: "https://knasync.yuanguangshan.workers.dev",
 			AuthKey:  "test1234",
+		},
+		Webhook: WebhookConfig{
+			Enabled: false,
+			Targets: []WebhookTarget{},
 		},
 	}
 }

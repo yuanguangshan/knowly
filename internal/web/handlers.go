@@ -962,6 +962,23 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 			} else {
 				err = publisher.PublishKindle(s.cfg.Kindle, content, aiTitle)
 			}
+		case "wechat", "podcast-read", "podcast-multi":
+			// 从 webhook 配置中查找匹配的目标
+			if !s.cfg.Webhook.Enabled {
+				err = fmt.Errorf("Webhook 未启用")
+			} else {
+				var found bool
+				for _, t := range s.cfg.Webhook.Targets {
+					if t.MsgType == target {
+						err = publisher.PublishWebhookTarget(t, content)
+						found = true
+						break
+					}
+				}
+				if !found {
+					err = fmt.Errorf("未找到 msgtype=%q 的 Webhook 目标", target)
+				}
+			}
 		default:
 			results = append(results, publishResult{Target: target, Error: "未知目标"})
 			continue
