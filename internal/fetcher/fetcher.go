@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/yuanguangshan/knowly/internal/retry"
 )
 
 // URLRegex 匹配 HTTP/HTTPS URL
@@ -120,9 +122,9 @@ func FetchTitle(ctx context.Context, url string) (string, error) {
 	return info.Title, nil
 }
 
-// fetchHTML 获取页面 HTML 内容
+// fetchHTML 获取页面 HTML 内容（最多重试 2 次）
 func fetchHTML(ctx context.Context, url string) ([]byte, error) {
-	// 创建 HTTP 客户端
+	// 创建 HTTP 客户端（整个重试周期复用同一个 client）
 	// 强制 HTTP/1.1 + 禁用连接复用，避免微信服务器 HTTP/2 unexpected EOF
 	client := &http.Client{
 		Timeout: 30 * time.Second,
@@ -132,49 +134,61 @@ func fetchHTML(ctx context.Context, url string) ([]byte, error) {
 		},
 	}
 
-	// 创建请求
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	var body []byte
+	err := retry.Do(ctx, retry.Config{
+		MaxRetries: 2,
+		BaseDelay:  2 * time.Second,
+		MaxDelay:   10 * time.Second,
+	}, func() error {
+		// 每次重试重新创建请求（body 已被消费）
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+
+		// 设置完整的 User-Agent 和极其逼真的请求头，模拟真实浏览器访问
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+		req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+		req.Header.Set("Connection", "keep-alive")
+		req.Header.Set("Upgrade-Insecure-Requests", "1")
+		req.Header.Set("Sec-Fetch-Dest", "document")
+		req.Header.Set("Sec-Fetch-Mode", "navigate")
+		req.Header.Set("Sec-Fetch-Site", "cross-site")
+		req.Header.Set("Sec-Fetch-User", "?1")
+		req.Header.Set("Cache-Control", "max-age=0")
+
+		// 针对严格的反爬虫平台：把 Referer 设置为它自己，假装是从站内点击进去的
+		if isWeChatURL(url) {
+			req.Header.Set("Referer", "https://mp.weixin.qq.com/")
+		} else {
+			req.Header.Set("Referer", url)
+		}
+
+		// 发送请求
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to fetch: %w", err)
+		}
+		defer resp.Body.Close()
+
+		// 处理成功响应（包括 2xx）
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		}
+
+		// 限制读取大小，避免处理过大的页面
+		limitedReader := io.LimitReader(resp.Body, 2*1024*1024) // 2MB
+		body, err = io.ReadAll(limitedReader)
+		if err != nil {
+			return fmt.Errorf("failed to read body: %w", err)
+		}
+
+		return nil
+	})
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// 设置完整的 User-Agent 和极其逼真的请求头，模拟真实浏览器访问
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	req.Header.Set("Connection", "keep-alive")
-	req.Header.Set("Upgrade-Insecure-Requests", "1")
-	req.Header.Set("Sec-Fetch-Dest", "document")
-	req.Header.Set("Sec-Fetch-Mode", "navigate")
-	req.Header.Set("Sec-Fetch-Site", "cross-site")
-	req.Header.Set("Sec-Fetch-User", "?1")
-	req.Header.Set("Cache-Control", "max-age=0")
-
-	// 针对严格的反爬虫平台：把 Referer 设置为它自己，假装是从站内点击进去的
-	if isWeChatURL(url) {
-		// 微信公众号必须使用站内 Referer，否则返回空内容
-		req.Header.Set("Referer", "https://mp.weixin.qq.com/")
-	} else {
-		req.Header.Set("Referer", url)
-	}
-
-	// 发送请求
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// 处理成功响应（包括 2xx）
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	// 限制读取大小，避免处理过大的页面
-	limitedReader := io.LimitReader(resp.Body, 2*1024*1024) // 2MB
-	body, err := io.ReadAll(limitedReader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read body: %w", err)
+		return nil, err
 	}
 
 	return body, nil
