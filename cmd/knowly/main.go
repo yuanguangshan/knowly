@@ -432,8 +432,17 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 		if err == nil && info != nil {
 			var sb strings.Builder
 			sb.WriteString(content)
-			if info.Title != "" {
-				sb.WriteString("\n\n# " + info.Title)
+			title := info.Title
+			if title == "" && info.Content != "" {
+				// 页面标题为空时，从内容首行提取
+				firstLine := info.Content
+				if idx := strings.Index(firstLine, "\n"); idx > 0 {
+					firstLine = firstLine[:idx]
+				}
+				title = firstLine
+			}
+			if title != "" {
+				sb.WriteString("\n\n# " + title)
 			}
 			if info.Content != "" {
 				sb.WriteString("\n\n" + info.Content)

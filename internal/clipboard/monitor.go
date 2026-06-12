@@ -300,8 +300,16 @@ func (m *Monitor) enhanceAndSend(content string, hash string) {
 					enhanced = fmt.Sprintf("%s\n\n# %s", content, info.Title)
 					log.Printf("[INFO] Fetched title for URL")
 				} else if info.Content != "" {
-					enhanced = fmt.Sprintf("%s\n\n%s", content, info.Content)
-					log.Printf("[INFO] Fetched content for URL")
+					// 页面标题为空时，从内容首行提取标题
+					fallbackTitle := info.Content
+					if idx := strings.Index(fallbackTitle, "\n"); idx > 0 {
+						fallbackTitle = fallbackTitle[:idx]
+					}
+					if len([]rune(fallbackTitle)) > 60 {
+						fallbackTitle = string([]rune(fallbackTitle)[:60]) + "..."
+					}
+					enhanced = fmt.Sprintf("%s\n\n# %s\n\n%s", content, fallbackTitle, info.Content)
+					log.Printf("[INFO] Fetched content for URL (title from first line)")
 				}
 			} else if err != nil {
 				log.Printf("[DEBUG] Failed to fetch page: %v", err)

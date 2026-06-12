@@ -288,7 +288,7 @@ func Load() (*Config, error) {
 		config.AI.MinContentLen = 100
 	}
 	if config.AI.MaxContentLen == 0 {
-		config.AI.MaxContentLen = 10000
+		config.AI.MaxContentLen = 50000
 	}
 	if config.AI.Timeout == 0 {
 		config.AI.Timeout = 60
@@ -408,7 +408,7 @@ func DefaultConfig() *Config {
 			Endpoint:      "https://aiproxy.want.biz/v1",
 			Model:         "Assistant",
 			MinContentLen: 100,
-			MaxContentLen: 10000,
+			MaxContentLen: 50000,
 			Timeout:       60,
 		},
 		Web: WebConfig{
