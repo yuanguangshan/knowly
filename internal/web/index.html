@@ -2562,6 +2562,36 @@
                 </div>
               </div>
 
+              <!-- Webhook 推送 -->
+              <div class="settings-card collapsed">
+                <div class="settings-card-header" onclick="toggleCard(this)">
+                  <span class="settings-card-title">Webhook 推送</span>
+                  <span class="settings-card-toggle">&#9660;</span>
+                </div>
+                <div class="settings-card-body">
+                  <div class="cfg-row">
+                    <span class="cfg-label">启用</span
+                    ><input
+                      type="checkbox"
+                      id="cfg-webhook-enabled"
+                      style="transform: scale(1.2)"
+                    />
+                  </div>
+                  <div class="cfg-row" style="flex-direction:column;align-items:stretch;gap:4px;">
+                    <span class="cfg-label">微信推送 URL</span>
+                    <input class="cfg-input" id="cfg-webhook-wechat-url" placeholder="https://api.yuangs.cc/weixinpush" />
+                  </div>
+                  <div class="cfg-row" style="flex-direction:column;align-items:stretch;gap:4px;">
+                    <span class="cfg-label">微信推送密钥</span>
+                    <input class="cfg-input" id="cfg-webhook-wechat-secret" placeholder="Bearer token" />
+                  </div>
+                  <div class="cfg-row" style="flex-direction:column;align-items:stretch;gap:4px;">
+                    <span class="cfg-label">播客 API URL</span>
+                    <input class="cfg-input" id="cfg-webhook-podcast-url" placeholder="https://api.yuangs.cc/api/publish" />
+                  </div>
+                </div>
+              </div>
+
               <!-- AI 设置 -->
               <div class="settings-card">
                 <div class="settings-card-header" onclick="toggleCard(this)">
@@ -5273,6 +5303,15 @@ data: {"step":"done","message":"发布完成"}</pre>
           setVal("cfg-kindle-smtp_port", c.kindle.smtp_port);
           setVal("cfg-kindle-kindle_email", c.kindle.kindle_email);
 
+          // Webhook
+          setChecked("cfg-webhook-enabled", c.webhook && c.webhook.enabled);
+          var wh = c.webhook && c.webhook.targets || [];
+          var wechatTarget = wh.find(function(t) { return t.msgtype === 'wechat'; });
+          var podcastTarget = wh.find(function(t) { return t.msgtype === 'podcast-read' || t.msgtype === 'podcast-multi'; });
+          setVal("cfg-webhook-wechat-url", wechatTarget ? wechatTarget.url : "https://api.yuangs.cc/weixinpush");
+          setVal("cfg-webhook-wechat-secret", wechatTarget ? wechatTarget.secret : "");
+          setVal("cfg-webhook-podcast-url", podcastTarget ? podcastTarget.url : "https://api.yuangs.cc/api/publish");
+
           // AI (from dedicated endpoint which includes presets/templates)
           const ai = aiData.config;
           setChecked("cfg-ai-enabled", ai.enabled);
@@ -5396,6 +5435,22 @@ data: {"step":"done","message":"发布完成"}</pre>
             smtp_server: getVal("cfg-kindle-smtp_server"),
             smtp_port: getInt("cfg-kindle-smtp_port"),
             kindle_email: getVal("cfg-kindle-kindle_email"),
+          },
+          webhook: {
+            enabled: getChecked("cfg-webhook-enabled"),
+            targets: (function() {
+              var targets = [];
+              var wechatUrl = getVal("cfg-webhook-wechat-url");
+              if (wechatUrl) {
+                targets.push({ name: "微信推送", url: wechatUrl, secret: getVal("cfg-webhook-wechat-secret"), msgtype: "wechat" });
+              }
+              var podcastUrl = getVal("cfg-webhook-podcast-url");
+              if (podcastUrl) {
+                targets.push({ name: "单人播客", url: podcastUrl, secret: "", msgtype: "podcast-read" });
+                targets.push({ name: "多人播客", url: podcastUrl, secret: "", msgtype: "podcast-multi" });
+              }
+              return targets;
+            })(),
           },
           ai: {
             enabled: getChecked("cfg-ai-enabled"),
