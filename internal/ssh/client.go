@@ -503,7 +503,13 @@ func (c *Client) SyncItem(content string, timestamp time.Time, meta *ContentMeta
 	}
 
 	// 提取前 N 个字符作为文件名
-	prefix := extractContentPrefix(content, prefixLength)
+	// 优先使用 AI 生成的标题
+	var prefix string
+	if meta != nil && meta.Title != "" {
+		prefix = sanitizePrefix(meta.Title, prefixLength)
+	} else {
+		prefix = extractContentPrefix(content, prefixLength)
+	}
 
 	fileName := fmt.Sprintf("%s_%s.md", timeStr, prefix)
 	fullPath := filepath.Join(c.config.BasePath, relPath, fileName)

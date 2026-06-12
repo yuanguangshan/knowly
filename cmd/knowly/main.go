@@ -501,6 +501,7 @@ func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp 
 		if aiResult != nil {
 			aiTags = aiResult.Tags
 			meta = &ssh.ContentMetadata{
+				Title:            aiResult.Title,
 				Tags:             aiResult.Tags,
 				Summary:          aiResult.Summary,
 				Score:            aiResult.Score,
