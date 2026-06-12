@@ -448,10 +448,12 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 				sb.WriteString("\n\n" + info.Content)
 			}
 			enhanced = sb.String()
+		} else if err != nil {
+			log.Printf("[DEBUG] Relay URL fetch failed: %v", err)
 		} else {
-			if err != nil {
-				log.Printf("[DEBUG] Relay URL fetch failed: %v", err)
-			}
+			// FetchPage 返回 nil, nil — knasync 已接管（如知乎链接），跳过本地处理
+			log.Printf("[INFO] Relay URL submitted to external processor (knasync), skipping: %s", urlStr)
+			return ""
 		}
 	}
 

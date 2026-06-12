@@ -313,6 +313,10 @@ func (m *Monitor) enhanceAndSend(content string, hash string) {
 				}
 			} else if err != nil {
 				log.Printf("[DEBUG] Failed to fetch page: %v", err)
+			} else {
+				// FetchPage 返回 nil, nil — knasync 已接管（如知乎链接），跳过本地处理
+				log.Printf("[INFO] URL submitted to external processor (knasync), skipping local sync: %s", urlStr)
+				return
 			}
 		}
 	}
