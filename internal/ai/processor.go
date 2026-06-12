@@ -90,7 +90,7 @@ func (p *Processor) Process(ctx context.Context, content string) *Result {
 	}
 
 	result.Processed = true
-	log.Printf("[INFO] AI processed: title=%q score=%d tags=%v", result.Title, result.Score, result.Tags)
+	log.Printf("[INFO] AI processed: title=%q score=%d tags=%v summary=%q", result.Title, result.Score, result.Tags, result.Summary)
 	return result
 }
 

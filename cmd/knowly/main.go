@@ -575,21 +575,15 @@ func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp 
 		NASPath: nasPath,
 		Tags:    aiTags,
 	})
-	log.Printf("[INFO] %s synced & archived: %s", source, nasPath)
 
-	// 异步预生成发布标题/摘要，手动发布时直接使用
-	if aiProcessor != nil && aiProcessor.ShouldProcess(content) && entryID != "" {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			result := aiProcessor.GenerateTitleAndSummary(ctx, content)
-			if result != nil {
-				if err := histStore.UpdatePublishMeta(entryID, result.Title, result.Summary); err != nil {
-					log.Printf("[WARN] Failed to cache publish meta for %s: %v", entryID, err)
-				}
-			}
-		}()
+	// Process 已产出标题和摘要，直接缓存到发布元数据，无需再调 AI
+	if entryID != "" && meta != nil && meta.Title != "" {
+		if err := histStore.UpdatePublishMeta(entryID, meta.Title, meta.Summary); err != nil {
+			log.Printf("[WARN] Failed to cache publish meta for %s: %v", entryID, err)
+		}
 	}
+
+	log.Printf("[INFO] %s synced & archived: %s", source, nasPath)
 
 	// 异步推送到已启用的外部渠道
 	publisher.PublishIfNeeded(cfg, content)
