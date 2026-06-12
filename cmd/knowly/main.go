@@ -465,13 +465,24 @@ func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp 
 	hash := ssh.ContentHash([]byte(content))
 	relPath := filepath.Join(timestamp.Format("2006"), timestamp.Format("01"), timestamp.Format("02"))
 
-	// 如果是纯 URL，跳过 NAS 同步和 AI 处理，但保留本地历史记录
+	// 如果是纯 URL（抓取失败后回退），写入 NAS 作为失败记录
 	if isURL {
-		log.Printf("[INFO] %s pure URL recorded locally but skipped for NAS archive: %s", source, content)
+		fallbackContent := fmt.Sprintf("> 链接抓取失败（已重试 3 次）\n\n原文链接：%s\n\n---\n\n请手动访问此链接。", content)
+		fallbackMeta := &ssh.ContentMetadata{
+			Title:     "抓取失败：" + content,
+			Tags:      []string{"fetch-failed"},
+			Processed: true,
+		}
+		nasPath, err := client.SyncItem(fallbackContent, timestamp, fallbackMeta)
+		if err != nil {
+			log.Printf("[WARN] %s fallback write failed: %v", source, err)
+		} else {
+			log.Printf("[INFO] %s fetch failed, fallback saved: %s", source, nasPath)
+		}
 		histStore.Append(history.Entry{
 			Content:   content,
 			Type:      "text",
-			NASPath:   "", // 标记为未同步
+			NASPath:   nasPath,
 			Timestamp: timestamp,
 		})
 		return
