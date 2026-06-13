@@ -980,12 +980,10 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 				err = publisher.PublishKindle(s.cfg.Kindle, content, aiTitle)
 			}
 		case "wechat", "podcast-read", "podcast-multi":
-			// 微信和播客：只发原文，去掉 AI 解读部分（# 核心摘要 ... ---）
+			// 微信和播客：只发原文，取 "### 原始内容" 之后的部分
 			cleanContent := rawContent
-			if idx := strings.Index(cleanContent, "# 核心摘要"); idx >= 0 {
-				if end := strings.Index(cleanContent[idx:], "\n---\n"); end >= 0 {
-					cleanContent = strings.TrimSpace(cleanContent[idx+end+5:])
-				}
+			if idx := strings.Index(cleanContent, "### 原始内容"); idx >= 0 {
+				cleanContent = strings.TrimSpace(cleanContent[idx+len("### 原始内容"):])
 			}
 			if !s.cfg.Webhook.Enabled {
 				err = fmt.Errorf("Webhook 未启用")
