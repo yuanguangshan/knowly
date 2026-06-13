@@ -64,7 +64,7 @@ func isWeChatURL(url string) bool {
 
 // FetchPage 从 URL 抓取页面标题和正文内容
 func FetchPage(ctx context.Context, url string) (*PageInfo, error) {
-	// 知乎链接处理：优先提交到 knasync 由 Chrome 扩展处理，不消耗 MCP 额度
+	// 知乎链接：只走 knasync（Chrome 扩展），不走直连（知乎反爬 403）
 	if isZhihuURL(url) {
 		if knasyncEnabled {
 			knCtx, knCancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -75,19 +75,11 @@ func FetchPage(ctx context.Context, url string) (*PageInfo, error) {
 			} else {
 				log.Printf("[INFO] zhihu link submitted to knasync: %s", url)
 			}
-			// 交由 Chrome 扩展处理，result puller 会归档最终结果
-			return nil, nil
+		} else {
+			log.Printf("[WARN] zhihu link skipped: knasync not enabled, direct fetch blocked by 403: %s", url)
 		}
-
-		// knasync 未启用时，回退到 web_reader
-		if webReaderAPIKey != "" {
-			info, err := fetchViaWebReader(ctx, url)
-			if err != nil {
-				log.Printf("[WARN] web_reader failed for zhihu, fallback to direct fetch: %v", err)
-			} else if info != nil && (info.Title != "" || info.Content != "") {
-				return info, nil
-			}
-		}
+		// 无论 knasync 是否启用，知乎链接都不走直连
+		return nil, nil
 	}
 
 	body, err := fetchHTML(ctx, url)
