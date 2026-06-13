@@ -980,14 +980,20 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 				err = publisher.PublishKindle(s.cfg.Kindle, content, aiTitle)
 			}
 		case "wechat", "podcast-read", "podcast-multi":
-			// 微信和播客：只发原文，不加 AI 解读
+			// 微信和播客：只发原文，去掉 AI 解读部分（# 核心摘要 ... ---）
+			cleanContent := rawContent
+			if idx := strings.Index(cleanContent, "# 核心摘要"); idx >= 0 {
+				if end := strings.Index(cleanContent[idx:], "\n---\n"); end >= 0 {
+					cleanContent = strings.TrimSpace(cleanContent[idx+end+5:])
+				}
+			}
 			if !s.cfg.Webhook.Enabled {
 				err = fmt.Errorf("Webhook 未启用")
 			} else {
 				var found bool
 				for _, t := range s.cfg.Webhook.Targets {
 					if t.MsgType == target {
-						err = publisher.PublishWebhookTarget(t, rawContent)
+						err = publisher.PublishWebhookTarget(t, cleanContent)
 						found = true
 						break
 					}
