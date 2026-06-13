@@ -424,7 +424,7 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 
 		log.Printf("[INFO] Relay fetching URL: %s", urlStr)
 		urlStart := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		info, err := fetcher.FetchPage(ctx, urlStr)
 		cancel()
 		log.Printf("[INFO] Relay URL fetched in %.1fs", time.Since(urlStart).Seconds())

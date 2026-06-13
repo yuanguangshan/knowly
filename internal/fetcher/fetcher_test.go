@@ -245,6 +245,92 @@ func TestWechatExtraction(t *testing.T) {
 	})
 }
 
+func TestExtractWeChatJSContent(t *testing.T) {
+	t.Run("nested divs", func(t *testing.T) {
+		// 模拟微信文章的真实结构：js_content 内有多层嵌套 div
+		html := `
+			<div id="page">
+				<div id="js_content" class="rich_media_content">
+					<p>第一段内容</p>
+					<div class="section">
+						<p>第二段落</p>
+						<div class="inner">
+							<p>嵌套更深的段落，这里有足够的内容来超过一百个字符的限制。</p>
+							<div class="deep">
+								<p>最深层的内容，包含大量中文字符以确保超过提取阈值。这是为了测试嵌套 div 的计数法提取是否正确工作。</p>
+							</div>
+						</div>
+					</div>
+					<p>最后一段内容</p>
+				</div>
+			</div>
+		`
+		result := extractWeChatJSContent(html)
+		if !strings.Contains(result, "第一段内容") {
+			t.Errorf("should contain first paragraph, got: %s", result)
+		}
+		if !strings.Contains(result, "第二段落") {
+			t.Errorf("should contain second paragraph, got: %s", result)
+		}
+		if !strings.Contains(result, "嵌套更深的段落") {
+			t.Errorf("should contain deeply nested paragraph, got: %s", result)
+		}
+		if !strings.Contains(result, "最深层的内容") {
+			t.Errorf("should contain deepest paragraph, got: %s", result)
+		}
+		if !strings.Contains(result, "最后一段内容") {
+			t.Errorf("should contain last paragraph (after all nested divs), got: %s", result)
+		}
+	})
+
+	t.Run("no js_content div", func(t *testing.T) {
+		html := `<div id="other"><p>Not WeChat content</p></div>`
+		result := extractWeChatJSContent(html)
+		if result != "" {
+			t.Errorf("expected empty string for non-WeChat HTML, got: %s", result)
+		}
+	})
+
+	t.Run("self-closing-like tags not confused", func(t *testing.T) {
+		// 确保 <divider> 等以 div 开头的标签不会被误判
+		html := `
+			<div id="js_content">
+				<p>内容段落</p>
+				<divider></divider>
+				<p>更多内容</p>
+			</div>
+		`
+		result := extractWeChatJSContent(html)
+		if !strings.Contains(result, "内容段落") {
+			t.Errorf("should contain content, got: %s", result)
+		}
+		if !strings.Contains(result, "更多内容") {
+			t.Errorf("should contain more content, got: %s", result)
+		}
+	})
+}
+
+func TestIsWeChatContentEmpty(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"empty", "", true},
+		{"too short", "简短内容", true},
+		{"env check page", "请在微信客户端打开链接后查看此文", true},
+		{"access blocked", "您的访问环境异常，请稍后重试", true},
+		{"valid content", "这是一段正常的微信文章内容，包含了足够的文字信息来满足最低长度要求。", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isWeChatContentEmpty(tt.content); got != tt.want {
+				t.Errorf("isWeChatContentEmpty(%q) = %v, want %v", tt.content, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsZhihuURL(t *testing.T) {
 	tests := []struct {
 		name string
