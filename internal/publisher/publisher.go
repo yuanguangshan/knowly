@@ -24,6 +24,10 @@ import (
 // extractTitle 从 Markdown 内容中提取标题
 // 优先级：1. # 标题  2. 第一行有意义的文本
 func extractTitle(content string) string {
+	// 规范化换行符
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+	
 	lines := strings.Split(content, "\n")
 
 	// 跳过 YAML frontmatter（--- 包围的内容）
@@ -76,6 +80,10 @@ func extractTitle(content string) string {
 
 // stripMarkdown 去除常见 Markdown 格式，生成纯文本
 func stripMarkdown(md string) string {
+	// 规范化换行符
+	md = strings.ReplaceAll(md, "\r\n", "\n")
+	md = strings.ReplaceAll(md, "\r", "\n")
+	
 	lines := strings.Split(md, "\n")
 	var filtered []string
 	inFrontmatter := false
@@ -115,6 +123,10 @@ func stripMarkdown(md string) string {
 
 // stripFrontmatter 去除 YAML frontmatter，保留正文
 func stripFrontmatter(md string) string {
+	// 规范化换行符
+	md = strings.ReplaceAll(md, "\r\n", "\n")
+	md = strings.ReplaceAll(md, "\r", "\n")
+	
 	lines := strings.Split(md, "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return md
@@ -130,6 +142,10 @@ func stripFrontmatter(md string) string {
 // extractOrganizedContent 提取 AI 整理后的文章（# 核心摘要 部分）
 // 如果传入 title，且整理后内容没有以 # 开头，会附加在前面
 func extractOrganizedContent(md string, title string) string {
+	// 规范化换行符
+	md = strings.ReplaceAll(md, "\r\n", "\n")
+	md = strings.ReplaceAll(md, "\r", "\n")
+	
 	md = stripFrontmatter(md)
 
 	startIdx := strings.Index(md, "# 核心摘要")
@@ -153,6 +169,10 @@ func extractOrganizedContent(md string, title string) string {
 // extractContentWithOriginal 提取 AI 整理后的文章 + 原文
 // 如果传入 title，会加在整理后的文章开头
 func extractContentWithOriginal(md string, title string) string {
+	// 规范化换行符
+	md = strings.ReplaceAll(md, "\r\n", "\n")
+	md = strings.ReplaceAll(md, "\r", "\n")
+	
 	md = stripFrontmatter(md)
 
 	startIdx := strings.Index(md, "# 核心摘要")
@@ -181,6 +201,10 @@ func extractContentWithOriginal(md string, title string) string {
 // extractOriginalContent 只提取原文（### 原始内容之后的部分）
 // 如果传入 title，且原文没有以 # 开头，会附加在前面
 func extractOriginalContent(md string, title string) string {
+	// 规范化换行符
+	md = strings.ReplaceAll(md, "\r\n", "\n")
+	md = strings.ReplaceAll(md, "\r", "\n")
+	
 	md = stripFrontmatter(md)
 
 	idx := strings.Index(md, "### 原始内容")

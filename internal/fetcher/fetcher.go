@@ -311,6 +311,10 @@ func extractContent(html string) string {
 
 // cleanHTML 清理 HTML 标签，提取纯文本
 func cleanHTML(html string) string {
+	// 规范化换行符
+	html = strings.ReplaceAll(html, "\r\n", "\n")
+	html = strings.ReplaceAll(html, "\r", "\n")
+	
 	// 1. 移除 script, style, comment
 	text := scriptRegex.ReplaceAllString(html, "")
 	text = styleRegex.ReplaceAllString(text, "")
