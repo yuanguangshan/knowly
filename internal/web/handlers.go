@@ -910,24 +910,6 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// AI 生成标题和摘要
-	content := req.Content
-	var aiTitle string
-	if s.aiProcessor != nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-		defer cancel()
-		if result := s.aiProcessor.GenerateTitleAndSummary(ctx, content); result != nil {
-			aiTitle = result.Title
-			var header strings.Builder
-			if result.Summary != "" {
-				header.WriteString("> " + result.Summary + "\n\n")
-			}
-			header.WriteString("---\n\n")
-			content = header.String() + content
-			log.Printf("[INFO] AI generated title and summary for publish")
-		}
-	}
-
 	type publishResult struct {
 		Target string `json:"target"`
 		OK     bool   `json:"ok"`
@@ -935,8 +917,43 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 	}
 	var results []publishResult
 
+	rawContent := req.Content
+
+	// AI 生成标题和摘要（微信和播客只发原文，不加 AI 解读）
+	var aiContent string
+	var aiTitle string
+	needsAI := false
+	for _, t := range req.Targets {
+		if t != "wechat" && t != "podcast-read" && t != "podcast-multi" {
+			needsAI = true
+			break
+		}
+	}
+	if needsAI && s.aiProcessor != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		if result := s.aiProcessor.GenerateTitleAndSummary(ctx, rawContent); result != nil {
+			aiTitle = result.Title
+			var header strings.Builder
+			if result.Summary != "" {
+				header.WriteString("> " + result.Summary + "\n\n")
+			}
+			header.WriteString("---\n\n")
+			aiContent = header.String() + rawContent
+			log.Printf("[INFO] AI generated title and summary for publish")
+		}
+	}
+	if aiContent == "" {
+		aiContent = rawContent
+	}
+
 	for _, target := range req.Targets {
 		var err error
+		content := aiContent
+		if target == "wechat" || target == "podcast-read" || target == "podcast-multi" {
+			content = rawContent // 微信和播客只用原文
+		}
+
 		switch target {
 		case "blog":
 			if s.cfg.Blog.APIURL == "" {
@@ -963,14 +980,14 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 				err = publisher.PublishKindle(s.cfg.Kindle, content, aiTitle)
 			}
 		case "wechat", "podcast-read", "podcast-multi":
-			// 从 webhook 配置中查找匹配的目标
+			// 微信和播客：只发原文，不加 AI 解读
 			if !s.cfg.Webhook.Enabled {
 				err = fmt.Errorf("Webhook 未启用")
 			} else {
 				var found bool
 				for _, t := range s.cfg.Webhook.Targets {
 					if t.MsgType == target {
-						err = publisher.PublishWebhookTarget(t, content)
+						err = publisher.PublishWebhookTarget(t, rawContent)
 						found = true
 						break
 					}
