@@ -1386,6 +1386,11 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	var merged config.Config
 	json.Unmarshal(mergedJSON, &merged)
 
+	// 保留旧 knasync 配置（前端设置页面不包含 knasync 字段，防止保存时被清零）
+	if !merged.Knasync.Enabled && s.cfg.Knasync.Enabled {
+		merged.Knasync = s.cfg.Knasync
+	}
+
 	// 展开路径
 	merged.SSH.KeyPath = config.ExpandPath(merged.SSH.KeyPath)
 	merged.SSH.BasePath = config.ExpandPath(merged.SSH.BasePath)
