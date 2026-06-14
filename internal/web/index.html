@@ -4307,10 +4307,7 @@ data: {"step":"done","message":"发布完成"}</pre>
 
       function downloadFile() {
         if (!currentFilePath) return;
-        const a = document.createElement("a");
-        a.href =
-          "/api/archive/download?path=" + encodeURIComponent(currentFilePath);
-        a.click();
+        window.location.href = "/api/archive/download?path=" + encodeURIComponent(currentFilePath);
       }
 
       function copyArchiveLink() {
