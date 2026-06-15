@@ -58,8 +58,20 @@ echo "Building $BINARY_NAME..."
 go build -o "$BINARY_NAME" ./cmd/knowly
 
 echo "Stopping knowly daemon..."
-knowly stop 2>/dev/null || true
-sleep 1
+# 直接发 SIGTERM 并清理 PID 文件，避免 flock 竞争
+PID_FILE="$HOME/.knowly/knowly.pid"
+if [ -f "$PID_FILE" ]; then
+  OLD_PID=$(cat "$PID_FILE" 2>/dev/null || echo "")
+  if [ -n "$OLD_PID" ]; then
+    kill "$OLD_PID" 2>/dev/null || true
+  fi
+  rm -f "$PID_FILE"
+fi
+sleep 2
+# 确保旧进程已退出
+if [ -n "$OLD_PID" ]; then
+  kill -0 "$OLD_PID" 2>/dev/null && sleep 2 || true
+fi
 
 echo "Replacing binary..."
 cp "$BINARY_NAME" "$TARGET"
@@ -69,7 +81,14 @@ fi
 rm -f "$BINARY_NAME"
 
 echo "Starting knowly daemon..."
-knowly start
+nohup "$TARGET" --daemon > /dev/null 2>&1 &
+sleep 3
+# 验证服务已启动
+if curl -sf http://localhost:8090/api/status > /dev/null 2>&1; then
+  echo "✓ knowly daemon started (PID $(cat "$PID_FILE" 2>/dev/null || echo '?'))"
+else
+  echo "⚠ knowly daemon may not be ready yet, check logs: $HOME/.knowly/knowly.log"
+fi
 
 echo "Committing and pushing..."
 gdox
