@@ -819,20 +819,16 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// 使用独立 shell 脚本重启（和 handleRestart 相同方式）
 	// 脚本在独立进程组中运行，不受当前进程退出影响
-	pidData, err := os.ReadFile(config.GetPidPath())
-	if err != nil {
-		sendEvent("error", fmt.Sprintf("读取 PID 文件失败: %v", err))
-		return
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
-	if err != nil {
-		sendEvent("error", fmt.Sprintf("无效的 PID: %v", err))
-		return
-	}
 	exePath, err := os.Executable()
 	if err != nil {
 		sendEvent("error", fmt.Sprintf("获取路径失败: %v", err))
 		return
+	}
+
+	// 读取 PID，失败时仍尝试重启（传 0 让脚本跳过发信号）
+	var pid int
+	if pidData, err := os.ReadFile(config.GetPidPath()); err == nil {
+		pid, _ = strconv.Atoi(strings.TrimSpace(string(pidData)))
 	}
 
 	script := s.restartDaemonScript(pid, exePath)
