@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yuanguangshan/knowly/internal/ai"
@@ -39,6 +40,12 @@ type SSHClient interface {
 	MoveFile(src, dst string) error
 }
 
+// logSubscriber 日志订阅者
+type logSubscriber struct {
+	ch   chan string
+	done chan struct{}
+}
+
 // Server Web 管理界面服务器
 type Server struct {
 	cfg        *config.Config
@@ -49,6 +56,8 @@ type Server struct {
 	startTime  time.Time
 	httpServer *http.Server
 	syncTextFn SyncTextFn
+	logSubs   []*logSubscriber // 日志实时订阅者列表
+	logMu     sync.RWMutex
 }
 
 // NewServer 创建 Web 服务器实例（创建新的 SSH 和 History 依赖）
@@ -77,15 +86,20 @@ func NewServer(cfg *config.Config, addr string) *Server {
 // NewServerWithDeps 创建 Web 服务器实例（使用已有的 SSH 和 History 依赖）
 func NewServerWithDeps(cfg *config.Config, addr string, sshClient *ssh.Client, histStore *history.Store, syncTextFn SyncTextFn) *Server {
 	aiProcessor := ai.NewProcessor(&cfg.AI)
-	return &Server{
+	s := &Server{
 		cfg:        cfg,
-		sshClient:   sshClient,
-		histStore:   histStore,
+		sshClient:  sshClient,
+		histStore:  histStore,
 		aiProcessor: aiProcessor,
 		addr:       addr,
 		startTime:  time.Now(),
 		syncTextFn: syncTextFn,
 	}
+	// 接管日志输出：写入文件的同时推送给 SSE 订阅者
+	oldWriter := log.Writer()
+	bw := &logBroadcastWriter{s: s}
+	log.SetOutput(io.MultiWriter(oldWriter, bw))
+	return s
 }
 
 // buildHandler 构建路由和中间件
@@ -206,4 +220,47 @@ func (s *Server) basicAuth(next http.Handler) http.Handler {
 // basicAuthDisabled 检查是否配置了 Web 认证
 func basicAuthDisabled(auth string) bool {
 	return strings.TrimSpace(auth) == ""
+}
+
+// logBroadcastWriter 是一个 io.Writer，收到日志行后广播给所有 SSE 订阅者
+type logBroadcastWriter struct {
+	s *Server
+}
+
+func (w *logBroadcastWriter) Write(p []byte) (int, error) {
+	line := string(p)
+	w.s.logMu.RLock()
+	for _, sub := range w.s.logSubs {
+		select {
+		case sub.ch <- line:
+		default:
+		}
+	}
+	w.s.logMu.RUnlock()
+	return len(p), nil
+}
+
+// SubscribeLog 订阅实时日志，返回 channel
+func (s *Server) SubscribeLog() chan string {
+	sub := &logSubscriber{
+		ch:   make(chan string, 64),
+		done: make(chan struct{}),
+	}
+	s.logMu.Lock()
+	s.logSubs = append(s.logSubs, sub)
+	s.logMu.Unlock()
+	return sub.ch
+}
+
+// UnsubscribeLog 取消订阅
+func (s *Server) UnsubscribeLog(ch chan string) {
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
+	for i, sub := range s.logSubs {
+		if sub.ch == ch {
+			close(sub.done)
+			s.logSubs = append(s.logSubs[:i], s.logSubs[i+1:]...)
+			break
+		}
+	}
 }

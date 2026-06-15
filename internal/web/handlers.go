@@ -211,7 +211,7 @@ func tailFile(path string, n int) ([]string, error) {
 	return lines, nil
 }
 
-// handleLogStream SSE 实时日志流（每 2 秒检查新行，复用文件句柄）
+// handleLogStream SSE 实时日志流（内存推送 + 文件轮询兜底）
 func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -232,6 +232,10 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	logCh := s.SubscribeLog()
+	defer s.UnsubscribeLog(logCh)
+
+	// 文件轮询兜底（2s），防止行堆积在文件缓冲区
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -241,48 +245,59 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 
+	sendLine := func(raw string) {
+		parsed := parseLogLine(raw)
+		data, _ := json.Marshal(parsed)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	pollFile := func() {
+		if info, err := f.Stat(); err == nil {
+			if info.Size() <= offset {
+				return
+			}
+			if info.Size() < offset {
+				offset = 0
+			}
+		}
+		f.Seek(offset, io.SeekStart)
+		scanner := bufio.NewScanner(f)
+		var pending string
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" {
+				continue
+			}
+			if len(line) >= 19 && line[4] == '/' && line[7] == '/' && line[10] == ' ' {
+				if pending != "" {
+					sendLine(pending)
+				}
+				pending = line
+			} else if pending != "" {
+				pending += "\n" + line
+			}
+		}
+		if pending != "" {
+			sendLine(pending)
+		}
+		if newOffset, err := f.Seek(0, io.SeekCurrent); err == nil {
+			offset = newOffset
+		}
+	}
+
+	// 首次先轮询一次，拉取连接期间的日志
+	pollFile()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case line := <-logCh:
+			// 实时推送：内存缓冲区，零延迟
+			sendLine(line)
 		case <-ticker.C:
-			if info, err := f.Stat(); err == nil {
-				if info.Size() <= offset {
-					continue // 没有新内容，跳过
-				}
-				if info.Size() < offset {
-					offset = 0 // 文件被截断，从头读
-				}
-			}
-
-			f.Seek(offset, io.SeekStart)
-			scanner := bufio.NewScanner(f)
-			var pending string
-			for scanner.Scan() {
-				line := scanner.Text()
-				if line == "" {
-					continue
-				}
-				if len(line) >= 19 && line[4] == '/' && line[7] == '/' && line[10] == ' ' {
-					if pending != "" {
-						data, _ := json.Marshal(parseLogLine(pending))
-						fmt.Fprintf(w, "data: %s\n\n", data)
-						flusher.Flush()
-					}
-					pending = line
-				} else if pending != "" {
-					pending += "\n" + line
-				}
-			}
-			if pending != "" {
-				data, _ := json.Marshal(parseLogLine(pending))
-				fmt.Fprintf(w, "data: %s\n\n", data)
-				flusher.Flush()
-			}
-
-			if newOffset, err := f.Seek(0, io.SeekCurrent); err == nil {
-				offset = newOffset
-			}
+			pollFile()
 		}
 	}
 }
