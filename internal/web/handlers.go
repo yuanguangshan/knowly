@@ -691,9 +691,13 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 
 	// 用 setsid 启动一个独立的 shell 脚本：先等旧进程退出，再启动新 daemon
 	// 这样即使当前进程被 SIGTERM 杀掉，重启脚本仍会继续运行
+	port := fmt.Sprintf("%d", s.cfg.Web.Port)
+	if port == "0" {
+		port = "8090"
+	}
 	script := fmt.Sprintf(
-		"kill -TERM %d; timeout 10 sh -c 'while kill -0 %d 2>/dev/null; do sleep 0.2; done' || kill -9 %d 2>/dev/null; sleep 0.5; exec %s --daemon",
-		pid, pid, pid, exePath,
+		"kill -TERM %d; timeout 10 sh -c 'while kill -0 %d 2>/dev/null; do sleep 0.2; done' || kill -9 %d 2>/dev/null; for i in 1 2 3 4 5; do ! lsof -i :%s -t >/dev/null 2>&1 && break; sleep 0.5; done; exec %s --daemon",
+		pid, pid, pid, port, exePath,
 	)
 	restartCmd := exec.Command("/bin/sh", "-c", script)
 	restartCmd.Stdin = nil
