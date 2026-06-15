@@ -922,9 +922,10 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 	// AI 生成标题和摘要（微信和播客只发原文，不加 AI 解读）
 	var aiContent string
 	var aiTitle string
+	// 除了微信，其他目标都需要 AI 标题（播客也需要标题）
 	needsAI := false
 	for _, t := range req.Targets {
-		if t != "wechat" && t != "podcast-read" && t != "podcast-multi" {
+		if t != "wechat" {
 			needsAI = true
 			break
 		}
@@ -934,13 +935,18 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		if result := s.aiProcessor.GenerateTitleAndSummary(ctx, rawContent); result != nil {
 			aiTitle = result.Title
-			var header strings.Builder
-			if result.Summary != "" {
-				header.WriteString("> " + result.Summary + "\n\n")
+			if aiTitle != "" {
+				var header strings.Builder
+				if result.Summary != "" {
+					header.WriteString("> " + result.Summary + "\n\n")
+				}
+				header.WriteString("---\n\n")
+				aiContent = header.String() + rawContent
+				log.Printf("[INFO] AI generated title: %q for publish", aiTitle)
 			}
-			header.WriteString("---\n\n")
-			aiContent = header.String() + rawContent
-			log.Printf("[INFO] AI generated title and summary for publish")
+		}
+		if aiTitle == "" {
+			log.Printf("[INFO] AI title not generated, will use content-based title")
 		}
 	}
 	if aiContent == "" {
@@ -987,8 +993,20 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 			}
 			// 获取 AI 标题（仅播客需要，微信不需要）
 			webhookTitle := ""
-			if target != "wechat" && aiTitle != "" {
+			if target != "wechat" {
 				webhookTitle = aiTitle
+				if webhookTitle == "" {
+					// AI 未生成标题时，从内容中提取 # 标题行
+					if idx := strings.Index(cleanContent, "\n# "); idx >= 0 {
+						end := strings.Index(cleanContent[idx+1:], "\n")
+						if end > 0 {
+							webhookTitle = strings.TrimSpace(cleanContent[idx+3 : idx+1+end])
+						}
+					}
+					if webhookTitle == "" {
+						webhookTitle = aiTitle // still empty, fallback to content truncation
+					}
+				}
 			}
 			if !s.cfg.Webhook.Enabled {
 				err = fmt.Errorf("Webhook 未启用")
