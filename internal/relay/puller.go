@@ -97,13 +97,18 @@ func (p *Puller) pull() ([]string, error) {
 }
 
 // Push 将处理后的内容推送到 relay 结果队列（广播给所有客户端）
-func (p *Puller) Push(content string) error {
-	payload, err := json.Marshal(map[string]string{"content": content})
+// original 为原始 URL（可选），传了可让 knasync 永久去重
+func (p *Puller) Push(content string, original ...string) error {
+	payload := map[string]string{"content": content}
+	if len(original) > 0 && original[0] != "" {
+		payload["original"] = original[0]
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal push payload: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", p.baseURL+"/push", bytes.NewReader(payload))
+	req, err := http.NewRequest("POST", p.baseURL+"/push", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

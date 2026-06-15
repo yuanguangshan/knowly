@@ -120,16 +120,17 @@ type KnasyncConfig struct {
 
 // WebhookTarget 单个 Webhook 推送目标
 type WebhookTarget struct {
-	Name    string `json:"name"`    // 名称（日志用）
-	URL     string `json:"url"`     // Webhook 地址
-	Secret  string `json:"secret"`  // Authorization Bearer token（可选）
-	MsgType string `json:"msgtype"` // 消息类型：""（默认JSON）、"wechat"（微信推送）、"podcast-read"（单人播客）、"podcast-multi"（多人播客）
+	Name        string `json:"name"`         // 名称（日志用）
+	URL         string `json:"url"`          // Webhook 地址
+	Secret      string `json:"secret"`       // Authorization Bearer token（可选）
+	MsgType     string `json:"msgtype"`      // 消息类型：""（默认JSON）、"wechat"（微信推送）、"podcast-read"（单人播客）、"podcast-multi"（多人播客）
+	AutoPublish bool   `json:"auto_publish"` // 是否在 knasync 结果到达时自动推送
 }
 
 // WebhookConfig 通用 Webhook 推送配置
 type WebhookConfig struct {
-	Enabled bool            `json:"enabled"` // 是否启用 Webhook 推送
-	Targets []WebhookTarget `json:"targets"` // 推送目标列表
+	Enabled     bool            `json:"enabled"` // 是否启用 Webhook 推送
+	Targets     []WebhookTarget `json:"targets"` // 推送目标列表
 }
 
 // AIPresetOption 服务商预设选项

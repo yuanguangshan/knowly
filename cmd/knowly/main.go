@@ -171,7 +171,12 @@ func main() {
 				go func() {
 					enhanced := syncAndArchiveText(client, cfg, content, "relay", histStore, aiProcessor, outboxStore, mon)
 					if enhanced != "" {
-						if err := puller.Push(enhanced); err != nil {
+						// 如果原始内容是 URL，传给 knasync 做永久去重
+						origURL := ""
+						if fetcher.IsURL(content) {
+							origURL = fetcher.ExtractURL(content)
+						}
+						if err := puller.Push(enhanced, origURL); err != nil {
 							log.Printf("[WARN] Relay push back failed: %v", err)
 						}
 					}
@@ -193,7 +198,17 @@ func main() {
 			30*time.Second,
 			func(content string) {
 				// 结果已是处理后的成品，跳过 URL 抓取，但仍做 AI 标签/摘要
-				go syncText(client, cfg, content, time.Now(), histStore, aiProcessor, outboxStore, "RelayResult")
+				go func() {
+					syncText(client, cfg, content, time.Now(), histStore, aiProcessor, outboxStore, "RelayResult")
+					// knasync 结果到达时自动推送到启用了 auto_publish 的 webhook 目标
+					if cfg.Webhook.Enabled {
+						for _, t := range cfg.Webhook.Targets {
+							if t.AutoPublish {
+								publisher.PublishWebhookTarget(t, content)
+							}
+						}
+					}
+				}()
 			},
 		)
 		resultPuller.Start()
