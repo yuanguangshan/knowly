@@ -709,10 +709,29 @@ func PublishWebhookTargetWithTitle(target config.WebhookTarget, content string, 
 	var body []byte
 	var err error
 
-	// 优先使用 AI 标题，否则从内容截取前 50 字
+	// 优先使用 AI 标题
 	title := aiTitle
 	if title == "" {
-		title = content
+		// 从内容中提取：先找一级 # 标题，否则跳过 URL 取正文第一行
+		for _, line := range strings.SplitN(content, "\n", 10) {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "# ") && !strings.HasPrefix(trimmed, "## ") && len([]rune(trimmed)) > 3 {
+				title = strings.TrimPrefix(trimmed, "# ")
+				break
+			}
+		}
+		if title == "" {
+			for _, line := range strings.SplitN(content, "\n", 10) {
+				trimmed := strings.TrimSpace(line)
+				if trimmed != "" && !strings.HasPrefix(trimmed, "http://") && !strings.HasPrefix(trimmed, "https://") && !strings.HasPrefix(trimmed, "#") {
+					title = trimmed
+					break
+				}
+			}
+		}
+		if title == "" {
+			title = content
+		}
 		runes := []rune(title)
 		if len(runes) > 50 {
 			title = string(runes[:47]) + "..."

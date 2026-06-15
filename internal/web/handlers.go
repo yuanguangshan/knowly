@@ -931,7 +931,7 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if needsAI && s.aiProcessor != nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 		defer cancel()
 		if result := s.aiProcessor.GenerateTitleAndSummary(ctx, rawContent); result != nil {
 			aiTitle = result.Title
