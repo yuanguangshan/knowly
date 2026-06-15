@@ -48,6 +48,19 @@ func (s *Server) serveFavicon(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// serveManifest 返回 PWA manifest.json
+func (s *Server) serveManifest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(manifestJSON)
+}
+
+// serveSW 返回 Service Worker
+func (s *Server) serveSW(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(swJS)
+}
+
 // jsonResp 写入 JSON 响应
 func jsonResp(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

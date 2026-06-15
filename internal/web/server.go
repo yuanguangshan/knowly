@@ -95,6 +95,8 @@ func (s *Server) buildHandler() http.Handler {
 	// 静态文件
 	mux.HandleFunc("/", s.serveIndex)
 	mux.HandleFunc("/favicon.ico", s.serveFavicon)
+	mux.HandleFunc("/manifest.json", s.serveManifest)
+	mux.HandleFunc("/sw.js", s.serveSW)
 
 	// 日志 API
 	mux.HandleFunc("/api/logs", s.handleLogs)

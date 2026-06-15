@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Knowly</title>
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Knowly" />
+    <meta name="theme-color" content="#1a1a2e" />
     <script>
       var REFRESH_SEC = {{.RefreshSec}}; var LOG_REFRESH_SEC = {{.LogRefreshSec}};
     </script>
@@ -5869,6 +5873,11 @@ data: {"step":"done","message":"发布完成"}</pre>
       function attachScrollHide(selector) {
         var el = document.querySelector(selector);
         if (el) setupScrollHide(el);
+      }
+
+      // === PWA ===
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("/sw.js").catch(function() {});
       }
 
       // === Init ===

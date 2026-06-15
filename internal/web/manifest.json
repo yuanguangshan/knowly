@@ -1,0 +1,22 @@
+{
+  "name": "Knowly",
+  "short_name": "Knowly",
+  "description": "Knowledge Async - 剪贴板知识管理",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#1a1a2e",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/api/icon?size=192",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "/api/icon?size=512",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}
