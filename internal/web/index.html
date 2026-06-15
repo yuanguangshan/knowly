@@ -842,6 +842,16 @@
       .history-detail .copy-btn::before {
         content: "📋";
       }
+      .history-detail .copy-btn-bottom {
+        text-align: right;
+        padding-top: 8px;
+        margin-top: 8px;
+        border-top: 1px solid var(--border);
+      }
+      .history-detail .copy-btn-bottom .copy-btn {
+        position: static;
+        display: inline-block;
+      }
       /* Toast */
       .toast {
         position: fixed;
@@ -4367,9 +4377,10 @@ data: {"step":"done","message":"发布完成"}</pre>
       // === History ===
       let tagsExpanded = false;
       async function loadTags() {
+        var bar = document.getElementById("tagsBar");
+        bar.innerHTML = '<span class="tag-item" style="opacity:0.5">标签加载中...</span>';
         try {
           const tags = await api("/api/tags");
-          const bar = document.getElementById("tagsBar");
           if (!tags.length) {
             bar.innerHTML = "";
             return;
@@ -4591,14 +4602,18 @@ data: {"step":"done","message":"发布完成"}</pre>
         const detail = document.createElement("div");
         detail.className = "history-detail";
         detail.innerHTML =
-          escHtml(entry.content || "") +
           '<span class="copy-btn btn" data-id="' +
           escHtml(entry.id || "") +
-          '"></span>';
+          '"></span>' +
+          escHtml(entry.content || "") +
+          '<div class="copy-btn-bottom"><span class="copy-btn btn" data-id="' +
+          escHtml(entry.id || "") +
+          '"></span></div>';
 
         detail
-          .querySelector(".copy-btn")
-          .addEventListener("click", async function (e) {
+          .querySelectorAll(".copy-btn")
+          .forEach(function(btn) {
+            btn.addEventListener("click", async function (e) {
             e.stopPropagation();
             const id = this.dataset.id;
             if (!id) {
