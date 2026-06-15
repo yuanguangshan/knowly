@@ -1425,6 +1425,38 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	merged.SSH.KeyPath = config.ExpandPath(merged.SSH.KeyPath)
 	merged.SSH.BasePath = config.ExpandPath(merged.SSH.BasePath)
 
+	// 补全默认值（前端设置页不包含这些字段）
+	if merged.Web.MaxDownloadSize == 0 {
+		merged.Web.MaxDownloadSize = s.cfg.Web.MaxDownloadSize
+		if merged.Web.MaxDownloadSize == 0 {
+			merged.Web.MaxDownloadSize = 500 << 20
+		}
+	}
+	if merged.Web.MaxUploadSize == 0 {
+		merged.Web.MaxUploadSize = s.cfg.Web.MaxUploadSize
+		if merged.Web.MaxUploadSize == 0 {
+			merged.Web.MaxUploadSize = 500 << 20
+		}
+	}
+	if merged.Web.Port == 0 {
+		merged.Web.Port = s.cfg.Web.Port
+	}
+	if merged.Sync.MaxRetries == 0 {
+		merged.Sync.MaxRetries = s.cfg.Sync.MaxRetries
+	}
+	if merged.Sync.RetryDelay == 0 {
+		merged.Sync.RetryDelay = s.cfg.Sync.RetryDelay
+	}
+	if merged.AI.Timeout == 0 {
+		merged.AI.Timeout = s.cfg.AI.Timeout
+	}
+	if merged.AI.MinContentLen == 0 {
+		merged.AI.MinContentLen = s.cfg.AI.MinContentLen
+	}
+	if merged.AI.MaxContentLen == 0 {
+		merged.AI.MaxContentLen = s.cfg.AI.MaxContentLen
+	}
+
 	// 更新内存中的配置（逐个字段赋值，保持所有内部指针有效）
 	s.cfg.SSH = merged.SSH
 	s.cfg.Clipboard = merged.Clipboard
