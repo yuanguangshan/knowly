@@ -701,14 +701,22 @@ func PublishWebhook(cfg config.WebhookConfig, content string) error {
 
 // PublishWebhookTarget 发送到单个 Webhook 目标
 func PublishWebhookTarget(target config.WebhookTarget, content string) error {
+	return PublishWebhookTargetWithTitle(target, content, "")
+}
+
+// PublishWebhookTargetWithTitle 发送到单个 Webhook 目标，可指定标题
+func PublishWebhookTargetWithTitle(target config.WebhookTarget, content string, aiTitle string) error {
 	var body []byte
 	var err error
 
-	// 截取标题（前 50 字）
-	title := content
-	runes := []rune(title)
-	if len(runes) > 50 {
-		title = string(runes[:47]) + "..."
+	// 优先使用 AI 标题，否则从内容截取前 50 字
+	title := aiTitle
+	if title == "" {
+		title = content
+		runes := []rune(title)
+		if len(runes) > 50 {
+			title = string(runes[:47]) + "..."
+		}
 	}
 
 	switch target.MsgType {

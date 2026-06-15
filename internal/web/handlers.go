@@ -985,13 +985,18 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 			if idx := strings.Index(cleanContent, "### 原始内容"); idx >= 0 {
 				cleanContent = strings.TrimSpace(cleanContent[idx+len("### 原始内容"):])
 			}
+			// 获取 AI 标题（仅播客需要，微信不需要）
+			webhookTitle := ""
+			if target != "wechat" && aiTitle != "" {
+				webhookTitle = aiTitle
+			}
 			if !s.cfg.Webhook.Enabled {
 				err = fmt.Errorf("Webhook 未启用")
 			} else {
 				var found bool
 				for _, t := range s.cfg.Webhook.Targets {
 					if t.MsgType == target {
-						err = publisher.PublishWebhookTarget(t, cleanContent)
+						err = publisher.PublishWebhookTargetWithTitle(t, cleanContent, webhookTitle)
 						found = true
 						break
 					}
