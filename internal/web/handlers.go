@@ -211,7 +211,7 @@ func tailFile(path string, n int) ([]string, error) {
 	return lines, nil
 }
 
-// handleLogStream SSE 实时日志流
+// handleLogStream SSE 实时日志流（每 2 秒检查新行，复用文件句柄）
 func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -225,30 +225,33 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 
 	logPath := config.GetLogPath()
 
-	// Start from current end of file, don't send historical logs
-	// (frontend loads history separately via /api/logs)
+	// 从文件末尾开始，不发送历史日志（前端通过 /api/logs 加载）
 	var offset int64
 	if info, err := os.Stat(logPath); err == nil {
 		offset = info.Size()
 	}
 
 	ctx := r.Context()
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+
+	f, err := os.Open(logPath)
+	if err != nil {
+		return
+	}
+	defer f.Close()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			f, err := os.Open(logPath)
-			if err != nil {
-				continue
-			}
-
 			if info, err := f.Stat(); err == nil {
+				if info.Size() <= offset {
+					continue // 没有新内容，跳过
+				}
 				if info.Size() < offset {
-					offset = 0
+					offset = 0 // 文件被截断，从头读
 				}
 			}
 
@@ -280,7 +283,6 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 			if newOffset, err := f.Seek(0, io.SeekCurrent); err == nil {
 				offset = newOffset
 			}
-			f.Close()
 		}
 	}
 }

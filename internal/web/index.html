@@ -3840,6 +3840,9 @@ data: {"step":"done","message":"发布完成"}</pre>
         );
       }
 
+      var logLineCount = 0;
+      const MAX_LOG_LINES = 500;
+
       function appendLogLine(line) {
         const container = document.getElementById("logContainer");
         var key = (line.time || "") + "|" + (line.raw || line.message || "");
@@ -3852,6 +3855,12 @@ data: {"step":"done","message":"发布完成"}</pre>
         const div = document.createElement("div");
         div.innerHTML = buildLogLineHtml(line);
         container.insertBefore(div.firstChild, container.firstChild);
+        logLineCount++;
+        // 限制 DOM 行数，防止界面卡顿
+        while (logLineCount > MAX_LOG_LINES && container.lastChild) {
+          container.removeChild(container.lastChild);
+          logLineCount--;
+        }
       }
 
       function filterLogs(level) {
