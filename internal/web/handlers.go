@@ -910,13 +910,6 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type publishResult struct {
-		Target string `json:"target"`
-		OK     bool   `json:"ok"`
-		Error  string `json:"error,omitempty"`
-	}
-	var results []publishResult
-
 	rawContent := req.Content
 
 	// AI 生成标题和摘要（微信和播客只发原文，不加 AI 解读）
@@ -953,88 +946,73 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request) {
 		aiContent = rawContent
 	}
 
-	for _, target := range req.Targets {
-		var err error
-		content := aiContent
-		if target == "wechat" || target == "podcast-read" || target == "podcast-multi" {
-			content = rawContent // 微信和播客只用原文
-		}
+	// 异步执行发布（AI 标题生成可能较慢，先返回响应）
+	go func() {
+		for _, target := range req.Targets {
+			content := aiContent
+			if target == "wechat" || target == "podcast-read" || target == "podcast-multi" {
+				content = rawContent
+			}
 
-		switch target {
-		case "blog":
-			if s.cfg.Blog.APIURL == "" {
-				err = fmt.Errorf("Blog API URL 未配置")
-			} else {
-				err = publisher.PublishBlog(s.cfg.Blog, content, aiTitle)
-			}
-		case "podcast":
-			if s.cfg.Podcast.APIURL == "" {
-				err = fmt.Errorf("Podcast API URL 未配置")
-			} else {
-				err = publisher.PublishPodcast(s.cfg.Podcast, content, aiTitle)
-			}
-		case "ima":
-			if s.cfg.IMA.APIURL == "" || s.cfg.IMA.ClientID == "" || s.cfg.IMA.APIKey == "" {
-				err = fmt.Errorf("IMA 配置不完整（需要 APIURL、ClientID、APIKey）")
-			} else {
-				err = publisher.PublishIMA(s.cfg.IMA, content, aiTitle)
-			}
-		case "kindle":
-			if s.cfg.Kindle.KindleEmail == "" || s.cfg.Kindle.SenderEmail == "" || s.cfg.Kindle.SenderPassword == "" {
-				err = fmt.Errorf("Kindle 配置不完整（需要 KindleEmail、SenderEmail、SenderPassword）")
-			} else {
-				err = publisher.PublishKindle(s.cfg.Kindle, content, aiTitle)
-			}
-		case "wechat", "podcast-read", "podcast-multi":
-			// 微信和播客：只发原文，取 "### 原始内容" 之后的部分
-			cleanContent := rawContent
-			if idx := strings.Index(cleanContent, "### 原始内容"); idx >= 0 {
-				cleanContent = strings.TrimSpace(cleanContent[idx+len("### 原始内容"):])
-			}
-			// 获取 AI 标题（仅播客需要，微信不需要）
-			webhookTitle := ""
-			if target != "wechat" {
-				webhookTitle = aiTitle
-				if webhookTitle == "" {
-					// AI 未生成标题时，从内容中提取 # 标题行
-					if idx := strings.Index(cleanContent, "\n# "); idx >= 0 {
-						end := strings.Index(cleanContent[idx+1:], "\n")
-						if end > 0 {
-							webhookTitle = strings.TrimSpace(cleanContent[idx+3 : idx+1+end])
+			switch target {
+			case "blog":
+				if s.cfg.Blog.APIURL == "" {
+					log.Printf("[WARN] Blog publish skipped: API URL not configured")
+				} else {
+					publisher.PublishBlog(s.cfg.Blog, content, aiTitle)
+				}
+			case "podcast":
+				if s.cfg.Podcast.APIURL == "" {
+					log.Printf("[WARN] Podcast publish skipped: API URL not configured")
+				} else {
+					publisher.PublishPodcast(s.cfg.Podcast, content, aiTitle)
+				}
+			case "ima":
+				if s.cfg.IMA.APIURL == "" || s.cfg.IMA.ClientID == "" || s.cfg.IMA.APIKey == "" {
+					log.Printf("[WARN] IMA publish skipped: incomplete config")
+				} else {
+					publisher.PublishIMA(s.cfg.IMA, content, aiTitle)
+				}
+			case "kindle":
+				if s.cfg.Kindle.KindleEmail == "" || s.cfg.Kindle.SenderEmail == "" || s.cfg.Kindle.SenderPassword == "" {
+					log.Printf("[WARN] Kindle publish skipped: incomplete config")
+				} else {
+					publisher.PublishKindle(s.cfg.Kindle, content, aiTitle)
+				}
+			case "wechat", "podcast-read", "podcast-multi":
+				cleanContent := rawContent
+				if idx := strings.Index(cleanContent, "### 原始内容"); idx >= 0 {
+					cleanContent = strings.TrimSpace(cleanContent[idx+len("### 原始内容"):])
+				}
+				webhookTitle := ""
+				if target != "wechat" {
+					webhookTitle = aiTitle
+					if webhookTitle == "" {
+						if idx := strings.Index(cleanContent, "\n# "); idx >= 0 {
+							end := strings.Index(cleanContent[idx+1:], "\n")
+							if end > 0 {
+								webhookTitle = strings.TrimSpace(cleanContent[idx+3 : idx+1+end])
+							}
 						}
 					}
-					if webhookTitle == "" {
-						webhookTitle = aiTitle // still empty, fallback to content truncation
+				}
+				if !s.cfg.Webhook.Enabled {
+					log.Printf("[WARN] %s publish skipped: webhook not enabled", target)
+				} else {
+					for _, t := range s.cfg.Webhook.Targets {
+						if t.MsgType == target {
+							if e := publisher.PublishWebhookTargetWithTitle(t, cleanContent, webhookTitle); e != nil {
+								log.Printf("[WARN] %s publish failed: %v", target, e)
+							}
+							break
+						}
 					}
 				}
 			}
-			if !s.cfg.Webhook.Enabled {
-				err = fmt.Errorf("Webhook 未启用")
-			} else {
-				var found bool
-				for _, t := range s.cfg.Webhook.Targets {
-					if t.MsgType == target {
-						err = publisher.PublishWebhookTargetWithTitle(t, cleanContent, webhookTitle)
-						found = true
-						break
-					}
-				}
-				if !found {
-					err = fmt.Errorf("未找到 msgtype=%q 的 Webhook 目标", target)
-				}
-			}
-		default:
-			results = append(results, publishResult{Target: target, Error: "未知目标"})
-			continue
 		}
-		if err != nil {
-			results = append(results, publishResult{Target: target, OK: false, Error: err.Error()})
-		} else {
-			results = append(results, publishResult{Target: target, OK: true})
-		}
-	}
+	}()
 
-	jsonResp(w, results)
+	jsonResp(w, map[string]string{"status": "accepted"})
 }
 
 // handleTagAndPublish 添加标签并发布内容
@@ -1390,29 +1368,35 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 
 // handleUpdateConfig 更新完整配置
 func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
-	var newCfg config.Config
-	if err := json.NewDecoder(r.Body).Decode(&newCfg); err != nil {
+	// 先解析请求体为 map，检查哪些顶级字段被显式提交
+	var bodyMap map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&bodyMap); err != nil {
 		jsonError(w, "无效的请求体", http.StatusBadRequest)
 		return
 	}
 
-	// 保留脱敏字段的原值
+	// 将 map 序列化回 JSON 再反序列化到 struct
+	bodyJSON, _ := json.Marshal(bodyMap)
+	var newCfg config.Config
+	json.Unmarshal(bodyJSON, &newCfg)
+
+	// 从旧配置中补全未提交的字段
 	oldJSON, _ := json.Marshal(s.cfg)
-	newJSON, _ := json.Marshal(newCfg)
-	var oldMap, newMap map[string]interface{}
+	var oldMap map[string]interface{}
 	json.Unmarshal(oldJSON, &oldMap)
-	json.Unmarshal(newJSON, &newMap)
-	preserveMasked(oldMap, newMap)
+	for k, v := range oldMap {
+		if _, exists := bodyMap[k]; !exists {
+			bodyMap[k] = v
+		}
+	}
+
+	// 保留脱敏字段的原值
+	preserveMasked(oldMap, bodyMap)
 
 	// 反序列化回结构体
-	mergedJSON, _ := json.Marshal(newMap)
+	mergedJSON, _ := json.Marshal(bodyMap)
 	var merged config.Config
 	json.Unmarshal(mergedJSON, &merged)
-
-	// 保留旧 knasync 配置（前端设置页面不包含 knasync 字段，防止保存时被清零）
-	if !merged.Knasync.Enabled && s.cfg.Knasync.Enabled {
-		merged.Knasync = s.cfg.Knasync
-	}
 
 	// 展开路径
 	merged.SSH.KeyPath = config.ExpandPath(merged.SSH.KeyPath)

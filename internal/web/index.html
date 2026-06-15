@@ -4317,7 +4317,24 @@ data: {"step":"done","message":"发布完成"}</pre>
 
       function downloadFile() {
         if (!currentFilePath) return;
-        window.location.href = "/api/archive/download?path=" + encodeURIComponent(currentFilePath);
+        fetch("/api/archive/download?path=" + encodeURIComponent(currentFilePath))
+          .then(function(r) {
+            if (!r.ok) throw new Error(r.status === 404 ? "文件不存在" : "下载失败(" + r.status + ")");
+            var name = currentFilePath.split("/").pop() || "download";
+            return r.blob().then(function(blob) {
+              var url = URL.createObjectURL(blob);
+              var a = document.createElement("a");
+              a.href = url;
+              a.download = name;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            });
+          })
+          .catch(function(e) {
+            showToast("下载失败: " + e.message);
+          });
       }
 
       function copyArchiveLink() {
@@ -5164,18 +5181,12 @@ data: {"step":"done","message":"发布完成"}</pre>
         showToast("正在发布到 " + target + "...");
 
         try {
-          const res = await fetch("/api/publish", {
+          await fetch("/api/publish", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ content: content, targets: [target] }),
           });
-          const results = await res.json();
-          const r = results[0];
-          if (r && r.ok) {
-            showToast("已发布到 " + target);
-          } else {
-            showToast("发布失败: " + (r ? r.error : "未知错误"));
-          }
+          showToast("已提交发布 " + target + "（后台处理中）");
         } catch (e) {
           showToast("发布请求失败");
         }

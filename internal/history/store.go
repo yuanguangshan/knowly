@@ -55,24 +55,63 @@ type Store struct {
 
 	tagCache      map[string]int // 标签计数缓存，避免每次 AllTags 全量扫描
 	tagCacheBuilt bool            // 标签缓存是否已构建
+	tagCachePath  string          // 标签缓存文件路径，用于持久化重启不丢失
 }
 
 // NewStore 创建历史存储实例
 func NewStore(dir string) *Store {
-	return &Store{
-		path:       filepath.Join(dir, "history.jsonl"),
-		maxEntries: defaultMaxEntries,
-		tagCache:   make(map[string]int),
+	s := &Store{
+		path:         filepath.Join(dir, "history.jsonl"),
+		maxEntries:   defaultMaxEntries,
+		tagCache:     make(map[string]int),
+		tagCachePath: filepath.Join(dir, "tag_cache.json"),
 	}
+	s.loadTagCache()
+	return s
 }
 
 // NewStoreWithLimit 创建带自定义最大条目数的存储实例
 func NewStoreWithLimit(dir string, maxEntries int) *Store {
-	return &Store{
-		path:       filepath.Join(dir, "history.jsonl"),
-		maxEntries: maxEntries,
-		tagCache:   make(map[string]int),
+	s := &Store{
+		path:         filepath.Join(dir, "history.jsonl"),
+		maxEntries:   maxEntries,
+		tagCache:     make(map[string]int),
+		tagCachePath: filepath.Join(dir, "tag_cache.json"),
 	}
+	s.loadTagCache()
+	return s
+}
+
+// loadTagCache 从文件加载标签缓存
+func (s *Store) loadTagCache() {
+	data, err := os.ReadFile(s.tagCachePath)
+	if err != nil {
+		return // 缓存不存在或不可读，首次启动
+	}
+	var cached struct {
+		Tags  map[string]int `json:"tags"`
+		Count int            `json:"count"`
+	}
+	if err := json.Unmarshal(data, &cached); err != nil {
+		return
+	}
+	s.tagCache = cached.Tags
+	s.count = cached.Count
+	s.counted = true
+	s.tagCacheBuilt = true
+}
+
+// saveTagCache 持久化标签缓存到文件
+func (s *Store) saveTagCache() {
+	cached := struct {
+		Tags  map[string]int `json:"tags"`
+		Count int            `json:"count"`
+	}{Tags: s.tagCache, Count: s.count}
+	data, err := json.Marshal(cached)
+	if err != nil {
+		return
+	}
+	os.WriteFile(s.tagCachePath, data, 0644)
 }
 
 // ensureCount 在首次需要时统计文件行数
@@ -562,6 +601,7 @@ func (s *Store) buildTagCache() error {
 		}
 	}
 	s.tagCacheBuilt = true
+	s.saveTagCache()
 	return nil
 }
 
