@@ -675,6 +675,32 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, status)
 }
 
+// restartDaemonScript 生成重启 daemon 的 shell 脚本
+func (s *Server) restartDaemonScript(pid int, exePath string) string {
+	pidPath := config.GetPidPath()
+	port := fmt.Sprintf("%d", s.cfg.Web.Port)
+	if port == "0" {
+		port = "8090"
+	}
+	// 1. 尝试优雅停止旧进程
+	// 2. 等待进程退出（最多 10s）
+	// 3. 清理 PID 文件
+	// 4. 等待端口释放（最多 5s，用 nc 检测取代 lsof）
+	// 5. 启动新 daemon（后台运行，非 exec）
+	return fmt.Sprintf(
+		`kill -TERM %[1]d 2>/dev/null
+timeout 10 sh -c 'while kill -0 %[1]d 2>/dev/null; do sleep 0.2; done' 2>/dev/null
+kill -9 %[1]d 2>/dev/null
+rm -f %[3]s
+for i in 1 2 3 4 5; do
+  nc -z 127.0.0.1 %[4]s 2>/dev/null || break
+  sleep 0.5
+done
+nohup %[2]s --daemon >/dev/null 2>&1 &
+sleep 2`,
+		pid, exePath, pidPath, port)
+}
+
 // handleRestart 重启 knowly daemon 进程
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -682,11 +708,18 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 读取 daemon PID
 	pidPath := config.GetPidPath()
 	data, err := os.ReadFile(pidPath)
 	if err != nil {
-		jsonError(w, "守护进程未运行", http.StatusServiceUnavailable)
+		// PID 文件不存在时仍尝试重启
+		exePath, err := os.Executable()
+		if err != nil {
+			jsonError(w, "无法获取可执行文件路径", http.StatusInternalServerError)
+			return
+		}
+		jsonResp(w, map[string]string{"status": "restarting"})
+		script := s.restartDaemonScript(0, exePath)
+		exec.Command("/bin/sh", "-c", script).Start()
 		return
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
@@ -694,26 +727,15 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "无效的 PID 文件", http.StatusInternalServerError)
 		return
 	}
-
-	// 获取可执行文件路径
 	exePath, err := os.Executable()
 	if err != nil {
-		jsonError(w, fmt.Sprintf("获取可执行文件路径失败: %v", err), http.StatusInternalServerError)
+		jsonError(w, "获取可执行文件路径失败", http.StatusInternalServerError)
 		return
 	}
 
 	jsonResp(w, map[string]string{"status": "restarting"})
 
-	// 用 setsid 启动一个独立的 shell 脚本：先等旧进程退出，再启动新 daemon
-	// 这样即使当前进程被 SIGTERM 杀掉，重启脚本仍会继续运行
-	port := fmt.Sprintf("%d", s.cfg.Web.Port)
-	if port == "0" {
-		port = "8090"
-	}
-	script := fmt.Sprintf(
-		"kill -TERM %d; timeout 10 sh -c 'while kill -0 %d 2>/dev/null; do sleep 0.2; done' || kill -9 %d 2>/dev/null; for i in 1 2 3 4 5; do ! lsof -i :%s -t >/dev/null 2>&1 && break; sleep 0.5; done; exec %s --daemon",
-		pid, pid, pid, port, exePath,
-	)
+	script := s.restartDaemonScript(pid, exePath)
 	restartCmd := exec.Command("/bin/sh", "-c", script)
 	restartCmd.Stdin = nil
 	restartCmd.Stdout = nil
@@ -813,14 +835,7 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	port := fmt.Sprintf("%d", s.cfg.Web.Port)
-	if port == "0" {
-		port = "8090"
-	}
-	script := fmt.Sprintf(
-		"sleep 1; kill -TERM %d; timeout 10 sh -c 'while kill -0 %d 2>/dev/null; do sleep 0.2; done' || kill -9 %d 2>/dev/null; for i in 1 2 3 4 5; do ! lsof -i :%s -t >/dev/null 2>&1 && break; sleep 0.5; done; exec %s --daemon",
-		pid, pid, pid, port, exePath,
-	)
+	script := s.restartDaemonScript(pid, exePath)
 	restartCmd := exec.Command("/bin/sh", "-c", script)
 	restartCmd.Stdin = nil
 	restartCmd.Stdout = nil
