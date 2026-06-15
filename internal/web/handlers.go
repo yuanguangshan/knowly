@@ -798,9 +798,13 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	port := fmt.Sprintf("%d", s.cfg.Web.Port)
+	if port == "0" {
+		port = "8090"
+	}
 	script := fmt.Sprintf(
-		"sleep 1; kill -TERM %d; timeout 10 sh -c 'while kill -0 %d 2>/dev/null; do sleep 0.2; done' || kill -9 %d 2>/dev/null; sleep 0.5; exec %s --daemon",
-		pid, pid, pid, exePath,
+		"sleep 1; kill -TERM %d; timeout 10 sh -c 'while kill -0 %d 2>/dev/null; do sleep 0.2; done' || kill -9 %d 2>/dev/null; for i in 1 2 3 4 5; do ! lsof -i :%s -t >/dev/null 2>&1 && break; sleep 0.5; done; exec %s --daemon",
+		pid, pid, pid, port, exePath,
 	)
 	restartCmd := exec.Command("/bin/sh", "-c", script)
 	restartCmd.Stdin = nil
