@@ -2603,6 +2603,14 @@
                     <span class="cfg-label">播客 API URL</span>
                     <input class="cfg-input" id="cfg-webhook-podcast-url" placeholder="https://api.yuangs.cc/api/publish" />
                   </div>
+                  <div class="cfg-row">
+                    <span class="cfg-label">微信自动推送</span
+                    ><input type="checkbox" id="cfg-webhook-wechat-auto" style="transform:scale(1.2)" />
+                  </div>
+                  <div class="cfg-row">
+                    <span class="cfg-label">播客自动推送</span
+                    ><input type="checkbox" id="cfg-webhook-podcast-auto" style="transform:scale(1.2)" />
+                  </div>
                 </div>
               </div>
 
@@ -5348,6 +5356,8 @@ data: {"step":"done","message":"发布完成"}</pre>
           setVal("cfg-webhook-wechat-url", wechatTarget ? wechatTarget.url : "https://api.yuangs.cc/weixinpush");
           setVal("cfg-webhook-wechat-secret", wechatTarget ? wechatTarget.secret : "");
           setVal("cfg-webhook-podcast-url", podcastTarget ? podcastTarget.url : "https://api.yuangs.cc/api/publish");
+          setChecked("cfg-webhook-wechat-auto", wechatTarget ? wechatTarget.auto_publish : false);
+          setChecked("cfg-webhook-podcast-auto", podcastTarget ? podcastTarget.auto_publish : false);
 
           // AI (from dedicated endpoint which includes presets/templates)
           const ai = aiData.config;
@@ -5479,12 +5489,12 @@ data: {"step":"done","message":"发布完成"}</pre>
               var targets = [];
               var wechatUrl = getVal("cfg-webhook-wechat-url");
               if (wechatUrl) {
-                targets.push({ name: "微信推送", url: wechatUrl, secret: getVal("cfg-webhook-wechat-secret"), msgtype: "wechat" });
+                targets.push({ name: "微信推送", url: wechatUrl, secret: getVal("cfg-webhook-wechat-secret"), msgtype: "wechat", auto_publish: getChecked("cfg-webhook-wechat-auto") });
               }
               var podcastUrl = getVal("cfg-webhook-podcast-url");
               if (podcastUrl) {
-                targets.push({ name: "单人播客", url: podcastUrl, secret: "", msgtype: "podcast-read" });
-                targets.push({ name: "多人播客", url: podcastUrl, secret: "", msgtype: "podcast-multi" });
+                targets.push({ name: "单人播客", url: podcastUrl, secret: "", msgtype: "podcast-read", auto_publish: getChecked("cfg-webhook-podcast-auto") });
+                targets.push({ name: "多人播客", url: podcastUrl, secret: "", msgtype: "podcast-multi", auto_publish: getChecked("cfg-webhook-podcast-auto") });
               }
               return targets;
             })(),

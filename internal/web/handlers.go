@@ -1425,8 +1425,20 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	merged.SSH.KeyPath = config.ExpandPath(merged.SSH.KeyPath)
 	merged.SSH.BasePath = config.ExpandPath(merged.SSH.BasePath)
 
-	// 更新内存中的配置
-	*s.cfg = merged
+	// 更新内存中的配置（逐个字段赋值，保持所有内部指针有效）
+	s.cfg.SSH = merged.SSH
+	s.cfg.Clipboard = merged.Clipboard
+	s.cfg.Sync = merged.Sync
+	s.cfg.Web = merged.Web
+	s.cfg.Relay = merged.Relay
+	s.cfg.Blog = merged.Blog
+	s.cfg.Podcast = merged.Podcast
+	s.cfg.IMA = merged.IMA
+	s.cfg.Kindle = merged.Kindle
+	s.cfg.AI = merged.AI
+	s.cfg.WebReader = merged.WebReader
+	s.cfg.Knasync = merged.Knasync
+	s.cfg.Webhook = merged.Webhook
 
 	// 持久化到磁盘
 	if err := config.Save(s.cfg); err != nil {
