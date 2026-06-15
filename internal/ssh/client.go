@@ -592,13 +592,13 @@ func (c *Client) formatContent(content string, timestamp time.Time, hash string,
 			tagsStr = "[" + strings.Join(meta.Tags, ", ") + "]"
 		}
 		return fmt.Sprintf(`---
+title: %q
+summary: %q
+tags: %s
+score: %d
 sync_time: %s
 source: clipboard
 content_hash: %s
-tags: %s
-summary: %q
-score: %d
-title: %q
 manual_edit: %t
 ---
 
@@ -607,12 +607,12 @@ manual_edit: %t
 
 ### 原始内容
 %s`,
+			meta.Title,
+			meta.Summary,
+			tagsStr,
+			meta.Score,
 			timestamp.Format("2006-01-02 15:04:05"),
 			hash,
-			tagsStr,
-			meta.Summary,
-			meta.Score,
-			meta.Title,
 			meta.ManualEdit,
 			meta.OrganizedContent,
 			content)
