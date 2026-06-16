@@ -130,6 +130,40 @@ func (p *Puller) Push(content string, original ...string) error {
 	return nil
 }
 
+// Ack 告知 Worker 某条内容已被消费，仅标记永久去重（不写入结果队列）。
+// 用于本地已去重跳过、但仍需让 Worker 阻止对端重复投递的场景。
+func (p *Puller) Ack(original string) error {
+	if original == "" {
+		return nil
+	}
+	payload := map[string]string{"original": original}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal ack payload: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", p.baseURL+"/push", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Auth-Key", p.secret)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("ack failed with status: %d", resp.StatusCode)
+	}
+
+	log.Printf("[INFO] Relay ack OK (original len: %d)", len(original))
+	return nil
+}
+
 func (p *Puller) Stop() {
 	close(p.stopChan)
 }

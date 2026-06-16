@@ -169,20 +169,26 @@ func main() {
 			func(content string) {
 				// Relay 内容也走统一的同步+归档流程，处理完后推送结果
 				go func() {
+					// original 用于让 Worker 永久去重：
+					// URL 传 URL，纯文本传原始 content 本身。
+					origKey := ""
+					if fetcher.IsURL(content) {
+						origKey = fetcher.ExtractURL(content)
+					} else {
+						origKey = content
+					}
+
 					enhanced := syncAndArchiveText(client, cfg, content, "relay", histStore, aiProcessor, outboxStore, mon)
 					if enhanced != "" {
-						// 回传原始内容给 knasync 做永久去重：
-						// URL 传 URL，纯文本传原始 content 本身。
-						// 否则纯文本永远绕过 Worker 的 consumed 去重，
-						// 配合手机端重试会反复进队列。
-						origKey := ""
-						if fetcher.IsURL(content) {
-							origKey = fetcher.ExtractURL(content)
-						} else {
-							origKey = content
-						}
+						// 正常链路：推送处理结果 + ack original
 						if err := puller.Push(enhanced, origKey); err != nil {
 							log.Printf("[WARN] Relay push back failed: %v", err)
+						}
+					} else {
+						// 本地已去重（in-memory 命中）跳过了同步，
+						// 但仍需 ack Worker 永久去重，否则手机端会反复重投。
+						if err := puller.Ack(origKey); err != nil {
+							log.Printf("[WARN] Relay ack failed: %v", err)
 						}
 					}
 				}()
