@@ -344,6 +344,10 @@ func Load() (*Config, error) {
 		config.Knasync.Endpoint = "https://knasync.yuanguangshan.workers.dev"
 	}
 
+	// 收紧老配置文件权限：历史版本用 0644 写入，含 API Key/SMTP 密码等敏感信息。
+	// 加载时顺手改成 0600，闭环数据主权。
+	_ = os.Chmod(configPath, 0600)
+
 	return &config, nil
 }
 

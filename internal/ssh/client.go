@@ -538,6 +538,10 @@ func (c *Client) SyncItem(content string, timestamp time.Time, meta *ContentMeta
 	// 同步成功后将哈希追加到当天索引文件
 	c.appendHashIndex(relPath, hash)
 
+	// 失效该目录的标题缓存，让新文件在 Web 归档浏览中立即显示 AI 标题，
+	// 而不是等 5 分钟 TTL 自然过期
+	c.invalidateTitleCache(relPath)
+
 	log.Printf("[INFO] Synced to remote: %s", fullPath)
 	return fullPath, nil
 }
@@ -971,6 +975,14 @@ const titleCacheTTL = 5 * time.Minute
 type titleCacheEntry struct {
 	titles   []TitleEntry
 	expireAt time.Time
+}
+
+// invalidateTitleCache 失效指定目录的标题缓存。
+// 在新文件写入后调用，让下次 BatchExtractTitles 重新拉取,而不是等 TTL 自然过期。
+func (c *Client) invalidateTitleCache(relPath string) {
+	c.titleCacheMu.Lock()
+	delete(c.titleCache, relPath)
+	c.titleCacheMu.Unlock()
 }
 
 // BatchExtractTitles 一次性提取目录下所有 .md 文件的 frontmatter title（带 5 分钟 TTL 缓存）

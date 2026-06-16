@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/yuanguangshan/knowly/internal/config"
 )
@@ -33,9 +32,10 @@ func NewProcessor(cfg *config.AIConfig) *Processor {
 	}
 	return &Processor{
 		cfg: cfg,
-		client: &http.Client{
-			Timeout: time.Duration(cfg.Timeout) * time.Second,
-		},
+		// 超时完全交给调用方传入的 ctx 控制（main.go 用 cfg.Timeout 构造）。
+		// 不在 http.Client 设 Timeout，避免单次慢请求既撞 client 超时又耗尽 ctx 预算，
+		// 导致 retry.Do 拿不到重试机会。
+		client: &http.Client{},
 	}
 }
 
