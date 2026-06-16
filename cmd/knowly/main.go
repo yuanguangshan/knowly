@@ -171,12 +171,17 @@ func main() {
 				go func() {
 					enhanced := syncAndArchiveText(client, cfg, content, "relay", histStore, aiProcessor, outboxStore, mon)
 					if enhanced != "" {
-						// 如果原始内容是 URL，传给 knasync 做永久去重
-						origURL := ""
+						// 回传原始内容给 knasync 做永久去重：
+						// URL 传 URL，纯文本传原始 content 本身。
+						// 否则纯文本永远绕过 Worker 的 consumed 去重，
+						// 配合手机端重试会反复进队列。
+						origKey := ""
 						if fetcher.IsURL(content) {
-							origURL = fetcher.ExtractURL(content)
+							origKey = fetcher.ExtractURL(content)
+						} else {
+							origKey = content
 						}
-						if err := puller.Push(enhanced, origURL); err != nil {
+						if err := puller.Push(enhanced, origKey); err != nil {
 							log.Printf("[WARN] Relay push back failed: %v", err)
 						}
 					}
