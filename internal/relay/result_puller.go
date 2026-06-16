@@ -115,11 +115,13 @@ func (rp *ResultPuller) pullResults() ([]resultsItem, error) {
 		return nil, fmt.Errorf("decode results response: %w", err)
 	}
 
-	if len(data.Items) > 0 {
+	// 即使本批无结果，只要 server 返回的 cursor 与请求时的 since 不同，
+	// 就更新本地 cursor 文件。这样 Worker 端的游标迁移（旧时间戳 → maxId）
+	// 能被持久化，避免每次启动都带着旧 cursor 触发额外迁移查询。
+	if data.Cursor != since {
 		rp.cursorMu.Lock()
 		rp.cursor = data.Cursor
 		rp.cursorMu.Unlock()
-		// 持久化游标
 		_ = os.WriteFile(rp.cursorFile, []byte(strconv.FormatInt(data.Cursor, 10)), 0644)
 	}
 
