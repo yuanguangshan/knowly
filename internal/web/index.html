@@ -1570,6 +1570,80 @@
         border-radius: 4px;
       }
 
+      /* Fullscreen Content Viewer */
+      .fullscreen-overlay {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: var(--bg-primary);
+        z-index: 300;
+        flex-direction: column;
+      }
+      .fullscreen-overlay.show {
+        display: flex;
+      }
+      .fullscreen-header {
+        display: flex;
+        align-items: center;
+        padding: 8px 16px;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+      .fullscreen-title {
+        flex: 1;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .fullscreen-close {
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+        padding: 4px 14px;
+        border-radius: var(--radius);
+        cursor: pointer;
+        font-size: 14px;
+      }
+      .fullscreen-close:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
+      .fullscreen-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 24px 48px;
+        max-width: 900px;
+        margin: 0 auto;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .fullscreen-body .md-body {
+        font-size: 16px;
+        line-height: 1.8;
+        color: var(--text-primary);
+      }
+      .fullscreen-body .md-body h1 { font-size: 24px; margin: 24px 0 12px; }
+      .fullscreen-body .md-body h2 { font-size: 20px; margin: 20px 0 10px; }
+      .fullscreen-body .md-body p { margin: 10px 0; }
+      .fullscreen-maximize-btn {
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+        padding: 2px 8px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 12px;
+        margin-left: 8px;
+      }
+      .fullscreen-maximize-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
+
       /* Edit Modal */
       .edit-modal-overlay {
         display: none;
@@ -1912,6 +1986,8 @@
                 style="display: none"
               >
                 <span class="preview-title" id="previewTitle"></span>
+                <span style="flex:1"></span>
+                <button class="fullscreen-maximize-btn" id="maximizePreviewBtn" onclick="maximizePreview()" style="display:none" title="全屏查看">⛶ 全屏</button>
                 <div
                   class="publish-dropdown"
                   id="publishDropdown"
@@ -2705,6 +2781,15 @@
     </div>
 
     <div class="toast" id="toast"></div>
+
+    <!-- Fullscreen Content Viewer -->
+    <div class="fullscreen-overlay" id="fullscreenOverlay">
+      <div class="fullscreen-header">
+        <span class="fullscreen-title" id="fullscreenTitle"></span>
+        <button class="fullscreen-close" onclick="closeFullscreen()">✕ 关闭</button>
+      </div>
+      <div class="fullscreen-body" id="fullscreenBody"></div>
+    </div>
 
     <!-- Edit Modal -->
     <div class="edit-modal-overlay" id="editModal">
@@ -4304,6 +4389,8 @@ data: {"step":"done","message":"发布完成"}</pre>
               '<div class="md-body">' + renderMarkdown(content) + "</div>";
             document.getElementById("publishDropdown").style.display =
               "inline-block";
+            document.getElementById("maximizePreviewBtn").style.display =
+              "inline-block";
           } catch (e) {
             preview.innerHTML = '<div class="empty-state">加载失败</div></div>';
             document.getElementById("publishDropdown").style.display = "none";
@@ -4327,6 +4414,29 @@ data: {"step":"done","message":"发布完成"}</pre>
       function copyPreviewContent() {
         if (currentFileContent) copyText(currentFileContent);
         else showToast("无文本内容");
+      }
+
+      // === Fullscreen Content Viewer ===
+      var fullscreenContent = "";
+      function openFullscreen(title, html) {
+        document.getElementById("fullscreenTitle").textContent = title;
+        document.getElementById("fullscreenBody").innerHTML = html;
+        document.getElementById("fullscreenOverlay").classList.add("show");
+        document.body.style.overflow = "hidden";
+      }
+      function closeFullscreen() {
+        document.getElementById("fullscreenOverlay").classList.remove("show");
+        document.body.style.overflow = "";
+      }
+      document.addEventListener("keydown", function(e) {
+        if (e.key === "Escape") closeFullscreen();
+      });
+
+      // 归档预览全屏
+      function maximizePreview() {
+        var title = document.getElementById("previewTitle").textContent;
+        var body = document.getElementById("previewContent").innerHTML;
+        openFullscreen(title, body);
       }
 
       function downloadFile() {
@@ -4633,9 +4743,14 @@ data: {"step":"done","message":"发布完成"}</pre>
         const detail = document.createElement("div");
         detail.className = "history-detail";
         detail.innerHTML =
+          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">' +
           '<span class="copy-btn btn" data-id="' +
           escHtml(entry.id || "") +
           '"></span>' +
+          '<button class="fullscreen-maximize-btn" data-id="' +
+          escHtml(entry.id || "") +
+          '" title="全屏查看">⛶ 全屏</button>' +
+          '</div>' +
           escHtml(entry.content || "") +
           '<div class="copy-btn-bottom"><span class="copy-btn btn" data-id="' +
           escHtml(entry.id || "") +
@@ -4665,6 +4780,22 @@ data: {"step":"done","message":"发布完成"}</pre>
             }
             });
           });
+        // 全屏查看按钮
+        var fsBtn = detail.querySelector(".fullscreen-maximize-btn");
+        if (fsBtn) {
+          fsBtn.addEventListener("click", async function(e) {
+            e.stopPropagation();
+            const id = this.dataset.id;
+            try {
+              const resp = await api("/api/history/" + id + "/full");
+              const content = resp.content || entry.content || "";
+              var title = entry.title || "文章";
+              openFullscreen(title, renderMarkdown(content));
+            } catch (err) {
+              openFullscreen("文章", renderMarkdown(entry.content || ""));
+            }
+          });
+        }
         el.appendChild(detail);
       }
 

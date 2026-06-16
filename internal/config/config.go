@@ -359,7 +359,9 @@ func Save(config *Config) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	// 0600：配置文件含 API Key、SMTP 密码、Relay secret 等敏感信息，
+	// 仅属主可读写，防止系统其他用户读取。
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

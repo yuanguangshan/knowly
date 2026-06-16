@@ -65,6 +65,7 @@ type Client struct {
 	connMu     sync.RWMutex   // 保护重连逻辑（读锁：并发操作，写锁：重连）
 	homeDir    string         // 缓存的远程家目录
 	sessionSem chan struct{}  // 会话信号量，限制并发 SSH 会话数
+	hasConnected bool                        // 是否曾成功连接：区分首连与重连
 	titleCache   map[string]titleCacheEntry // TTL 缓存：key=目录路径
 	titleCacheMu sync.Mutex
 }
@@ -227,18 +228,21 @@ func (c *Client) connectLocked() error {
 
 	addr := fmt.Sprintf("%s:%s", c.config.Host, c.config.Port)
 
-		// 重连时等待网络状态恢复，再尝试直连
+	// 仅在重连（非首次连接）时短暂等待，给网络状态恢复留出时间。
+	// 首次连接（守护进程/Web 启动）不应有此延迟，否则拖慢启动。
+	if c.hasConnected {
 		time.Sleep(2 * time.Second)
+	}
 
-		var conn net.Conn
-		conn, err = net.DialTimeout("tcp", addr, 10*time.Second)
+	var conn net.Conn
+	conn, err = net.DialTimeout("tcp", addr, 10*time.Second)
+	if err != nil {
+		log.Printf("[WARN] Direct TCP dial failed (%v), falling back to nc transport", err)
+		conn, err = dialViaNC(c.config.Host, c.config.Port)
 		if err != nil {
-			log.Printf("[WARN] Direct TCP dial failed (%v), falling back to nc transport", err)
-			conn, err = dialViaNC(c.config.Host, c.config.Port)
-			if err != nil {
-				return fmt.Errorf("failed to dial (direct and nc fallback): %w", err)
-			}
+			return fmt.Errorf("failed to dial (direct and nc fallback): %w", err)
 		}
+	}
 
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
@@ -248,6 +252,7 @@ func (c *Client) connectLocked() error {
 
 	c.sshClient = ssh.NewClient(sshConn, chans, reqs)
 	c.netConn = conn
+	c.hasConnected = true // 标记已成功连接，后续重连才启用延迟
 
 	// 解析远程家目录（用于 expandPath）
 	if err := c.resolveRemoteHome(); err != nil {

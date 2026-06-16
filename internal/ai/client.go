@@ -50,9 +50,10 @@ func (p *Processor) callAPI(ctx context.Context, sysPrompt, userPrompt string) (
 	}
 	endpoint := strings.TrimRight(p.cfg.Endpoint, "/") + "/chat/completions"
 
-	// 重试一次，仅对限流(429)和服务端错误(5xx)重试
+	// 统一 retry：对限流(429)、5xx、网络错误最多重试 2 次；
+	// 4xx（鉴权失败/参数错误等）标记为 Permanent，不浪费重试配额。
 	var apiResp openaiResponse
-	err = retry.Do(ctx, retry.Config{MaxRetries: 1, BaseDelay: time.Second, MaxDelay: 3 * time.Second}, func() error {
+	err = retry.Do(ctx, retry.Config{MaxRetries: 2, BaseDelay: time.Second, MaxDelay: 6 * time.Second}, func() error {
 		req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(body))
 		if err != nil {
 			return fmt.Errorf("create request: %w", err)
@@ -78,7 +79,8 @@ func (p *Processor) callAPI(ctx context.Context, sysPrompt, userPrompt string) (
 			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(respBody))
 		}
 		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(respBody))
+			// 4xx（非 429）通常为鉴权/参数错误，重试无意义
+			return retry.Permanent(fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(respBody)))
 		}
 
 		if err := json.Unmarshal(respBody, &apiResp); err != nil {
