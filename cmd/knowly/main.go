@@ -403,6 +403,12 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 		return ""
 	}
 
+	// 过滤日志行（被错误提交到 knasync 的误报）
+	if len(content) >= 19 && content[4] == '/' && content[7] == '/' && content[10] == ' ' {
+		log.Printf("[INFO] Relay content filtered: appears to be a log line")
+		return ""
+	}
+
 	// Relay 内容同样需要经过过滤检查
 	isURL := fetcher.IsURL(content)
 	preview := content
