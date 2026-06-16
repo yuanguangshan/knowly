@@ -1930,10 +1930,10 @@
                     </div>
                     <div
                       class="publish-menu-item"
-                      data-target="podcast"
-                      onclick="publishContent('podcast')"
+                      data-target="podcast-multi"
+                      onclick="publishContent('podcast-multi')"
                     >
-                      🎙️ Podcast
+                      🎙️ 多人播客
                     </div>
                     <div
                       class="publish-menu-item"
@@ -1963,13 +1963,6 @@
                       onclick="publishContent('podcast-read')"
                     >
                       🎧 单人播客
-                    </div>
-                    <div
-                      class="publish-menu-item"
-                      data-target="podcast-multi"
-                      onclick="publishContent('podcast-multi')"
-                    >
-                      🎙️ 多人播客
                     </div>
                   </div>
                 </div>
@@ -4609,7 +4602,7 @@ data: {"step":"done","message":"发布完成"}</pre>
           '" data-tag="Kindle" data-target="kindle" title="添加 Kindle 标签并发布">+ Kindle</button>' +
           '<button class="quick-tag-btn" data-id="' +
           escHtml(e.id) +
-          '" data-tag="Podcast" data-target="podcast" title="添加 Podcast 标签并发布">+ Podcast</button>' +
+          '" data-tag="Podcast" data-target="podcast-multi" title="添加多人播客标签并发布">+ 多人播客</button>' +
           "</div>" +
           "</div>" +
           titleHtml +
@@ -4706,16 +4699,11 @@ data: {"step":"done","message":"发布完成"}</pre>
             body: JSON.stringify({ id, tag, target }),
           });
 
-          if (result.published) {
-            btn.textContent = "✓ 已发布";
-            btn.classList.add("success");
-            // 重新加载历史列表以显示更新的标签
-            setTimeout(() => loadHistory({clear: true}), 1000);
-          } else {
-            btn.textContent = "✗ 失败";
-            btn.classList.add("error");
-            console.error("发布失败:", result.error);
-          }
+          // 后台异步处理，直接反馈成功
+          btn.textContent = "✓ 已提交";
+          btn.classList.add("success");
+          // 重新加载历史列表以显示更新的标签
+          setTimeout(() => loadHistory({clear: true}), 1000);
         } catch (err) {
           btn.textContent = "✗ 失败";
           btn.classList.add("error");

@@ -1088,10 +1088,12 @@ func (s *Server) handleTagAndPublish(w http.ResponseWriter, r *http.Request) {
 
 	// 验证目标是否有效
 	validTargets := map[string]bool{
-		"ima":     true,
-		"blog":    true,
-		"kindle":  true,
-		"podcast": true,
+		"ima":           true,
+		"blog":          true,
+		"kindle":        true,
+		"podcast":       true,
+		"podcast-read":  true,
+		"podcast-multi": true,
 	}
 	if !validTargets[req.Target] {
 		jsonError(w, "无效的发布目标", http.StatusBadRequest)
@@ -1162,53 +1164,52 @@ func (s *Server) handleTagAndPublish(w http.ResponseWriter, r *http.Request) {
 		content = header.String() + content
 	}
 
-	// 发布内容（不受 enabled 配置限制）
-	var publishErr error
+	// 异步发布内容（后台处理，先返回响应）
+	go func() {
+		switch req.Target {
+		case "blog":
+			if s.cfg.Blog.APIURL == "" {
+				log.Printf("[WARN] Blog publish skipped: API URL not configured")
+			} else {
+				publisher.PublishBlog(s.cfg.Blog, content, aiTitle)
+			}
+		case "podcast":
+			if s.cfg.Podcast.APIURL == "" {
+				log.Printf("[WARN] Podcast publish skipped: API URL not configured")
+			} else {
+				publisher.PublishPodcast(s.cfg.Podcast, content, aiTitle)
+			}
+		case "ima":
+			if s.cfg.IMA.APIURL == "" || s.cfg.IMA.ClientID == "" || s.cfg.IMA.APIKey == "" {
+				log.Printf("[WARN] IMA publish skipped: incomplete config")
+			} else {
+				publisher.PublishIMA(s.cfg.IMA, content, aiTitle)
+			}
+		case "kindle":
+			if s.cfg.Kindle.KindleEmail == "" || s.cfg.Kindle.SenderEmail == "" || s.cfg.Kindle.SenderPassword == "" {
+				log.Printf("[WARN] Kindle publish skipped: incomplete config")
+			} else {
+				publisher.PublishKindle(s.cfg.Kindle, content, aiTitle)
+			}
+		case "podcast-read", "podcast-multi":
+			if s.cfg.Webhook.Enabled {
+				for _, t := range s.cfg.Webhook.Targets {
+					if t.MsgType == req.Target {
+						if e := publisher.PublishWebhookTargetWithTitle(t, content, aiTitle); e != nil {
+							log.Printf("[WARN] %s publish failed: %v", req.Target, e)
+						}
+						break
+					}
+				}
+			}
+		}
+	}()
 
-	switch req.Target {
-	case "blog":
-		// 检查必要配置
-		if s.cfg.Blog.APIURL == "" {
-			publishErr = fmt.Errorf("Blog API URL 未配置")
-		} else {
-			publishErr = publisher.PublishBlog(s.cfg.Blog, content, aiTitle)
-		}
-	case "podcast":
-		// 检查必要配置
-		if s.cfg.Podcast.APIURL == "" {
-			publishErr = fmt.Errorf("Podcast API URL 未配置")
-		} else {
-			publishErr = publisher.PublishPodcast(s.cfg.Podcast, content, aiTitle)
-		}
-	case "ima":
-		// 检查必要配置
-		if s.cfg.IMA.APIURL == "" || s.cfg.IMA.ClientID == "" || s.cfg.IMA.APIKey == "" {
-			publishErr = fmt.Errorf("IMA 配置不完整（需要 APIURL、ClientID、APIKey）")
-		} else {
-			publishErr = publisher.PublishIMA(s.cfg.IMA, content, aiTitle)
-		}
-	case "kindle":
-		// 检查必要配置
-		if s.cfg.Kindle.KindleEmail == "" || s.cfg.Kindle.SenderEmail == "" || s.cfg.Kindle.SenderPassword == "" {
-			publishErr = fmt.Errorf("Kindle 配置不完整（需要 KindleEmail、SenderEmail、SenderPassword）")
-		} else {
-			publishErr = publisher.PublishKindle(s.cfg.Kindle, content, aiTitle)
-		}
-	}
-
-	result := map[string]interface{}{
+	jsonResp(w, map[string]interface{}{
 		"tag_added": true,
 		"target":    req.Target,
-	}
-
-	if publishErr != nil {
-		result["published"] = false
-		result["error"] = publishErr.Error()
-	} else {
-		result["published"] = true
-	}
-
-	jsonResp(w, result)
+		"published": true,
+	})
 }
 
 // handleStats 返回统计数据
