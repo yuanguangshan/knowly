@@ -672,28 +672,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 // restartDaemonScript 生成重启 daemon 的 shell 脚本
 func (s *Server) restartDaemonScript(pid int, exePath string) string {
-	pidPath := config.GetPidPath()
-	port := fmt.Sprintf("%d", s.cfg.Web.Port)
-	if port == "0" {
-		port = "8090"
-	}
-	// 1. 尝试优雅停止旧进程
-	// 2. 等待进程退出（最多 10s）
-	// 3. 清理 PID 文件
-	// 4. 等待端口释放（最多 5s，用 nc 检测取代 lsof）
-	// 5. 启动新 daemon（后台运行，非 exec）
-	return fmt.Sprintf(
-		`kill -TERM %[1]d 2>/dev/null
-timeout 10 sh -c 'while kill -0 %[1]d 2>/dev/null; do sleep 0.2; done' 2>/dev/null
-kill -9 %[1]d 2>/dev/null
-rm -f %[3]s
-for i in 1 2 3 4 5; do
-  nc -z 127.0.0.1 %[4]s 2>/dev/null || break
-  sleep 0.5
-done
-nohup %[2]s --daemon >/dev/null 2>&1 &
-sleep 2`,
-		pid, exePath, pidPath, port)
+	return "exec knowly stop 2>/dev/null; sleep 1; knowly start"
 }
 
 // handleRestart 重启 knowly daemon 进程

@@ -193,10 +193,7 @@
         letter-spacing: 0.5px;
         white-space: nowrap;
       }
-      /* PWA/CSS 兜底：让三个状态项能显示 */
-      @media all and (display-mode: standalone) {
-        .header .subtitle { display: none !important; }
-      }
+
       .header .status-info {
         font-size: 12px;
         color: var(--text-secondary);
@@ -1915,7 +1912,7 @@
             >经济学人
           </div>
         </div>
-        <p class="subtitle">Capture. Enrich. Own.</p>
+        <p class="subtitle" id="subtitleEl">Capture. Enrich. Own.</p>
       </div>
       <div class="status-info" id="headerStatus"></div>
       
@@ -4030,14 +4027,13 @@ data: {"step":"done","message":"发布完成"}</pre>
         };
       }
 
-      // PWA 模式：隐藏副标题 + 右下角刷新按钮
+      // PWA 模式：右下角刷新按钮 + 副标题
       if (window.navigator.standalone || window.matchMedia("(display-mode: standalone)").matches) {
-        var sub = document.querySelector(".subtitle");
-        if (sub) sub.style.display = "none";
+        document.getElementById("subtitleEl").textContent = "for yuanguangshan";
         // 右下角浮动刷新按钮
         var btn = document.createElement("button");
         btn.textContent = "🔄";
-        btn.style.cssText = "position:fixed;bottom:20px;right:20px;z-index:9999;width:44px;height:44px;border-radius:50%;border:none;background:rgba(79,195,247,0.35);color:#fff;font-size:20px;cursor:pointer;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);transition:opacity 0.2s";
+        btn.style.cssText = "position:fixed;bottom:20px;right:20px;z-index:9999;width:44px;height:44px;border-radius:50%;border:none;background:rgba(79,195,247,0.2);color:#fff;font-size:20px;cursor:pointer;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);transition:opacity 0.2s";
         btn.onclick = function(){ location.reload(); };
         document.body.appendChild(btn);
       }
