@@ -1,4 +1,4 @@
-const CACHE = "knowly-v1";
+const CACHE = "knowly-v2";
 const ASSETS = [
   "/",
   "/manifest.json"
