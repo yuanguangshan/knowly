@@ -6,7 +6,9 @@
   "display": "standalone",
   "background_color": "#1a1a2e",
   "theme_color": "#1a1a2e",
-  "orientation": "portrait",
+  "scope": "/",
+  "categories": ["productivity", "utilities"],
+  "orientation": "any",
   "icons": [
     {
       "src": "/api/icon?size=192",

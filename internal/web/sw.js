@@ -32,11 +32,29 @@ self.addEventListener("fetch", (e) => {
 
   // 静态资源：缓存优先
   e.respondWith(
-    caches.match(e.request).then((cached) => cached || fetch(e.request).then((res) => {
-      return caches.open(CACHE).then((c) => {
-        c.put(e.request, res.clone());
-        return res;
-      });
-    }).catch(() => new Response("离线模式", { status: 503 })))
+    caches.match(e.request).then((cached) => {
+      // 有缓存时返回缓存，同时后台刷新缓存
+      if (cached) {
+        fetch(e.request).then((res) => {
+          if (res.ok) {
+            caches.open(CACHE).then((c) => c.put(e.request, res));
+          }
+        }).catch(() => {});
+        return cached;
+      }
+      // 无缓存时从网络获取
+      return fetch(e.request).then((res) => {
+        return caches.open(CACHE).then((c) => {
+          c.put(e.request, res.clone());
+          return res;
+        });
+      }).catch(() => caches.match("/").then(function(fallback) {
+        // 完全离线时显示缓存的首页
+        return fallback || new Response("离线模式，请检查网络连接后刷新页面", {
+          status: 503,
+          headers: { "Content-Type": "text/plain; charset=utf-8" }
+        });
+      }));
+    })
   );
 });

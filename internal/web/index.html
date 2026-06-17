@@ -1881,6 +1881,7 @@
         <p class="subtitle">Capture. Enrich. Own.</p>
       </div>
       <div class="status-info" id="headerStatus"></div>
+      <button id="pwaReloadBtn" onclick="location.reload()" style="display:none;background:none;border:1px solid var(--border);color:var(--text-secondary);border-radius:4px;padding:2px 8px;font-size:14px;cursor:pointer;margin-left:8px;" title="刷新页面">🔄</button>
     </div>
     <div class="motto-bar" id="mottoBar"></div>
     </div>
@@ -3983,14 +3984,38 @@ data: {"step":"done","message":"发布完成"}</pre>
         eventSource.onerror = function () {
           eventSource.close();
           eventSource = null;
-          // 3秒后自动重连（仅当仍在日志页时）
+          // 3秒后重连，不限制标签页（后台保持连接）
           setTimeout(function () {
-            if (!eventSource && currentTab === "logs") {
+            if (!eventSource) {
               connectLogStream();
             }
           }, 3000);
         };
       }
+
+      // 显示 PWA 刷新按钮
+      if (window.navigator.standalone || window.matchMedia("(display-mode: standalone)").matches) {
+        document.getElementById("pwaReloadBtn").style.display = "inline-block";
+      }
+
+      // 每 30 秒健康检查，连接失活时自动修复
+      var healthFailCount = 0;
+      var healthCheckTimer = setInterval(async function() {
+        try {
+          var resp = await fetch("/api/status", { method: "HEAD", cache: "no-store" });
+          if (!resp.ok) throw new Error("status " + resp.status);
+          healthFailCount = 0;
+        } catch(e) {
+          healthFailCount++;
+          console.warn("健康检查失败(" + healthFailCount + "):", e);
+          // 连续 2 次失败（约 1 分钟无响应）时自动修复
+          if (healthFailCount >= 2) {
+            if (window.navigator.standalone || window.matchMedia("(display-mode: standalone)").matches) {
+              location.reload();
+            }
+          }
+        }
+      }, 30000);
 
       // === Archive ===
       let archiveInitialized = false;
