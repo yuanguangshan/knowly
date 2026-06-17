@@ -176,9 +176,9 @@
         letter-spacing: 0.5px;
         white-space: nowrap;
       }
-      /* PWA 模式下隐藏副标题，腾空间给状态栏 */
+      /* PWA/CSS 兜底：让三个状态项能显示 */
       @media all and (display-mode: standalone) {
-        .header .subtitle { display: none; }
+        .header .subtitle { display: none !important; }
       }
       .header .status-info {
         font-size: 12px;
@@ -1890,7 +1890,7 @@
         <p class="subtitle">Capture. Enrich. Own.</p>
       </div>
       <div class="status-info" id="headerStatus"></div>
-      <button id="pwaReloadBtn" onclick="location.reload()" style="display:none;background:none;border:1px solid var(--border);color:var(--text-secondary);border-radius:4px;padding:2px 8px;font-size:14px;cursor:pointer;margin-left:8px;" title="刷新页面">🔄</button>
+      
     </div>
     <div class="motto-bar" id="mottoBar"></div>
     </div>
@@ -4002,9 +4002,16 @@ data: {"step":"done","message":"发布完成"}</pre>
         };
       }
 
-      // 显示 PWA 刷新按钮
+      // PWA 模式：隐藏副标题 + 右下角刷新按钮
       if (window.navigator.standalone || window.matchMedia("(display-mode: standalone)").matches) {
-        document.getElementById("pwaReloadBtn").style.display = "inline-block";
+        var sub = document.querySelector(".subtitle");
+        if (sub) sub.style.display = "none";
+        // 右下角浮动刷新按钮
+        var btn = document.createElement("button");
+        btn.textContent = "🔄";
+        btn.style.cssText = "position:fixed;bottom:20px;right:20px;z-index:9999;width:44px;height:44px;border-radius:50%;border:none;background:rgba(79,195,247,0.35);color:#fff;font-size:20px;cursor:pointer;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);transition:opacity 0.2s";
+        btn.onclick = function(){ location.reload(); };
+        document.body.appendChild(btn);
       }
 
       // 每 30 秒健康检查，连接失活时自动修复

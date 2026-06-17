@@ -1,14 +1,8 @@
-const CACHE = "knowly-v2";
-const ASSETS = [
-  "/",
-  "/manifest.json"
-];
+const CACHE = "knowly-v3";
 
-// 安装时预缓存
+// 安装时跳过等待
 self.addEventListener("install", (e) => {
-  e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting())
-  );
+  self.skipWaiting();
 });
 
 // 激活时清理旧缓存
