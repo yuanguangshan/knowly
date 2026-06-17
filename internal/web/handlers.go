@@ -624,15 +624,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	pidPath := config.GetPidPath()
-	if data, err := os.ReadFile(pidPath); err == nil {
-		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-		if err == nil {
-			if proc, err := os.FindProcess(pid); err == nil && proc != nil {
-				status["daemon_running"] = true
-			}
-		}
-	}
+	// Web 服务能运行就说明守护进程在跑
+	status["daemon_running"] = true
 
 	histFile := filepath.Join(config.GetConfigDir(), "history.jsonl")
 	if f, err := os.Open(histFile); err == nil {
