@@ -176,6 +176,10 @@
         letter-spacing: 0.5px;
         white-space: nowrap;
       }
+      /* PWA 模式下隐藏副标题，腾空间给状态栏 */
+      @media all and (display-mode: standalone) {
+        .header .subtitle { display: none; }
+      }
       .header .status-info {
         font-size: 12px;
         color: var(--text-secondary);
@@ -5404,7 +5408,10 @@ data: {"step":"done","message":"发布完成"}</pre>
             "守护</span>" +
             "<span>" +
             sshDot +
-            "SSH</span>";
+            "SSH</span>" +
+            "<span>同步: " +
+            (s.total_syncs || 0) +
+            "</span>";
           if (s.publishers) publishersConfig = s.publishers;
         } catch (e) {}
       }
