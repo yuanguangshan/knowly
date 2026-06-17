@@ -85,6 +85,23 @@
         --accent-dim: #1565c0;
         --border: #d0d0d0;
       }
+      /* 经济学人风格 */
+      [data-theme="economist"] {
+        --bg-primary: #f4f1ea;
+        --bg-secondary: #ffffff;
+        --bg-card: #ffffff;
+        --bg-hover: #ede8de;
+        --text-primary: #1a1a1a;
+        --text-secondary: #5a5a5a;
+        --accent: #c41230;
+        --accent-dim: #a00e26;
+        --border: #d6cfc4;
+        --info: #c41230;
+        --warn: #b8860b;
+        --error: #c41230;
+        --debug: #8a8a8a;
+        --success: #2e7d32;
+      }
       * {
         margin: 0;
         padding: 0;
@@ -1885,6 +1902,17 @@
               style="background: #0d47a1; border: 1px solid #ccc"
             ></span
             >日光
+          </div>
+          <div
+            class="theme-option"
+            data-theme="economist"
+            onclick="setTheme('economist')"
+          >
+            <span
+              class="theme-dot"
+              style="background: #c41230"
+            ></span
+            >经济学人
           </div>
         </div>
         <p class="subtitle">Capture. Enrich. Own.</p>
@@ -6067,9 +6095,9 @@ data: {"step":"done","message":"发布完成"}</pre>
         if (el) setupScrollHide(el);
       }
 
-      // === PWA ===
+      // === PWA（版本号强制更新缓存） ===
       if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("/sw.js").catch(function() {});
+        navigator.serviceWorker.register("/sw.js?v=3").catch(function() {});
       }
 
       // === Init ===
