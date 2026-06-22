@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -59,13 +60,13 @@ type Config struct {
 }
 
 type Client struct {
-	config     *Config
-	sshClient  *ssh.Client
-	netConn    net.Conn       // 底层 TCP 连接，用于强制关闭
-	connMu     sync.RWMutex   // 保护重连逻辑（读锁：并发操作，写锁：重连）
-	homeDir    string         // 缓存的远程家目录
-	sessionSem chan struct{}  // 会话信号量，限制并发 SSH 会话数
-	hasConnected bool                        // 是否曾成功连接：区分首连与重连
+	config       *Config
+	sshClient    *ssh.Client
+	netConn      net.Conn                   // 底层 TCP 连接，用于强制关闭
+	connMu       sync.RWMutex               // 保护重连逻辑（读锁：并发操作，写锁：重连）
+	homeDir      string                     // 缓存的远程家目录
+	sessionSem   chan struct{}              // 会话信号量，限制并发 SSH 会话数
+	hasConnected bool                       // 是否曾成功连接：区分首连与重连
 	titleCache   map[string]titleCacheEntry // TTL 缓存：key=目录路径
 	titleCacheMu sync.Mutex
 }
@@ -141,7 +142,7 @@ func (c *Client) Connect() error {
 
 // newSession 获取一个 SSH 会话（并发安全，受信号量控制）
 // 返回 session 和释放函数，调用方必须 defer 调用 release
-func (c *Client) newSession() (*ssh.Session, func(), error) {
+func (c *Client) newSession(ctx context.Context) (*ssh.Session, func(), error) {
 	if err := c.ensureConnected(); err != nil {
 		return nil, nil, fmt.Errorf("reconnect failed: %w", err)
 	}
@@ -158,7 +159,19 @@ func (c *Client) newSession() (*ssh.Session, func(), error) {
 		return nil, nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
+	// 监听 context 取消：超时或调用方取消时强制关闭 SSH 会话。
+	// session.Output / session.Run 等阻塞调用会因此返回错误，避免永久挂起。
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			session.Close()
+		case <-done:
+		}
+	}()
+
 	release := func() {
+		close(done)
 		session.Close()
 		c.sessionSem <- struct{}{}
 	}
@@ -226,7 +239,7 @@ func (c *Client) connectLocked() error {
 		Timeout:         10 * time.Second,
 	}
 
-	addr := fmt.Sprintf("%s:%s", c.config.Host, c.config.Port)
+	addr := net.JoinHostPort(c.config.Host, c.config.Port)
 
 	// 仅在重连（非首次连接）时短暂等待，给网络状态恢复留出时间。
 	// 首次连接（守护进程/Web 启动）不应有此延迟，否则拖慢启动。
@@ -390,7 +403,9 @@ func shellEscape(s string) string {
 }
 
 func (c *Client) MkdirAll(path string) error {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return err
 	}
@@ -412,7 +427,9 @@ func (c *Client) MkdirAll(path string) error {
 }
 
 func (c *Client) WriteFile(path string, content string) error {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return err
 	}
@@ -458,7 +475,9 @@ func ContentHash(data []byte) string {
 // ExistsByHash 检查远程当天目录中是否已存在包含指定哈希的文件
 // 使用单日哈希索引文件 .knowly_hashes 进行 O(1) 查询，替代 grep -rl 全盘扫描
 func (c *Client) ExistsByHash(relPath, hash string) bool {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return false
 	}
@@ -475,7 +494,9 @@ func (c *Client) ExistsByHash(relPath, hash string) bool {
 
 // appendHashIndex 将哈希值追加到远程当天的索引文件中
 func (c *Client) appendHashIndex(relPath, hash string) {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return
 	}
@@ -640,7 +661,9 @@ content_hash: %s
 }
 
 func (c *Client) TestConnection() error {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return err
 	}
@@ -698,7 +721,9 @@ func (c *Client) SyncImage(data []byte, timestamp time.Time) (string, error) {
 
 // imageExistsByHash 检查远程当天目录中是否存在包含指定哈希前缀的图片文件
 func (c *Client) imageExistsByHash(relPath, hashPrefix string) bool {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return false
 	}
@@ -757,7 +782,9 @@ func extractPDFFileName(urlStr, timeStr string) string {
 
 // ReadFile 从远程服务器读取文件的二进制内容
 func (c *Client) ReadFile(path string) ([]byte, error) {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -775,7 +802,9 @@ func (c *Client) ReadFile(path string) ([]byte, error) {
 
 // FileSize 获取远程文件大小（字节），通过 wc -c 实现，跨 Linux/macOS 兼容
 func (c *Client) FileSize(path string) (int64, error) {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -804,7 +833,9 @@ func (c *Client) FileSize(path string) (int64, error) {
 
 // ReadFileToWriter 流式读取远程文件到 writer，避免全量内存缓冲
 func (c *Client) ReadFileToWriter(path string, w io.Writer) error {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return err
 	}
@@ -838,7 +869,9 @@ func (c *Client) ReadFileToWriter(path string, w io.Writer) error {
 
 // WriteBinary 二进制安全写入
 func (c *Client) WriteBinary(path string, data []byte) error {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return err
 	}
@@ -875,7 +908,9 @@ func (c *Client) WriteBinary(path string, data []byte) error {
 
 // FileExists 检查远程文件是否存在
 func (c *Client) FileExists(remotePath string) bool {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return false
 	}
@@ -889,7 +924,9 @@ func (c *Client) FileExists(remotePath string) bool {
 
 // MoveFile 远程移动/重命名文件
 func (c *Client) MoveFile(src, dst string) error {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return err
 	}
@@ -911,7 +948,9 @@ func (c *Client) MoveFile(src, dst string) error {
 
 // ListDir 列出远程目录内容
 func (c *Client) ListDir(remotePath string) ([]DirEntry, error) {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1006,7 +1045,9 @@ func (c *Client) BatchExtractTitles(relPath string, entries []DirEntry) []TitleE
 		return nil
 	}
 
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return nil
 	}
@@ -1059,7 +1100,9 @@ type SearchResult struct {
 
 // Search 在远程归档目录中全文搜索
 func (c *Client) Search(keyword string, limit int) ([]SearchResult, error) {
-	session, release, err := c.newSession()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	session, release, err := c.newSession(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -64,32 +64,32 @@ func (p *Processor) callAPI(ctx context.Context, sysPrompt, userPrompt string) (
 			req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
 		}
 
-		resp, err := p.client.Do(req)
-		if err != nil {
-			return fmt.Errorf("API request failed: %w", err)
-		}
-		defer resp.Body.Close()
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("API request failed: %w", err)
+	}
+	defer resp.Body.Close()
 
-		respBody, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-		if err != nil {
-			return fmt.Errorf("read response: %w", err)
-		}
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
 
-		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(respBody))
-		}
-		if resp.StatusCode != http.StatusOK {
-			// 4xx（非 429）通常为鉴权/参数错误，重试无意义
-			return retry.Permanent(fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(respBody)))
-		}
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+		return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+	if resp.StatusCode != http.StatusOK {
+		// 4xx（非 429）通常为鉴权/参数错误，重试无意义
+		return retry.Permanent(fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(respBody)))
+	}
 
-		if err := json.Unmarshal(respBody, &apiResp); err != nil {
-			return fmt.Errorf("parse response: %w", err)
-		}
-		if len(apiResp.Choices) == 0 {
-			return fmt.Errorf("no choices in response")
-		}
-		return nil
+	if err := json.Unmarshal(respBody, &apiResp); err != nil {
+		return fmt.Errorf("parse response: %w", err)
+	}
+	if len(apiResp.Choices) == 0 {
+		return fmt.Errorf("no choices in response")
+	}
+	return nil
 	})
 
 	if err != nil {
