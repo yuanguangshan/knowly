@@ -4719,6 +4719,10 @@ data: {"step":"done","message":"发布完成"}</pre>
         document.getElementById("fullscreenOverlay").classList.add("show");
         document.body.style.overflow = "hidden";
       }
+      function closeFullscreen() {
+        document.getElementById("fullscreenOverlay").classList.remove("show");
+        document.body.style.overflow = "";
+      }
       document.addEventListener("keydown", function(e) {
         if (e.key === "Escape") closeFullscreen();
       });
