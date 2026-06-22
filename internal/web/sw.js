@@ -14,28 +14,21 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// 全部走网络，离线用缓存兜底
+// 仅缓存 manifest.json，页面和 API 始终走网络
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
 
-  // API 请求不缓存
-  if (url.pathname.startsWith("/api/")) {
-    e.respondWith(fetch(e.request).catch(() => new Response(JSON.stringify({ error: "offline" }), { status: 503 })));
+  // manifest.json：缓存优先，网络更新
+  if (url.pathname === "/manifest.json") {
+    e.respondWith(
+      fetch(e.request).then((res) => {
+        caches.open(CACHE).then((c) => c.put(e.request, res.clone()));
+        return res;
+      }).catch(() => caches.match(e.request))
+    );
     return;
   }
 
-  // 网络优先
-  e.respondWith(
-    fetch(e.request).then((res) => {
-      // 只缓存 manifest.json
-      if (url.pathname === "/manifest.json" && res.ok) {
-        caches.open(CACHE).then((c) => c.put(e.request, res.clone()));
-      }
-      return res;
-    }).catch(() => {
-      return caches.match(e.request).then(function(cached) {
-        return cached || new Response("离线模式", { status: 503 });
-      });
-    })
-  );
+  // 页面和 API：始终走网络
+  e.respondWith(fetch(e.request).catch(() => new Response("离线", { status: 503 })));
 });

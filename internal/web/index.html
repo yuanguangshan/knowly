@@ -4712,14 +4712,12 @@ data: {"step":"done","message":"发布完成"}</pre>
       // === Fullscreen Content Viewer ===
       var fullscreenContent = "";
       function openFullscreen(title, html) {
-      function openFullscreen(title, html) {
         document.getElementById("fullscreenTitle").textContent = title;
         var body = document.getElementById("fullscreenBody");
         body.innerHTML = html;
         body.scrollTop = 0;
         document.getElementById("fullscreenOverlay").classList.add("show");
         document.body.style.overflow = "hidden";
-      }
       }
       document.addEventListener("keydown", function(e) {
         if (e.key === "Escape") closeFullscreen();
