@@ -672,7 +672,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 // restartDaemonScript 生成重启 daemon 的 shell 脚本
 func (s *Server) restartDaemonScript(pid int, exePath string) string {
-	return "exec knowly stop 2>/dev/null; sleep 1; knowly start"
+	return "knowly stop 2>/dev/null; sleep 1; knowly start"
 }
 
 // handleRestart 重启 knowly daemon 进程

@@ -1635,21 +1635,25 @@
         background: var(--bg-primary);
         z-index: 300;
         flex-direction: column;
+        opacity: 0;
+        transition: opacity 0.2s ease;
       }
       .fullscreen-overlay.show {
         display: flex;
+        opacity: 1;
       }
       .fullscreen-header {
         display: flex;
         align-items: center;
-        padding: 8px 16px;
+        padding: 12px 24px;
         background: var(--bg-secondary);
         border-bottom: 1px solid var(--border);
         flex-shrink: 0;
+        min-height: 52px;
       }
       .fullscreen-title {
         flex: 1;
-        font-size: 15px;
+        font-size: 16px;
         font-weight: 600;
         color: var(--text-primary);
         overflow: hidden;
@@ -1658,12 +1662,14 @@
       }
       .fullscreen-close {
         background: none;
-        border: 1px solid var(--border);
+        border: none;
         color: var(--text-secondary);
-        padding: 4px 14px;
-        border-radius: var(--radius);
+        padding: 6px 16px;
+        border-radius: 6px;
         cursor: pointer;
         font-size: 14px;
+        transition: all 0.15s;
+        font-weight: 500;
       }
       .fullscreen-close:hover {
         background: var(--bg-hover);
@@ -1673,20 +1679,195 @@
         flex: 1;
         overflow-y: auto;
         overflow-x: hidden;
-        padding: 16px 20px;
-        max-width: 780px;
+        padding: 32px 24px 64px;
+        max-width: 800px;
         margin: 0 auto;
         width: 100%;
         box-sizing: border-box;
+        font-family:
+          "Georgia", "Noto Serif SC", "Source Han Serif SC",
+          "Songti SC", "SimSun", serif;
+        background: var(--bg-primary);
+        position: relative;
+      }
+      @media (min-width: 1200px) {
+        .fullscreen-body {
+          max-width: 54rem;
+        }
+      }
+      @media (min-width: 1600px) {
+        .fullscreen-body {
+          max-width: 60rem;
+        }
       }
       .fullscreen-body .md-body {
-        font-size: 16px;
+        font-size: 17px;
         line-height: 1.8;
         color: var(--text-primary);
+        word-break: break-word;
+        overflow-wrap: break-word;
+        font-family: inherit;
       }
-      .fullscreen-body .md-body h1 { font-size: 24px; margin: 24px 0 12px; }
-      .fullscreen-body .md-body h2 { font-size: 20px; margin: 20px 0 10px; }
-      .fullscreen-body .md-body p { margin: 10px 0; }
+      .fullscreen-body .md-body h1,
+      .fullscreen-body .md-body h2,
+      .fullscreen-body .md-body h3,
+      .fullscreen-body .md-body h4,
+      .fullscreen-body .md-body h5,
+      .fullscreen-body .md-body h6 {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Microsoft YaHei", sans-serif;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        color: var(--text-primary);
+        border-bottom: none;
+      }
+      .fullscreen-body .md-body h1 {
+        font-size: 28px;
+        margin: 40px 0 16px;
+        line-height: 1.3;
+      }
+      .fullscreen-body .md-body h1:first-child {
+        margin-top: 0;
+      }
+      .fullscreen-body .md-body h2 {
+        font-size: 22px;
+        margin: 32px 0 12px;
+        line-height: 1.35;
+      }
+      .fullscreen-body .md-body h3 {
+        font-size: 18px;
+        margin: 24px 0 10px;
+        line-height: 1.4;
+      }
+      .fullscreen-body .md-body h4 {
+        font-size: 16px;
+        margin: 20px 0 8px;
+      }
+      .fullscreen-body .md-body p {
+        margin: 12px 0;
+      }
+      .fullscreen-body .md-body a {
+        color: var(--accent);
+        text-decoration: none;
+        border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+        transition: border-color 0.15s;
+      }
+      .fullscreen-body .md-body a:hover {
+        border-bottom-color: var(--accent);
+      }
+      .fullscreen-body .md-body strong {
+        font-weight: 700;
+        color: var(--text-primary);
+      }
+      .fullscreen-body .md-body code {
+        font-family: "SF Mono", "Menlo", "Consolas", "JetBrains Mono", monospace;
+        font-size: 0.85em;
+        background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+        padding: 2px 7px;
+        border-radius: 4px;
+        border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+        color: var(--accent);
+      }
+      .fullscreen-body .md-body pre {
+        background: var(--bg-secondary);
+        padding: 20px;
+        border-radius: 10px;
+        overflow-x: auto;
+        margin: 16px 0;
+        border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+        position: relative;
+      }
+      .fullscreen-body .md-body pre code {
+        background: none;
+        padding: 0;
+        border: none;
+        color: var(--text-primary);
+        font-size: 0.82em;
+        line-height: 1.65;
+        tab-size: 2;
+      }
+      .fullscreen-body .md-body blockquote {
+        border-left: 4px solid var(--accent);
+        padding: 8px 12px 8px 20px;
+        margin: 16px 0;
+        color: var(--text-secondary);
+        background: color-mix(in srgb, var(--bg-secondary) 40%, transparent);
+        border-radius: 0 8px 8px 0;
+      }
+      .fullscreen-body .md-body blockquote p {
+        margin: 6px 0;
+      }
+      .fullscreen-body .md-body blockquote blockquote {
+        margin-left: 8px;
+      }
+      .fullscreen-body .md-body ul,
+      .fullscreen-body .md-body ol {
+        padding-left: 24px;
+        margin: 12px 0;
+      }
+      .fullscreen-body .md-body li {
+        margin: 6px 0;
+      }
+      .fullscreen-body .md-body li > ul,
+      .fullscreen-body .md-body li > ol {
+        margin: 4px 0;
+      }
+      .fullscreen-body .md-body hr {
+        border: none;
+        height: 1px;
+        background: linear-gradient(
+          to right,
+          transparent,
+          color-mix(in srgb, var(--border) 80%, transparent) 20%,
+          color-mix(in srgb, var(--border) 80%, transparent) 80%,
+          transparent
+        );
+        margin: 32px 0;
+      }
+      .fullscreen-body .md-body table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 16px 0;
+        font-size: 14px;
+        display: block;
+        overflow-x: auto;
+        border-radius: 8px;
+      }
+      .fullscreen-body .md-body th,
+      .fullscreen-body .md-body td {
+        border: 1px solid var(--border);
+        padding: 10px 14px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .fullscreen-body .md-body th {
+        background: var(--bg-secondary);
+        font-weight: 600;
+        font-size: 13px;
+        text-transform: none;
+        letter-spacing: 0.02em;
+      }
+      .fullscreen-body .md-body tr:nth-child(even) td {
+        background: color-mix(in srgb, var(--bg-secondary) 30%, transparent);
+      }
+      .fullscreen-body .md-body img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 10px;
+        margin: 16px 0;
+        display: block;
+      }
+      .fullscreen-body .md-body img + br {
+        display: none;
+      }
+      .fullscreen-body .md-body .task-list-item {
+        list-style: none;
+        margin-left: -24px;
+      }
+      .fullscreen-body .md-body .task-list-item input[type="checkbox"] {
+        margin-right: 6px;
+      }
       .fullscreen-maximize-btn {
         background: none;
         border: 1px solid var(--border);
@@ -1696,6 +1877,7 @@
         cursor: pointer;
         font-size: 12px;
         margin-left: 8px;
+        transition: all 0.15s;
       }
       .fullscreen-maximize-btn:hover {
         background: var(--bg-hover);
@@ -4530,14 +4712,14 @@ data: {"step":"done","message":"发布完成"}</pre>
       // === Fullscreen Content Viewer ===
       var fullscreenContent = "";
       function openFullscreen(title, html) {
+      function openFullscreen(title, html) {
         document.getElementById("fullscreenTitle").textContent = title;
-        document.getElementById("fullscreenBody").innerHTML = html;
+        var body = document.getElementById("fullscreenBody");
+        body.innerHTML = html;
+        body.scrollTop = 0;
         document.getElementById("fullscreenOverlay").classList.add("show");
         document.body.style.overflow = "hidden";
       }
-      function closeFullscreen() {
-        document.getElementById("fullscreenOverlay").classList.remove("show");
-        document.body.style.overflow = "";
       }
       document.addEventListener("keydown", function(e) {
         if (e.key === "Escape") closeFullscreen();
