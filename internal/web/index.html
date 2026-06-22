@@ -690,6 +690,28 @@
       .md-body li {
         margin: 4px 0;
       }
+      .md-body table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 12px 0;
+        font-size: 14px;
+        display: block;
+        overflow-x: auto;
+      }
+      .md-body th,
+      .md-body td {
+        border: 1px solid var(--border);
+        padding: 6px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .md-body th {
+        background: var(--bg-secondary);
+        font-weight: 600;
+      }
+      .md-body tr:nth-child(even) td {
+        background: var(--bg-secondary);
+      }
       .empty-state {
         display: flex;
         align-items: center;
@@ -3887,6 +3909,16 @@ data: {"step":"done","message":"发布完成"}</pre>
           fallbackCopy(text);
         }
       }
+      // Strip AI-organized content, return only original content
+      function stripAIOrganized(text) {
+        // Look for ### 原始内容 marker
+        var idx = text.indexOf("### 原始内容");
+        if (idx >= 0) {
+          return text.substring(idx + "### 原始内容".length).trim();
+        }
+        return text;
+      }
+
       function fallbackCopy(text) {
         try {
           const range = document.createRange();
@@ -4462,6 +4494,7 @@ data: {"step":"done","message":"发布完成"}</pre>
                 content = content.substring(end + 3).trim();
               }
             }
+                        content = stripAIOrganized(content);
             title.textContent = displayTitle;
             preview.innerHTML =
               '<div class="md-body">' + renderMarkdown(content) + "</div>";
@@ -4574,6 +4607,60 @@ data: {"step":"done","message":"发布完成"}</pre>
         // Unordered list
         text = text.replace(/^[*-] (.+)$/gm, "<li>$1</li>");
         text = text.replace(/(<li>.*<\/li>\n?)+/g, "<ul>$&</ul>");
+        // Tables (GFM)
+        text = text.replace(
+          /^(\|[^\n]+\|)\n(\|[\s\-:|]+\|)\n((?:\|[^\n]+\|\n?)+)/gm,
+          function (m, headerLine, sepLine, bodyBlock) {
+            function splitCells(line) {
+              return line
+                .replace(/^\s*\|/, "")
+                .replace(/\|\s*$/, "")
+                .split("|")
+                .map(function (c) {
+                  return c.trim();
+                });
+            }
+            var aligns = splitCells(sepLine).map(function (c) {
+              if (!/^-+:?$|^:?-+:?$|^:?-+$/.test(c)) return "";
+              var l = c.charAt(0) === ":";
+              var r = c.charAt(c.length - 1) === ":";
+              return l && r ? "center" : r ? "right" : "left";
+            });
+            function cellTag(tag, content, i) {
+              var a = aligns[i] || "";
+              var style = a ? ' style="text-align:' + a + '"' : "";
+              return "<" + tag + style + ">" + content + "</" + tag + ">";
+            }
+            var headCells = splitCells(headerLine)
+              .map(function (c, i) {
+                return cellTag("th", c, i);
+              })
+              .join("");
+            var rows = bodyBlock
+              .trim()
+              .split("\n")
+              .filter(function (l) {
+                return l.trim() !== "";
+              });
+            var tbody = rows
+              .map(function (line) {
+                var tds = splitCells(line)
+                  .map(function (c, i) {
+                    return cellTag("td", c, i);
+                  })
+                  .join("");
+                return "<tr>" + tds + "</tr>";
+              })
+              .join("");
+            return (
+              "<table><thead><tr>" +
+              headCells +
+              "</tr></thead><tbody>" +
+              tbody +
+              "</tbody></table>"
+            );
+          },
+        );
         // Paragraphs: double newline
         text = text.replace(/\n\n+/g, "\n</p><p>\n");
         // Single newline within paragraph -> <br>
@@ -4590,6 +4677,8 @@ data: {"step":"done","message":"发布完成"}</pre>
         text = text.replace(/(<\/ul>)\s*<\/p>/g, "$1");
         text = text.replace(/<p>\s*(<blockquote>)/g, "$1");
         text = text.replace(/(<\/blockquote>)\s*<\/p>/g, "$1");
+        text = text.replace(/<p>\s*(<table>)/g, "$1");
+        text = text.replace(/(<\/table>)\s*<\/p>/g, "$1");
         return text;
       }
 
@@ -4848,7 +4937,7 @@ data: {"step":"done","message":"发布完成"}</pre>
               const resp = await api("/api/history/" + id + "/full");
               const content = resp.content || "";
               if (content) {
-                copyText(content);
+                copyText(stripAIOrganized(content));
               } else {
                 showToast("无内容可复制");
               }
@@ -4868,6 +4957,7 @@ data: {"step":"done","message":"发布完成"}</pre>
               const resp = await api("/api/history/" + id + "/full");
               const content = resp.content || entry.content || "";
               var title = entry.title || "文章";
+                            content = stripAIOrganized(content);
               openFullscreen(title, renderMarkdown(content));
             } catch (err) {
               openFullscreen("文章", renderMarkdown(entry.content || ""));
