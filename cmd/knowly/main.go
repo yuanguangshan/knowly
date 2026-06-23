@@ -16,6 +16,7 @@ import (
 
 	"github.com/yuanguangshan/knowly/internal/ai"
 	"github.com/yuanguangshan/knowly/internal/clipboard"
+	"github.com/yuanguangshan/knowly/internal/cluster"
 	"github.com/yuanguangshan/knowly/internal/config"
 	"github.com/yuanguangshan/knowly/internal/fetcher"
 	"github.com/yuanguangshan/knowly/internal/history"
@@ -95,6 +96,16 @@ func main() {
 		log.Printf("[INFO] AI processing enabled (preset: %s, model: %s, endpoint: %s, prompt: %s)", preset, cfg.AI.Model, cfg.AI.Endpoint, promptMode)
 	}
 
+	// 初始化聚类引擎
+	clusterEngine := cluster.NewEngine(histStore, cluster.AIAPIConfig{
+		Enabled:  cfg.AI.Enabled,
+		Endpoint: cfg.AI.Endpoint,
+		APIKey:  cfg.AI.APIKey,
+		Model:   cfg.AI.Model,
+		Timeout: cfg.AI.Timeout,
+	}, cluster.Config{Enabled: cfg.Clustering.Enabled, IntervalH: cfg.Clustering.IntervalH, MinScore: cfg.Clustering.MinScore, MaxEntries: cfg.Clustering.MaxEntries}, config.GetConfigDir())
+	clusterEngine.LoadClusters()
+
 	mon := clipboard.NewMonitor(clipboard.MonitorConfig{
 		MinLength:    cfg.Clipboard.MinLength,
 		MaxLength:    cfg.Clipboard.MaxLength,
@@ -124,9 +135,12 @@ func main() {
 		webAddr := fmt.Sprintf(":%d", cfg.Web.Port)
 		webSrv = web.NewServerWithDeps(cfg, webAddr, client, histStore, func(content string, timestamp time.Time) {
 			syncText(client, cfg, content, timestamp, histStore, aiProcessor, outboxStore, "Upload")
-		})
+		}, clusterEngine)
 		webSrv.StartAsync()
 	}
+
+	// 启动聚类引擎（后台定期运行）
+	clusterEngine.Start(ctx)
 
 	// 4.2 异步连接 SSH（不阻塞 Web 启动）
 	go func() {

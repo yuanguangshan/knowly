@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/yuanguangshan/knowly/internal/ai"
+	"github.com/yuanguangshan/knowly/internal/cluster"
 	"github.com/yuanguangshan/knowly/internal/config"
 	"github.com/yuanguangshan/knowly/internal/history"
 
@@ -52,6 +53,7 @@ type Server struct {
 	sshClient  SSHClient
 	histStore  *history.Store
 	aiProcessor *ai.Processor
+	clusterEngine *cluster.Engine
 	addr       string
 	startTime  time.Time
 	httpServer *http.Server
@@ -84,7 +86,7 @@ func NewServer(cfg *config.Config, addr string) *Server {
 }
 
 // NewServerWithDeps 创建 Web 服务器实例（使用已有的 SSH 和 History 依赖）
-func NewServerWithDeps(cfg *config.Config, addr string, sshClient *ssh.Client, histStore *history.Store, syncTextFn SyncTextFn) *Server {
+func NewServerWithDeps(cfg *config.Config, addr string, sshClient *ssh.Client, histStore *history.Store, syncTextFn SyncTextFn, clusterEngine *cluster.Engine) *Server {
 	aiProcessor := ai.NewProcessor(&cfg.AI)
 	s := &Server{
 		cfg:        cfg,
@@ -140,6 +142,10 @@ func (s *Server) buildHandler() http.Handler {
 	// 发布 API
 	mux.HandleFunc("/api/publish", s.handlePublish)
 	mux.HandleFunc("/api/tag-and-publish", s.handleTagAndPublish)
+
+	// 聚类 API
+	mux.HandleFunc("/api/clusters", s.handleClusters)
+	mux.HandleFunc("/api/clusters/rerun", s.handleClusterRerun)
 
 	// 统计 API
 	mux.HandleFunc("/api/stats", s.handleStats)

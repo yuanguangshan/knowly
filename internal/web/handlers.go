@@ -1903,3 +1903,40 @@ func (s *Server) handleUploadsDownload(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ERROR] failed to stream file %s: %v", fullPath, err)
 	}
 }
+
+
+// handleClusters returns the current cluster result (GET).
+func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.clusterEngine == nil {
+		jsonResp(w, map[string]any{"clusters": []any{}, "generated_at": nil, "total_entries": 0, "clustered_count": 0})
+		return
+	}
+	result := s.clusterEngine.GetResult()
+	if result == nil {
+		jsonResp(w, map[string]any{"clusters": []any{}, "generated_at": nil, "total_entries": 0, "clustered_count": 0})
+		return
+	}
+	jsonResp(w, result)
+}
+
+// handleClusterRerun triggers an immediate clustering pass (POST).
+func (s *Server) handleClusterRerun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.clusterEngine == nil {
+		jsonError(w, "clustering not configured", http.StatusServiceUnavailable)
+		return
+	}
+	go func() {
+		if err := s.clusterEngine.ForceRun(); err != nil {
+			log.Printf("[ERROR] Cluster rerun failed: %v", err)
+		}
+	}()
+	jsonResp(w, map[string]string{"status": "started"})
+}

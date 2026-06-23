@@ -18,6 +18,7 @@ type Config struct {
 	IMA          IMAConfig          `json:"ima"`
 	Kindle       KindleConfig       `json:"kindle"`
 	AI           AIConfig           `json:"ai"`
+	Clustering   ClusteringConfig   `json:"clustering"`
 	WebReader    WebReaderConfig    `json:"web_reader"`
 	Knasync      KnasyncConfig      `json:"knasync"`
 	Webhook      WebhookConfig      `json:"webhook"`
@@ -110,6 +111,14 @@ type AIConfig struct {
 
 type WebReaderConfig struct {
 	APIKey string `json:"api_key"` // 智谱 web_reader API Key
+}
+
+// ClusteringConfig controls periodic offline knowledge clustering.
+type ClusteringConfig struct {
+	Enabled    bool `json:"enabled"`
+	IntervalH  int  `json:"interval_hours"`
+	MinScore   int  `json:"min_score"`
+	MaxEntries int  `json:"max_entries"`
 }
 
 type KnasyncConfig struct {
@@ -423,6 +432,12 @@ func DefaultConfig() *Config {
 			SMTPServer:     "smtp.qq.com",
 			SMTPPort:       465,
 			KindleEmail:    "",
+		},
+		Clustering: ClusteringConfig{
+			Enabled:    false,
+			IntervalH:  24,
+			MinScore:   0,
+			MaxEntries: 500,
 		},
 		AI: AIConfig{
 			Enabled:       false,
