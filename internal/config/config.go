@@ -302,6 +302,14 @@ func Load() (*Config, error) {
 		config.Kindle.SMTPPort = 465
 	}
 
+	// 补全聚类默认值
+	if !config.Clustering.Enabled && config.Clustering.IntervalH == 0 {
+		config.Clustering.Enabled = false
+		config.Clustering.IntervalH = 24
+		config.Clustering.MinScore = 0
+		config.Clustering.MaxEntries = 500
+	}
+
 	// 补全 AI 默认值
 	if config.AI.Endpoint == "" {
 		config.AI.Endpoint = "https://aiproxy.want.biz/v1"

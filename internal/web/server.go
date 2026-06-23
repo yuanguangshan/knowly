@@ -93,6 +93,7 @@ func NewServerWithDeps(cfg *config.Config, addr string, sshClient *ssh.Client, h
 		sshClient:  sshClient,
 		histStore:  histStore,
 		aiProcessor: aiProcessor,
+		clusterEngine: clusterEngine,
 		addr:       addr,
 		startTime:  time.Now(),
 		syncTextFn: syncTextFn,

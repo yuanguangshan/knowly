@@ -64,7 +64,9 @@ func (e *Engine) Start(ctx context.Context) {
 		case <-time.After(15 * time.Second):
 		}
 
-		e.runOnce(ctx)
+		if err := e.runOnce(ctx); err != nil {
+			log.Printf("[WARN] Clustering: first run failed: %v", err)
+		}
 
 		if e.cfg.IntervalH <= 0 {
 			return
@@ -322,6 +324,7 @@ func (e *Engine) callAI(ctx context.Context, prompt string) (string, error) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Printf("[WARN] Clustering: AI API call failed: %v", err)
 		return "", fmt.Errorf("API call: %w", err)
 	}
 	defer resp.Body.Close()
@@ -419,12 +422,15 @@ func (e *Engine) saveClusters(result *ClusterResult) error {
 func (e *Engine) LoadClusters() *ClusterResult {
 	data, err := os.ReadFile(e.clustersPath)
 	if err != nil {
+		log.Printf("[WARN] Clustering: failed to load %s: %v", e.clustersPath, err)
 		return nil
 	}
 	var result ClusterResult
 	if err := json.Unmarshal(data, &result); err != nil {
+		log.Printf("[WARN] Clustering: failed to parse clusters.json: %v", err)
 		return nil
 	}
+	log.Printf("[INFO] Clustering: loaded %d clusters from disk", len(result.Clusters))
 	e.mu.Lock()
 	e.current = &result
 	e.mu.Unlock()

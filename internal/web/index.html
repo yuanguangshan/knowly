@@ -3916,6 +3916,7 @@ data: {"step":"done","message":"发布完成"}</pre>
             loadHistory();
           };
         else if (tab === "stats") fn = loadStats;
+        else if (tab === "clusters") fn = loadClusters;
         if (fn) autoRefreshTimer = setInterval(fn, REFRESH_SEC * 1000);
       }
 

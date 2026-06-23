@@ -1907,6 +1907,7 @@ func (s *Server) handleUploadsDownload(w http.ResponseWriter, r *http.Request) {
 
 // handleClusters returns the current cluster result (GET).
 func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[DEBUG] handleClusters called, engine=%v", s.clusterEngine != nil)
 	if r.Method != http.MethodGet {
 		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -1917,9 +1918,15 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 	}
 	result := s.clusterEngine.GetResult()
 	if result == nil {
+		// 尝试从磁盘重新加载（适配启动时文件尚未生成的情况）
+		result = s.clusterEngine.LoadClusters()
+	}
+	if result == nil {
+		log.Printf("[WARN] handleClusters: result is nil, returning empty")
 		jsonResp(w, map[string]any{"clusters": []any{}, "generated_at": nil, "total_entries": 0, "clustered_count": 0})
 		return
 	}
+	log.Printf("[INFO] handleClusters: returning %d clusters", len(result.Clusters))
 	jsonResp(w, result)
 }
 
