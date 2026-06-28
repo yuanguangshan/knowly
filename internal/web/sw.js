@@ -1,4 +1,4 @@
-const CACHE = "knowly-v3";
+const CACHE = "knowly-v4";
 
 // 安装时跳过等待
 self.addEventListener("install", (e) => {

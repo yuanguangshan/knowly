@@ -1384,6 +1384,8 @@
       .cluster-entry:last-child { border-bottom: none; }
       .cluster-empty { text-align: center; color: #888; padding: 40px; font-size: 0.9em; }
       .cluster-loading { text-align: center; color: #888; padding: 60px; font-size: 1em; }
+      .analysis-section { margin-bottom: 8px; }
+      #panel-analysis { overflow-y: auto; }
       @media (max-width: 768px) {
         .header {
           padding: 10px 14px;
@@ -2166,14 +2168,11 @@
         >
           📜 历史
         </div>
-        <div class="sidebar-item" onclick="switchTab('stats')" id="tab-stats">
-          🎀 统计
+        <div class="sidebar-item" onclick="switchTab('analysis')" id="tab-analysis">
+          📊 分析
         </div>
         <div class="sidebar-item" onclick="switchTab('ai')" id="tab-ai">
           ✨ 灵感
-        </div>
-        <div class="sidebar-item" onclick="switchTab('clusters')" id="tab-clusters">
-          🧠 知识图谱
         </div>
         <div class="sidebar-item" onclick="switchTab('admin')" id="tab-admin">
           ⚙️ 设置
@@ -2358,41 +2357,58 @@
         </div>
 
         <!-- 统计面板 -->
-        <div class="tab-panel" id="panel-stats">
-          <div class="stats-container">
-            <div class="stats-summary">
-              <div class="stats-card">
-                <div class="stats-card-value" id="statsTotalSyncs">-</div>
-                <div class="stats-card-label">总同步数</div>
-              </div>
-              <div class="stats-card">
-                <div class="stats-card-value" id="statsTextCount">-</div>
-                <div class="stats-card-label">文本</div>
-              </div>
-              <div class="stats-card">
-                <div class="stats-card-value" id="statsImageCount">-</div>
-                <div class="stats-card-label">图片</div>
+        <div class="tab-panel" id="panel-analysis">
+          <div class="analysis-section">
+            <div>
+              <div class="stats-container">
+                <div class="stats-summary">
+                  <div class="stats-card">
+                    <div class="stats-card-value" id="statsTotalSyncs">-</div>
+                    <div class="stats-card-label">总同步数</div>
+                  </div>
+                  <div class="stats-card">
+                    <div class="stats-card-value" id="statsTextCount">-</div>
+                    <div class="stats-card-label">文本</div>
+                  </div>
+                  <div class="stats-card">
+                    <div class="stats-card-value" id="statsImageCount">-</div>
+                    <div class="stats-card-label">图片</div>
+                  </div>
+                </div>
+                <div class="chart-section">
+                  <div class="chart-title">每周同步趋势</div>
+                  <canvas id="weeklyChart" height="200"></canvas>
+                </div>
+                <div class="chart-row">
+                  <div class="chart-section">
+                    <div class="chart-title">内容类型分布</div>
+                    <canvas id="typeChart" height="200"></canvas>
+                  </div>
+                  <div class="chart-section">
+                    <div class="chart-title">最近 30 天趋势</div>
+                    <canvas id="dailyChart" height="200"></canvas>
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="chart-section">
-              <div class="chart-title">每周同步趋势</div>
-              <canvas id="weeklyChart" height="200"></canvas>
-            </div>
-            <div class="chart-row">
-              <div class="chart-section">
-                <div class="chart-title">内容类型分布</div>
-                <canvas id="typeChart" height="200"></canvas>
+          </div>
+          <div class="analysis-divider" style="border-top:1px solid #333;margin:20px 0;"></div>
+          <div class="analysis-section">
+            <div class="cluster-container">
+              <div class="cluster-header">
+                <div class="cluster-title">
+                  <span style="font-size: 1.3em; font-weight: 600;">聚类</span>
+                  <span class="cluster-subtitle" id="clusterSubtitle">正在加载...</span>
+                </div>
+                <button class="btn" id="btnRerunCluster" onclick="rerunCluster()">🔄 重新聚类</button>
               </div>
-              <div class="chart-section">
-                <div class="chart-title">最近 30 天趋势</div>
-                <canvas id="dailyChart" height="200"></canvas>
+              <div class="cluster-grid" id="clusterGrid">
+                <div class="cluster-loading">正在加载聚类结果...</div>
               </div>
             </div>
           </div>
         </div>
-
-        <!-- AI 面板 -->
-        <div class="tab-panel" id="panel-ai">
+<div class="tab-panel" id="panel-ai">
           <div class="ai-subtab-bar">
             <div
               class="ai-subtab active"
@@ -2515,20 +2531,6 @@
               <a class="ai-fallback-btn" href="https://chat.qwen.ai/" target="_blank" rel="noopener">
                 🚀 在新标签页打开 Qwen
               </a>
-            </div>
-          </div>
-        </div>
-        <div class="tab-panel" id="panel-clusters">
-          <div class="cluster-container">
-            <div class="cluster-header">
-              <div class="cluster-title">
-                <span style="font-size: 1.3em; font-weight: 600;">知识图谱</span>
-                <span class="cluster-subtitle" id="clusterSubtitle">正在加载...</span>
-              </div>
-              <button class="btn" id="btnRerunCluster" onclick="rerunCluster()">🔄 重新聚类</button>
-            </div>
-            <div class="cluster-grid" id="clusterGrid">
-              <div class="cluster-loading">正在加载知识图谱...</div>
             </div>
           </div>
         </div>
@@ -3055,8 +3057,38 @@
                 </div>
               </div>
 
+            <div class="admin-card">
+              <div class="admin-card-title">聚类配置</div>
+              <div class="admin-form-row">
+                <div>
+                  <span class="cfg-label">启用聚类</span>
+                  <span class="cfg-desc">基于 AI 对历史内容进行自动聚类分析</span>
+                </div>
+                <div>
+                  <input type="checkbox" id="cfg-clustering-enabled" checked />
+                </div>
+              </div>
+              <div class="admin-form-row">
+                <span class="cfg-label">运行间隔（小时）</span>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <input class="cfg-input" type="number" min="1" max="720" id="cfg-clustering-interval_hours" style="width:80px" />
+                  <span style="color:var(--text-secondary);font-size:12px">0 = 仅启动时运行一次</span>
+                </div>
+              </div>
+              <div class="admin-form-row">
+                <span class="cfg-label">最小相似度</span>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <input class="cfg-input" type="number" min="0" max="1" step="0.01" id="cfg-clustering-min_score" style="width:80px" />
+                  <span style="color:var(--text-secondary);font-size:12px">0~1，越高越严格</span>
+                </div>
+              </div>
+              <div class="admin-form-row">
+                <span class="cfg-label">最大条目数</span>
+                <input class="cfg-input" type="number" min="0" id="cfg-clustering-max_entries" style="width:80px" />
+              </div>
+            </div>
+
               <button
-                class="ai-save-btn"
                 onclick="saveAllConfig()"
                 style="width: 100%; margin-top: 12px"
               >
@@ -3915,13 +3947,12 @@ data: {"step":"done","message":"发布完成"}</pre>
             loadTags();
             loadHistory();
           };
-        else if (tab === "stats") fn = loadStats;
-        else if (tab === "clusters") fn = loadClusters;
+        else if (tab === "analysis") fn = function() { loadStats(); loadClusters(); };
         if (fn) autoRefreshTimer = setInterval(fn, REFRESH_SEC * 1000);
       }
 
       function switchTab(tab) {
-        if (tab === "clusters") { setTimeout(loadClusters, 100); }
+        if (tab === "analysis") { setTimeout(function(){loadStats();loadClusters();}, 100); }
         currentTab = tab;
         stopAutoRefresh();
         document
@@ -3947,7 +3978,6 @@ data: {"step":"done","message":"发布完成"}</pre>
           loadTags();
           loadHistory({clear: true});
         }
-        if (tab === "stats") loadStats();
         if (tab === "admin") {
           loadAdminStatus();
           loadAllConfig();
@@ -4229,9 +4259,19 @@ data: {"step":"done","message":"发布完成"}</pre>
       var logLineCount = 0;
       const MAX_LOG_LINES = 500;
 
+      var recentLogKeys = new Set();
       function appendLogLine(line) {
         const container = document.getElementById("logContainer");
-        var key = (line.time || "") + "|" + (line.raw || line.message || "");
+        // raw 可能带尾随换行，统一 trim 后计算 key
+        var raw = (line.raw || line.message || "").trim();
+        var key = (line.time || "") + "|" + raw;
+        // 去重：最近 200 条日志内已存在则跳过
+        if (recentLogKeys.has(key)) return;
+        recentLogKeys.add(key);
+        if (recentLogKeys.size > 200) {
+          var firstKey = recentLogKeys.values().next().value;
+          recentLogKeys.delete(firstKey);
+        }
         if (
           container.firstChild &&
           container.firstChild.dataset &&
@@ -4461,7 +4501,13 @@ data: {"step":"done","message":"发布完成"}</pre>
               data.files || [],
               data.year + "/" + data.month + "/" + data.day,
             );
-          } catch (e) {}
+            // Clustering
+          setChecked("cfg-clustering-enabled", c.clustering.enabled);
+          setVal("cfg-clustering-interval_hours", c.clustering.interval_hours);
+          setVal("cfg-clustering-min_score", c.clustering.min_score);
+          setVal("cfg-clustering-max_entries", c.clustering.max_entries);
+
+        } catch (e) {}
           return;
         }
         archiveInitialized = true;
@@ -6022,6 +6068,12 @@ data: {"step":"done","message":"发布完成"}</pre>
             max_content_len: getInt("cfg-ai-max_content_len"),
             timeout_sec: getInt("cfg-ai-timeout_sec"),
           },
+          clustering: {
+            enabled: getChecked("cfg-clustering-enabled"),
+            interval_hours: getInt("cfg-clustering-interval_hours"),
+            min_score: parseFloat(getVal("cfg-clustering-min_score") || "0"),
+            max_entries: getInt("cfg-clustering-max_entries"),
+          },
         };
         try {
           const res = await fetch("/api/config", {
@@ -6405,7 +6457,7 @@ data: {"step":"done","message":"发布完成"}</pre>
 
       // === PWA（版本号强制更新缓存） ===
       if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("/sw.js?v=3").catch(function() {});
+        navigator.serviceWorker.register("/sw.js?v=4").catch(function() {});
       }
 
       // === Init ===
@@ -6451,16 +6503,16 @@ data: {"step":"done","message":"发布完成"}</pre>
       });
     </script>
   <script>
-  // === 知识图谱 ===
+  // === 聚类 ===
   async function loadClusters() {
     const grid = document.getElementById("clusterGrid");
     const subtitle = document.getElementById("clusterSubtitle");
     try {
       const resp = await fetch("/api/clusters");
-      if (!resp.ok) { grid.innerHTML = '<div class="cluster-empty">❌ 无法加载知识图谱</div>'; return; }
+      if (!resp.ok) { grid.innerHTML = '<div class="cluster-empty">❌ 无法加载聚类</div>'; return; }
       const data = await resp.json();
       if (!data.clusters || data.clusters.length === 0) {
-        grid.innerHTML = '<div class="cluster-empty">暂无聚类结果。请先启用 AI，然后点击"重新聚类"按钮生成知识图谱。</div>';
+        grid.innerHTML = '<div class="cluster-empty">暂无聚类结果。请先启用 AI，然后点击"重新聚类"按钮生成聚类。</div>';
         subtitle.textContent = "";
         return;
       }

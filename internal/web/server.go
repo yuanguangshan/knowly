@@ -235,7 +235,7 @@ type logBroadcastWriter struct {
 }
 
 func (w *logBroadcastWriter) Write(p []byte) (int, error) {
-	line := string(p)
+	line := strings.TrimRight(string(p), "\n\r")
 	w.s.logMu.RLock()
 	for _, sub := range w.s.logSubs {
 		select {
