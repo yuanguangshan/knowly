@@ -1926,7 +1926,7 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 		jsonResp(w, map[string]any{"clusters": []any{}, "generated_at": nil, "total_entries": 0, "clustered_count": 0})
 		return
 	}
-	log.Printf("[INFO] handleClusters: returning %d clusters", len(result.Clusters))
+	log.Printf("[DEBUG] handleClusters: returning %d clusters", len(result.Clusters))
 	jsonResp(w, result)
 }
 

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -255,7 +257,23 @@ func main() {
 			log.Println("[INFO] knowly daemon stopped")
 			return
 		case payload := <-mon.Items():
-			go handlePayload(client, cfg, payload, histStore, aiProcessor, outboxStore)
+			// 主循环去重：同 hash 正在处理则丢弃
+			var acquiredHash string
+			if tp, ok := payload.(clipboard.TextPayload); ok {
+				h := ssh.ContentHash([]byte(tp.Content))
+				fmt.Fprintf(os.Stdout, "%s [DEBUG] main loop payload hash=%s len=%d\n", time.Now().Format("2006/01/02 15:04:05"), h[:12], len(tp.Content))
+				if !tryAcquire(h) {
+					fmt.Fprintf(os.Stdout, "%s [INFO] Payload dropped (hash: %s)\n", time.Now().Format("2006/01/02 15:04:05"), h[:8])
+					continue
+				}
+				acquiredHash = h
+			}
+			go func(p clipboard.Payload, ah string) {
+				if ah != "" {
+					defer release(ah)
+				}
+				handlePayload(client, cfg, p, histStore, aiProcessor, outboxStore)
+			}(payload, acquiredHash)
 		case <-drainTicker.C:
 			go drainOutbox(outboxStore, client, histStore)
 		case <-logRotateTicker.C:
@@ -290,6 +308,34 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 	case clipboard.ImagePayload:
 		handleImagePayload(client, retryCfg, v, histStore, outboxStore)
 	}
+}
+
+// inFlight 全局正在处理中的内容 hash，防止并发重复
+var inFlightMu sync.Mutex
+var inFlight = make(map[string]bool)
+var lastProcessedTime time.Time
+
+// tryAcquire 尝试获取处理权，true 表示可以处理，false 表示已在处理中
+func tryAcquire(hash string) bool {
+	inFlightMu.Lock()
+	defer inFlightMu.Unlock()
+	// 时间窗口：5 秒内处理过的内容直接丢弃（解决剪贴板库返回不同编码导致 hash 不同的问题）
+	if time.Since(lastProcessedTime) < 5*time.Second {
+		return false
+	}
+	if inFlight[hash] {
+		return false
+	}
+	inFlight[hash] = true
+	lastProcessedTime = time.Now()
+	return true
+}
+
+// release 释放处理权
+func release(hash string) {
+	inFlightMu.Lock()
+	delete(inFlight, hash)
+	inFlightMu.Unlock()
 }
 
 // handleImagePayload 处理图片同步
@@ -515,11 +561,15 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 }
 
 // syncText 公共文本同步逻辑（剪贴板和 Relay 共用）
+var syncTextCallCount int64
+
 func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp time.Time, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store, source string) {
+	c := atomic.AddInt64(&syncTextCallCount, 1)
+	fmt.Fprintf(os.Stdout, "%s [DEBUG] syncText CALL #%d source=%s hash=%s\n", time.Now().Format("2006/01/02 15:04:05"), c, source, ssh.ContentHash([]byte(content))[:12])
+	hash := ssh.ContentHash([]byte(content))
 	isURL := fetcher.IsURL(content)
 
 	// 远程去重前置检查
-	hash := ssh.ContentHash([]byte(content))
 	relPath := filepath.Join(timestamp.Format("2006"), timestamp.Format("01"), timestamp.Format("02"))
 
 	// 如果是纯 URL（抓取失败后回退），写入 NAS 作为失败记录
@@ -561,7 +611,7 @@ func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp 
 	var aiTags []string
 	if aiProcessor != nil && aiProcessor.ShouldProcess(content) {
 		aiStart := time.Now()
-		log.Printf("[INFO] %s AI processing started (len=%d)", source, len(content))
+		fmt.Fprintf(os.Stdout, "%s [INFO] %s AI processing started (len=%d)\n", time.Now().Format("2006/01/02 15:04:05"), source, len(content))
 		aiCtx, aiCancel := context.WithTimeout(context.Background(), time.Duration(cfg.AI.Timeout)*time.Second)
 		aiResult := aiProcessor.Process(aiCtx, content)
 		aiCancel()

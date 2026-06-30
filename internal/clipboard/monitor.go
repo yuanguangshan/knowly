@@ -120,7 +120,7 @@ func NewMonitor(config MonitorConfig, statusPath string) *Monitor {
 		config.PollInterval = 500 * time.Millisecond
 	}
 	if config.BufferSize == 0 {
-		config.BufferSize = 10
+		config.BufferSize = 100
 	}
 
 	m := &Monitor{
@@ -190,7 +190,7 @@ func (m *Monitor) readPayload() (Payload, error) {
 
 	// 2. 回退文本
 	txt := xclip.Read(xclip.FmtText)
-	content := string(txt)
+	content := strings.TrimRight(string(txt), "\n\r\t ")
 	if content == "" {
 		return nil, fmt.Errorf("empty clipboard")
 	}
@@ -229,7 +229,7 @@ func (m *Monitor) Start() {
 					}
 
 					m.updateState(v.Hash(), v.Preview(), v.Type())
-					go m.enhanceAndSend(v.Content, v.Hash())
+					m.enhanceAndSend(v.Content, v.Hash())
 
 				case ImagePayload:
 					if !m.isDuplicate(v.Hash()) {

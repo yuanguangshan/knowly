@@ -237,6 +237,10 @@ func (e *Engine) clusterViaAI(ctx context.Context, entries []clusterEntry) ([]Cl
 	if timeout <= 0 {
 		timeout = 90
 	}
+	// 聚类内容量大，超时独立设大些
+	if timeout < 300 {
+		timeout = 300
+	}
 	callCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
