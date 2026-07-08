@@ -4136,6 +4136,11 @@ data: {"step":"done","message":"发布完成"}</pre>
             fallback.classList.add('show');
           }
         }
+
+        // 切换子标签后重新挂载 scroll-hide
+        setTimeout(function() {
+          attachScrollHideForActiveAiSubPanel();
+        }, 50);
       }
 
       // === API Helper ===
@@ -6460,6 +6465,75 @@ data: {"step":"done","message":"发布完成"}</pre>
         if (el) setupScrollHide(el);
       }
 
+      // === AI 面板顶部自动隐藏（支持 iframe 和非 iframe） ===
+      var aiScrollState = { hidden: false, hideTimer: null, watcher: null };
+
+      function setupAiScrollHide() {
+        var panel = document.getElementById('panel-ai');
+        if (!panel || panel._aiScrollSetup) return;
+        panel._aiScrollSetup = true;
+
+        var topSection = document.getElementById('topSection');
+        var state = aiScrollState;
+
+        function hide() {
+          if (!state.hidden) { topSection.classList.add('hidden'); state.hidden = true; }
+        }
+        function show() {
+          if (state.hidden) { topSection.classList.remove('hidden'); state.hidden = false; }
+          clearTimeout(state.hideTimer);
+        }
+
+        // 1) 非 iframe 子面板：常规 scroll 检测
+        panel.addEventListener('scroll', function(e) {
+          var el = e.target;
+          if (el && el.classList && el.classList.contains('ai-subpanel')) {
+            var y = el.scrollTop;
+            var prev = el._aiLastScrollY || 0;
+            if (y > prev && y > 16) hide();
+            else if (y < prev) show();
+            el._aiLastScrollY = y;
+          }
+        }, { passive: true });
+
+        // 2) Poe iframe：wheel 事件代理（桌面端）
+        // wheel 事件在 iframe 上捕获阶段可以拿到，用于判断滚动方向
+        panel.addEventListener('wheel', function(e) {
+          clearTimeout(state.hideTimer);
+          if (e.deltaY > 0) { hide(); }
+          else if (e.deltaY < 0) { show(); }
+        }, { passive: true });
+
+        // 3) 鼠标悬停检测：进入 iframe 区域 2 秒后自动隐藏顶部
+        panel.addEventListener('mouseenter', function() {
+          clearTimeout(state.hideTimer);
+          state.hideTimer = setTimeout(hide, 2000);
+        });
+        panel.addEventListener('mouseleave', function(e) {
+          if (!panel.contains(e.relatedTarget)) { show(); }
+        });
+
+        // 4) 点击 panel 空白区域切换（不影响 iframe 和按钮交互）
+        panel.addEventListener('click', function(e) {
+          var t = e.target;
+          if (t.tagName === 'BUTTON' || t.tagName === 'A' || t.tagName === 'SELECT' || t.tagName === 'INPUT') return;
+          if (t.closest('.ai-subtab') || t.closest('.ai-subtab-bar')) return;
+          if (state.hidden) show(); else hide();
+        });
+
+        // 初始注册当前活跃子面板的 scroll 检测
+        attachScrollHideForActiveAiSubPanel();
+      }
+
+      function attachScrollHideForActiveAiSubPanel() {
+        // 给当前活跃的 .ai-subpanel.active 附加 scroll-hide
+        // 如果是 iframe 子面板，其内部的 scroll 无法监听，靠 wheel/mouse 兜底
+        var active = document.querySelector('#panel-ai .ai-subpanel.active');
+        if (active && !active._scrollHideSetup) {
+          setupScrollHide(active);
+        }
+      }
+
       // === PWA（版本号强制更新缓存） ===
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/sw.js?v=4").catch(function() {});
@@ -6505,6 +6579,8 @@ data: {"step":"done","message":"发布完成"}</pre>
         attachScrollHide('.history-list');
         attachScrollHide('.stats-container');
         attachScrollHide('.admin-container');
+        // AI 面板顶部隐藏（支持 iframe + 非 iframe 子面板）
+        setupAiScrollHide();
       });
     </script>
   <script>
