@@ -15,6 +15,18 @@ self.addEventListener("activate", (e) => {
   );
 });
 
+// 判断响应是否被 Cloudflare Access 拦截（302 到 cdn-cgi/access/login）
+function isCFAccessRedirect(res, request) {
+  // CF Access 拦截时返回 302 重定向到 cdn-cgi/access/login
+  if (res && res.status >= 300 && res.status < 400) {
+    const loc = res.headers.get("location") || "";
+    if (loc.includes("cdn-cgi/access/login") || loc.includes("cloudflareaccess.com")) {
+      return true;
+    }
+  }
+  return false;
+}
+
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   const isSameOrigin = url.origin === self.location.origin;
@@ -24,9 +36,25 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // API 请求：始终走网络，不缓存
+  // API 请求：始终走网络，不缓存；CF Access 拦截时直接透传不报错
   if (url.pathname.startsWith("/api/")) {
-    e.respondWith(fetch(e.request));
+    e.respondWith(
+      fetch(e.request).then((res) => {
+        // CF Access 拦截了 API：返回空响应而非让浏览器 CORS 报错
+        if (isCFAccessRedirect(res, e.request)) {
+          return new Response(JSON.stringify({ error: "auth_required" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return res;
+      }).catch(() => {
+        return new Response(JSON.stringify({ error: "network_error" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        });
+      })
+    );
     return;
   }
 
@@ -43,6 +71,10 @@ self.addEventListener("fetch", (e) => {
       return cache.match(e.request).then((cached) => {
         // 后台异步更新缓存（不阻塞响应）
         const fetchPromise = fetch(e.request).then((res) => {
+          // CF Access 拦截时不缓存，也不返回重定向（避免 SW 缓存污染）
+          if (isCFAccessRedirect(res, e.request)) {
+            return cached || res;
+          }
           // 只缓存成功响应
           if (res && res.status === 200) {
             cache.put(e.request, res.clone());

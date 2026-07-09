@@ -106,6 +106,33 @@ func NewServerWithDeps(cfg *config.Config, addr string, sshClient *ssh.Client, h
 }
 
 // buildHandler 构建路由和中间件
+// corsMiddleware 为所有响应添加 CORS 头，允许跨域访问和 iframe 嵌入。
+// 用于 Cloudflare Access 等反代场景，避免浏览器 CORS 策略阻断 API 调用。
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 允许所有来源（凭据模式下不能用 *，需要反射 Origin）
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = "*"
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Auth-Key, X-Requested-With")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+		// 允许任意站点以 iframe 方式嵌入（自己的页面）
+		// Vary: Origin，避免缓存混淆
+		w.Header().Add("Vary", "Origin")
+
+		// 预检请求直接返回 204
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) buildHandler() http.Handler {
 	mux := http.NewServeMux()
 
@@ -170,6 +197,7 @@ func (s *Server) buildHandler() http.Handler {
 		handler = s.basicAuth(mux)
 	}
 	handler = s.csrfMiddleware(handler)
+	handler = s.corsMiddleware(handler)
 
 	return handler
 }
@@ -282,6 +310,11 @@ func (s *Server) basicAuth(next http.Handler) http.Handler {
 	expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(s.cfg.Web.Auth))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// PWA 公共资源不需要认证（浏览器加载清单/SW 时不带 Auth 头）
+		if r.URL.Path == "/manifest.json" || r.URL.Path == "/sw.js" || r.URL.Path == "/favicon.ico" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		auth := r.Header.Get("Authorization")
 		if subtle.ConstantTimeCompare([]byte(auth), []byte(expectedAuth)) != 1 {
 			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
