@@ -10,6 +10,20 @@
     <meta name="theme-color" content="#1a1a2e" />
     <script>
       var REFRESH_SEC = {{.RefreshSec}}; var LOG_REFRESH_SEC = {{.LogRefreshSec}};
+      var APP_BUILD = "{{.BuildTime}}";
+      // 检测 SW 缓存的版本是否过期，版本不一致时刷新一次
+      (function() {
+        try {
+          var cached = localStorage.getItem("knowly_build");
+          if (cached && cached !== APP_BUILD) {
+            localStorage.setItem("knowly_build", APP_BUILD);
+            // 给 SW 一点时间更新缓存，然后刷新
+            setTimeout(function() { location.reload(); }, 500);
+          } else if (!cached) {
+            localStorage.setItem("knowly_build", APP_BUILD);
+          }
+        } catch (e) {}
+      })();
     </script>
     <style>
       :root {
@@ -6537,7 +6551,7 @@ data: {"step":"done","message":"发布完成"}</pre>
 
       // === PWA（版本号强制更新缓存） ===
       if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("/sw.js?v=4").catch(function() {});
+        navigator.serviceWorker.register("/sw.js?v=5").catch(function() {});
       }
 
       // === Init ===

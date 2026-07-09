@@ -42,6 +42,7 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	tmpl.Execute(w, map[string]interface{}{
 		"RefreshSec":    s.cfg.Web.RefreshSec,
 		"LogRefreshSec": s.cfg.Web.LogRefreshSec,
+		"BuildTime":     BuildTime,
 	})
 }
 
@@ -59,7 +60,7 @@ func (s *Server) serveManifest(w http.ResponseWriter, r *http.Request) {
 // serveSW 返回 Service Worker
 func (s *Server) serveSW(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Write(swJS)
 }
 
