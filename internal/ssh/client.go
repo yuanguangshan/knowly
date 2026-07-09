@@ -3,7 +3,7 @@ package ssh
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -466,9 +466,9 @@ func (c *Client) WriteFile(path string, content string) error {
 	return nil
 }
 
-// ContentHash 返回内容的 MD5 哈希十六进制串
+// ContentHash 返回内容的 SHA-256 哈希十六进制串
 func ContentHash(data []byte) string {
-	h := md5.Sum(data)
+	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:])
 }
 

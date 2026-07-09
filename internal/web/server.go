@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"compress/gzip"
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
@@ -198,6 +199,7 @@ func (s *Server) buildHandler() http.Handler {
 	}
 	handler = s.csrfMiddleware(handler)
 	handler = s.corsMiddleware(handler)
+	handler = s.gzipMiddleware(handler)
 
 	return handler
 }
@@ -371,4 +373,64 @@ func (s *Server) UnsubscribeLog(ch chan string) {
 			break
 		}
 	}
+}
+
+// gzipMiddleware compresses HTML, JSON, and text responses for clients that
+// support gzip. SSE streams (/api/logs/stream) and binary downloads are
+// excluded. This dramatically reduces transfer size for the 6.7K-line
+// index.html and all JSON API payloads, especially over remote WAN links.
+func (s *Server) gzipMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip if client doesn't support gzip
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Skip SSE streams and file downloads — they handle their own output
+		if strings.HasSuffix(r.URL.Path, "/stream") || strings.HasSuffix(r.URL.Path, "/download") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Add("Vary", "Accept-Encoding")
+
+		// Remove Content-Length so gzipWriter.Flush doesn't write a wrong value
+		w.Header().Del("Content-Length")
+
+		gz := gzipPool.Get().(*gzip.Writer)
+		defer gzipPool.Put(gz)
+		gz.Reset(w)
+		defer gz.Close()
+
+		next.ServeHTTP(&gzipResponseWriter{ResponseWriter: w, Writer: gz}, r)
+	})
+}
+
+// gzipResponseWriter wraps http.ResponseWriter with a gzip.Writer.
+// WriteHeader is intercepted to remove Content-Length (invalid after compression)
+// and set the Content-Encoding header before status is committed.
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	Writer *gzip.Writer
+}
+
+func (g *gzipResponseWriter) Write(b []byte) (int, error) {
+	return g.Writer.Write(b)
+}
+
+func (g *gzipResponseWriter) Flush() {
+	if f, ok := g.ResponseWriter.(http.Flusher); ok {
+		g.Writer.Flush()
+		f.Flush()
+	}
+}
+
+// gzipPool reuses gzip.Writer instances to avoid allocations on every request.
+var gzipPool = sync.Pool{
+	New: func() interface{} {
+		gz, _ := gzip.NewWriterLevel(io.Discard, gzip.DefaultCompression)
+		return gz
+	},
 }

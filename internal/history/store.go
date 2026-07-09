@@ -114,7 +114,7 @@ func (s *Store) saveTagCache() {
 	if err != nil {
 		return
 	}
-	os.WriteFile(s.tagCachePath, data, 0644)
+	os.WriteFile(s.tagCachePath, data, 0600)
 }
 
 // ensureCount 在首次需要时统计文件行数
@@ -147,7 +147,7 @@ func (s *Store) Append(entry Entry) (string, error) {
 	// 在写入前统计已有条目数（避免与刚写入的条目重复计数）
 	s.ensureCount()
 
-	f, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return "", err
 	}

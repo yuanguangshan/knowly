@@ -15,8 +15,8 @@ func TestHashContent(t *testing.T) {
 	if hash1 == hash3 {
 		t.Error("different content should produce different hash")
 	}
-	if len(hash1) != 32 {
-		t.Errorf("expected 32-char hex hash, got %d chars", len(hash1))
+	if len(hash1) != 64 {
+		t.Errorf("expected 64-char hex hash (SHA-256), got %d chars", len(hash1))
 	}
 }
 
@@ -122,6 +122,31 @@ func TestShouldFilter(t *testing.T) {
 			got := ShouldFilter(tt.content, tt.minLength, tt.maxLength, tt.excludeWords)
 			if got != tt.want {
 				t.Errorf("ShouldFilter() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHashStrNormalization(t *testing.T) {
+	// The same logical content should produce the same hash regardless of
+	// BOM prefix, line ending style, or trailing whitespace.
+	base := hashStr("hello world\nsecond line")
+
+	cases := []struct {
+		name    string
+		content string
+	}{
+		{"CRLF endings", "hello world\r\nsecond line"},
+		{"trailing spaces", "hello world\nsecond line   "},
+		{"BOM prefix", "\xef\xbb\xbfhello world\nsecond line"},
+		{"lone CR", "hello world\rsecond line"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := hashStr(tc.content)
+			if h != base {
+				t.Errorf("hashStr(%q) = %s, want %s (same as base)", tc.name, h[:12], base[:12])
 			}
 		})
 	}

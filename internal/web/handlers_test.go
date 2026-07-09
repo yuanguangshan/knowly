@@ -2,11 +2,13 @@ package web
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -225,4 +227,91 @@ func (m *mockSSHClient) MoveFile(src, dst string) error {
 
 func (m *mockSSHClient) Connect() error {
 	return nil
+}
+
+func TestGzipMiddleware_CompressesHTML(t *testing.T) {
+	// Register a handler that writes a large HTML payload
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(strings.Repeat("<div>test content</div>\n", 500)))
+	})
+
+	s := &Server{
+		cfg: testConfig(),
+	}
+
+	handler := s.gzipMiddleware(mux)
+
+	// Request WITH gzip support
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Header().Get("Content-Encoding") != "gzip" {
+		t.Errorf("expected Content-Encoding gzip, got %q", rr.Header().Get("Content-Encoding"))
+	}
+
+	// Decompress and verify content
+	zr, err := gzip.NewReader(rr.Body)
+	if err != nil {
+		t.Fatalf("gzip.NewReader failed: %v", err)
+	}
+	decompressed, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("read decompressed: %v", err)
+	}
+
+	if len(decompressed) != 12000 { // 19 bytes * 500
+		t.Errorf("decompressed length = %d, want 12000", len(decompressed))
+	}
+
+	// Compressed body should be significantly smaller
+	if rr.Body.Len() >= len(decompressed) {
+		t.Errorf("compressed body (%d) should be smaller than original (%d)",
+			rr.Body.Len(), len(decompressed))
+	}
+}
+
+func TestGzipMiddleware_SkipsWhenNotAccepted(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("plain text response"))
+	})
+
+	s := &Server{cfg: testConfig()}
+	handler := s.gzipMiddleware(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	// No Accept-Encoding header
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Header().Get("Content-Encoding") == "gzip" {
+		t.Error("should not gzip when client doesn't accept it")
+	}
+	if rr.Body.String() != "plain text response" {
+		t.Errorf("body = %q, want plain text", rr.Body.String())
+	}
+}
+
+func TestGzipMiddleware_SkipsSSEStream(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/logs/stream", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("data: test\n\n"))
+	})
+
+	s := &Server{cfg: testConfig()}
+	handler := s.gzipMiddleware(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/logs/stream", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Header().Get("Content-Encoding") == "gzip" {
+		t.Error("SSE stream should not be gzipped")
+	}
 }

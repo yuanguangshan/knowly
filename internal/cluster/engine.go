@@ -419,7 +419,7 @@ func (e *Engine) saveClusters(result *ClusterResult) error {
 	if err != nil {
 		return fmt.Errorf("marshal clusters: %w", err)
 	}
-	return os.WriteFile(e.clustersPath, data, 0644)
+	return os.WriteFile(e.clustersPath, data, 0600)
 }
 
 // LoadClusters reads a previously persisted cluster result from disk.

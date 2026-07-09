@@ -2,7 +2,7 @@ package clipboard
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -47,11 +47,18 @@ func (i ImagePayload) Preview() string { return "[IMAGE]" }
 
 // hash 辅助函数
 func hashBytes(b []byte) string {
-	h := md5.Sum(b)
+	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
 
 func hashStr(s string) string {
+	// Normalize: strip BOM, unify line endings, trim whitespace.
+	// This eliminates false-dedup misses caused by x/clipboard
+	// returning slightly different byte encodings for the same content.
+	s = strings.TrimPrefix(s, "\xef\xbb\xbf")
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	s = strings.TrimSpace(s)
 	return hashBytes([]byte(s))
 }
 
@@ -270,7 +277,7 @@ func (m *Monitor) saveStatus() {
 		log.Printf("[WARN] Failed to marshal status: %v", err)
 		return
 	}
-	if err := os.WriteFile(m.statusPath, data, 0644); err != nil {
+	if err := os.WriteFile(m.statusPath, data, 0600); err != nil {
 		log.Printf("[WARN] Failed to write status file: %v", err)
 	}
 }

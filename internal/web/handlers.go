@@ -54,6 +54,7 @@ func (s *Server) serveFavicon(w http.ResponseWriter, r *http.Request) {
 // serveManifest 返回 PWA manifest.json
 func (s *Server) serveManifest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Write(manifestJSON)
 }
 

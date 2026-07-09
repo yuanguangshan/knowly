@@ -464,7 +464,7 @@ func DefaultConfig() *Config {
 		Knasync: KnasyncConfig{
 			Enabled:  false,
 			Endpoint: "https://knasync.yuanguangshan.workers.dev",
-			AuthKey:  "test1234",
+			AuthKey:  "",
 		},
 		Webhook: WebhookConfig{
 			Enabled: false,

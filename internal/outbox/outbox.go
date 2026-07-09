@@ -57,7 +57,7 @@ func (s *Store) Push(item Item) error {
 			uuid.New().String()[:8])
 	}
 
-	f, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return fmt.Errorf("outbox: failed to open: %w", err)
 	}

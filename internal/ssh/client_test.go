@@ -264,8 +264,8 @@ func TestContentHash(t *testing.T) {
 	if h1 == h3 {
 		t.Error("different content should produce different hash")
 	}
-	if len(h1) != 32 {
-		t.Errorf("expected 32-char hex hash, got %d chars", len(h1))
+	if len(h1) != 64 {
+		t.Errorf("expected 64-char hex hash (SHA-256), got %d chars", len(h1))
 	}
 }
 

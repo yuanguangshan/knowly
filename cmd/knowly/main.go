@@ -376,18 +376,6 @@ func handleImagePayload(client *ssh.Client, retryCfg retry.Config, v clipboard.I
 }
 
 // syncPDF 下载 PDF 并保存到 NAS
-// isZhihuURL 检查 URL 是否来自知乎
-func isZhihuURL(url string) bool {
-	return strings.Contains(strings.ToLower(url), "zhihu.com")
-}
-
-// truncateURL 截断 URL 用于日志显示
-func truncateURL(url string) string {
-	if len(url) <= 60 {
-		return url
-	}
-	return url[:60] + "..."
-}
 
 func syncPDF(client *ssh.Client, cfg *config.Config, urlStr string, timestamp time.Time, histStore *history.Store, outboxStore *outbox.Store, source string) {
 	log.Printf("[INFO] %s PDF detected: %s", source, urlStr)
