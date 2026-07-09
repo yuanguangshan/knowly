@@ -578,7 +578,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if afterStr != "" {
 		// 分页：加载指定时间戳之前的条目
-		afterTime, parseErr := time.Parse("2006-01-02 15:04:05", afterStr)
+		afterTime, parseErr := time.ParseInLocation("2006-01-02 15:04:05", afterStr, time.Local)
 		if parseErr != nil {
 			jsonError(w, "无效的 after 参数格式", http.StatusBadRequest)
 			return

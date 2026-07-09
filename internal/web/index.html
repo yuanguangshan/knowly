@@ -3938,6 +3938,9 @@ data: {"step":"done","message":"发布完成"}</pre>
       let currentTagFilter = "";
       let historyLoading = false;
       const historyPageSize = 30;
+      let historyHasMore = true;       // whether more older entries can be loaded
+      let historyOldestTime = null;    // timestamp of oldest loaded entry (for 'after' cursor)
+      let historyScrollBound = false;  // whether scroll listener is attached
       let currentFilePath = "";
       let currentFileContent = "";
       let selectedFileItem = null;
@@ -3994,6 +3997,7 @@ data: {"step":"done","message":"发布完成"}</pre>
         )
           loadYears();
         if (tab === "history") {
+          ensureHistoryScrollBound();
           loadTags();
           loadHistory({clear: true});
         }
@@ -5035,14 +5039,27 @@ data: {"step":"done","message":"发布完成"}</pre>
       async function loadHistory(opts) {
         opts = opts || {};
         var clear = opts.clear === true;
+        var append = opts.append === true;
         if (historyLoading) return;
         const list = document.getElementById("historyList");
 
         if (clear) {
           list.innerHTML = '<div class="empty-state">加载中...</div>';
+          historyHasMore = true;
+          historyOldestTime = null;
         }
 
+        // No more pages to load in append mode
+        if (append && !historyHasMore) return;
+
         historyLoading = true;
+
+        // Update or remove the loading footer
+        if (append) {
+          var footer = list.querySelector(".history-load-more");
+          if (footer) footer.textContent = "加载中...";
+        }
+
         try {
           let url =
             "/api/history?limit=" +
@@ -5051,58 +5068,103 @@ data: {"step":"done","message":"发布完成"}</pre>
             currentHistoryType;
           if (currentTagFilter)
             url += "&tag=" + encodeURIComponent(currentTagFilter);
+          // Append mode: use oldest timestamp as cursor
+          if (append && historyOldestTime)
+            url += "&after=" + encodeURIComponent(historyOldestTime);
 
           const entries = (await api(url)) || [];
 
           if (entries.length === 0 && clear) {
             list.innerHTML = '<div class="empty-state">暂无历史记录</div>';
+            historyHasMore = false;
           } else if (entries.length > 0) {
-            // 收集已有条目 ID（增量更新时去重）
-            const existingIds = new Set();
-            const existingItems = list.querySelectorAll(".history-item");
-            existingItems.forEach(el => {
-              if (el.dataset.entryId) existingIds.add(el.dataset.entryId);
-            });
+            if (clear || !append) {
+              // Fresh load or refresh — incremental dedup against existing
+              const existingIds = new Set();
+              const existingItems = list.querySelectorAll(".history-item");
+              existingItems.forEach(el => {
+                if (el.dataset.entryId) existingIds.add(el.dataset.entryId);
+              });
 
-            // 找出真正的新条目
-            const newEntries = entries.filter(e => !existingIds.has(e.id));
+              const newEntries = entries.filter(e => !existingIds.has(e.id));
 
-            if (newEntries.length === 0 && existingItems.length > 0) {
-              return; // 没有新数据，无需更新
-            }
+              if (newEntries.length === 0 && existingItems.length > 0) {
+                return;
+              }
 
-            // 渲染新条目
-            const fragment = document.createDocumentFragment();
-            newEntries.forEach((e) => {
-              const div = buildHistoryItem(e);
-              div.classList.add("history-new");
-              fragment.appendChild(div);
-            });
+              const fragment = document.createDocumentFragment();
+              newEntries.forEach((e) => {
+                const div = buildHistoryItem(e);
+                div.classList.add("history-new");
+                fragment.appendChild(div);
+              });
 
-            // 仅在首次加载时清空
-            if (existingItems.length === 0) {
-              list.innerHTML = "";
-            }
+              if (existingItems.length === 0) {
+                list.innerHTML = "";
+              }
 
-            // 新条目插入到顶部
-            if (list.firstChild) {
-              list.insertBefore(fragment, list.firstChild);
+              if (list.firstChild) {
+                list.insertBefore(fragment, list.firstChild);
+              } else {
+                list.appendChild(fragment);
+              }
+
+              // Track oldest for pagination
+              if (entries.length > 0) {
+                var oldest = entries[entries.length - 1];
+                historyOldestTime = oldest.timestamp;
+              }
+              // Full page means there might be more
+              historyHasMore = entries.length >= historyPageSize;
+
+              setTimeout(() => {
+                list.querySelectorAll(".history-new").forEach(el => el.classList.remove("history-new"));
+              }, 350);
             } else {
+              // Append mode — add older entries to the bottom
+              const fragment = document.createDocumentFragment();
+              entries.forEach((e) => {
+                const div = buildHistoryItem(e);
+                fragment.appendChild(div);
+              });
+
+              // Remove old footer before appending
+              var oldFooter = list.querySelector(".history-load-more");
+              if (oldFooter) oldFooter.remove();
+
               list.appendChild(fragment);
-            }
 
-            // 首次加载时在底部加提示
-            if (existingItems.length === 0) {
-              const footer = document.createElement("div");
-              footer.style.cssText = "padding:12px;text-align:center;font-size:12px;color:var(--text-secondary);border-top:1px solid var(--border);";
-              footer.textContent = "仅显示最新 30 条";
-              list.appendChild(footer);
+              // Track oldest for next page cursor
+              var oldest = entries[entries.length - 1];
+              historyOldestTime = oldest.timestamp;
+              historyHasMore = entries.length >= historyPageSize;
             }
+          } else if (append) {
+            // No entries returned in append mode — no more data
+            historyHasMore = false;
+          }
 
-            // 清理动画类
-            setTimeout(() => {
-              list.querySelectorAll(".history-new").forEach(el => el.classList.remove("history-new"));
-            }, 350);
+          // Update or add footer
+          var existingFooter = list.querySelector(".history-load-more");
+          if (historyHasMore) {
+            if (!existingFooter) {
+              existingFooter = document.createElement("div");
+              existingFooter.className = "history-load-more";
+              existingFooter.style.cssText = "padding:12px;text-align:center;font-size:12px;color:var(--text-secondary);border-top:1px solid var(--border);";
+              list.appendChild(existingFooter);
+            }
+            existingFooter.textContent = "下拉加载更多...";
+          } else {
+            if (existingFooter) existingFooter.remove();
+            // Show end-of-list marker only if we have items
+            var items = list.querySelectorAll(".history-item");
+            if (items.length > 0 && !append) {
+              var endFooter = document.createElement("div");
+              endFooter.className = "history-load-more";
+              endFooter.style.cssText = "padding:12px;text-align:center;font-size:12px;color:var(--text-secondary);border-top:1px solid var(--border);";
+              endFooter.textContent = "已加载全部记录";
+              list.appendChild(endFooter);
+            }
           }
         } catch (e) {
           if (clear)
@@ -5112,6 +5174,28 @@ data: {"step":"done","message":"发布完成"}</pre>
               "</div>";
         } finally {
           historyLoading = false;
+        }
+      }
+
+      // Infinite scroll: load more when user scrolls near the bottom
+      function onHistoryScroll() {
+        var list = document.getElementById("historyList");
+        if (!list) return;
+        var threshold = 100; // px from bottom
+        if (list.scrollTop + list.clientHeight >= list.scrollHeight - threshold) {
+          if (!historyLoading && historyHasMore) {
+            loadHistory({ append: true });
+          }
+        }
+      }
+
+      // Ensure scroll listener is attached once
+      function ensureHistoryScrollBound() {
+        if (historyScrollBound) return;
+        var list = document.getElementById("historyList");
+        if (list) {
+          list.addEventListener("scroll", onHistoryScroll, { passive: true });
+          historyScrollBound = true;
         }
       }
 
