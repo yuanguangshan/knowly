@@ -56,6 +56,9 @@ type Store struct {
 	tagCache      map[string]int // 标签计数缓存，避免每次 AllTags 全量扫描
 	tagCacheBuilt bool            // 标签缓存是否已构建
 	tagCachePath  string          // 标签缓存文件路径，用于持久化重启不丢失
+
+	statsCache     *Stats // 统计结果缓存
+	statsCacheTime time.Time // 缓存构建时间
 }
 
 // NewStore 创建历史存储实例
@@ -182,6 +185,9 @@ func (s *Store) Append(entry Entry) (string, error) {
 		}
 	}
 
+	// 新条目写入后清除统计缓存，下次请求时重建
+	s.statsCache = nil
+
 	return entry.ID, nil
 }
 
@@ -195,6 +201,9 @@ func (s *Store) compact() error {
 	if len(entries) <= s.maxEntries {
 		return nil
 	}
+
+	// 压缩后清除所有缓存
+	s.statsCache = nil
 
 	// 保留最近 maxEntries 条
 	keep := entries[len(entries)-s.maxEntries:]
@@ -421,6 +430,131 @@ func (s *Store) recentFallback(n int) ([]Entry, error) {
 	return entries, nil
 }
 
+// FindByTag 逆向扫描文件，返回包含指定标签的最近 limit 条记录。
+// 避免为标签过滤全量加载整个 history.jsonl 文件。
+func (s *Store) FindByTag(tag string, limit int) ([]Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	f, err := os.Open(s.path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fileSize := fi.Size()
+	if fileSize == 0 {
+		return nil, nil
+	}
+
+	var result []Entry
+	remaining := fileSize
+	var tailBuf []byte
+	atTail := true
+
+	// 多读一些块以确保找到足够多的匹配条目
+	maxScan := limit * 50
+	if maxScan > int(fileSize/readBlockSize)*readBlockSize+readBlockSize {
+		maxScan = int(fileSize)
+	}
+
+	for remaining > 0 && len(result) < limit {
+		readSize := int64(readBlockSize)
+		if remaining < readSize {
+			readSize = remaining
+		}
+		remaining -= readSize
+
+		chunkPtr := chunkPool.Get().(*[]byte)
+		chunk := (*chunkPtr)[:readSize]
+
+		if _, err := f.Seek(remaining, 0); err != nil {
+			chunkPool.Put(chunkPtr)
+			return nil, err
+		}
+		if _, err := f.Read(chunk); err != nil {
+			chunkPool.Put(chunkPtr)
+			return nil, err
+		}
+
+		combined := make([]byte, len(chunk)+len(tailBuf))
+		copy(combined, chunk)
+		copy(combined[len(chunk):], tailBuf)
+		tailBuf = nil
+		chunkPool.Put(chunkPtr)
+
+		data := combined
+		for i := len(data) - 1; i >= 0; i-- {
+			if data[i] == '\n' {
+				if !atTail || i < len(data)-1 {
+					line := strings.TrimRight(string(data[i+1:]), "\r")
+					if line != "" {
+						var e Entry
+						if json.Unmarshal([]byte(line), &e) == nil {
+							for _, t := range e.Tags {
+								if t == tag {
+									result = append(result, e)
+									break
+								}
+							}
+						}
+					}
+				}
+				atTail = false
+				data = data[:i]
+				if len(result) >= limit {
+					break
+				}
+			}
+		}
+		if len(data) > 0 {
+			tailBuf = data
+		}
+	}
+
+	// 处理文件开头未换行的最后一条
+	if len(tailBuf) > 0 && len(result) < limit {
+		line := strings.TrimRight(string(tailBuf), "\r")
+		if line != "" {
+			var e Entry
+			if json.Unmarshal([]byte(line), &e) == nil {
+				for _, t := range e.Tags {
+					if t == tag {
+						result = append(result, e)
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// 如果逆向扫描没找到足够多，回退到全量读取
+	if len(result) < limit {
+		entries, err := s.readAll()
+		if err != nil {
+			return result, nil
+		}
+		result = nil
+		for i := len(entries) - 1; i >= 0 && len(result) < limit; i-- {
+			for _, t := range entries[i].Tags {
+				if t == tag {
+					result = append(result, entries[i])
+					break
+				}
+			}
+		}
+	}
+
+	return result, nil
+}
+
 // RecentAfter 返回指定时间戳之前的 n 条记录（倒序），用于分页加载
 func (s *Store) RecentAfter(before time.Time, n int) ([]Entry, error) {
 	s.mu.Lock()
@@ -472,9 +606,15 @@ type Stats struct {
 }
 
 // Stats 聚合统计历史数据
+// 结果缓存 60 秒，避免高频请求全量扫描 history.jsonl
 func (s *Store) Stats() (*Stats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// 检查缓存是否有效（60 秒内）
+	if s.statsCache != nil && time.Since(s.statsCacheTime) < 60*time.Second {
+		return s.statsCache, nil
+	}
 
 	entries, err := s.readAll()
 	if err != nil {
@@ -551,6 +691,10 @@ func (s *Store) Stats() (*Stats, error) {
 			ImageCount: s.image,
 		})
 	}
+
+	// 缓存结果
+	s.statsCache = stats
+	s.statsCacheTime = time.Now()
 
 	return stats, nil
 }
@@ -717,6 +861,9 @@ func (s *Store) UpdateTags(id string, newTags []string) error {
 		return err
 	}
 
+	// 标签更新后清除统计缓存
+	s.statsCache = nil
+
 	return nil
 }
 
@@ -860,6 +1007,9 @@ func (s *Store) UpdateEntry(id, title string, newTags []string, summary string, 
 			}
 		}
 	}
+
+	// 更新后清除统计缓存
+	s.statsCache = nil
 
 	return nil
 }

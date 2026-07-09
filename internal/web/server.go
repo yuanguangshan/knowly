@@ -164,13 +164,81 @@ func (s *Server) buildHandler() http.Handler {
 		// 完整配置 API
 		mux.HandleFunc("/api/config", s.handleConfig)
 
-	// 构建处理链：Basic Auth -> 路由
+	// 构建处理链：CSRF 防护 -> Basic Auth -> 路由
 	handler := http.Handler(mux)
 	if s.cfg.Web.Auth != "" {
 		handler = s.basicAuth(mux)
 	}
+	handler = s.csrfMiddleware(handler)
 
 	return handler
+}
+
+// csrfMiddleware 校验非 GET 请求的 Origin/Referer 头，防止跨站请求伪造。
+// 对于同源请求直接放行；localhost 访问时 Origin 可能与 Host 端口不同但属于本机。
+func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// GET/HEAD/OPTIONS 不需要 CSRF 校验
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		origin := r.Header.Get("Origin")
+		referer := r.Header.Get("Referer")
+
+		// 如果 Origin 和 Referer 都为空，说明是同源的非浏览器请求（如 curl），放行
+		// Basic Auth 已提供认证层保护
+		if origin == "" && referer == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 校验 Origin 或 Referer 与请求的 Host 匹配
+		host := r.Host
+		if s.isSameOrigin(origin, host) || s.isSameOrigin(s.extractRefererHost(referer), host) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		log.Printf("[WARN] CSRF blocked: origin=%s referer=%s host=%s", origin, referer, host)
+		jsonError(w, "跨站请求已被拦截", http.StatusForbidden)
+	})
+}
+
+// isSameOrigin 检查 origin URL 的 host 部分是否与预期 host 匹配
+func (s *Server) isSameOrigin(originURL, expectedHost string) bool {
+	if originURL == "" {
+		return false
+	}
+	// 提取 origin 中的 host:port
+	// origin 格式: scheme://host:port
+	u := strings.SplitN(originURL, "://", 2)
+	if len(u) != 2 {
+		return false
+	}
+	hostPart := u[1]
+	// 去掉路径部分（如果有）
+	if idx := strings.Index(hostPart, "/"); idx >= 0 {
+		hostPart = hostPart[:idx]
+	}
+	return hostPart == expectedHost
+}
+
+// extractRefererHost 从 referer URL 中提取 host:port
+func (s *Server) extractRefererHost(refererURL string) string {
+	if refererURL == "" {
+		return ""
+	}
+	u := strings.SplitN(refererURL, "://", 2)
+	if len(u) != 2 {
+		return ""
+	}
+	hostPart := u[1]
+	if idx := strings.Index(hostPart, "/"); idx >= 0 {
+		hostPart = hostPart[:idx]
+	}
+	return hostPart
 }
 
 // Start 启动 Web 服务器（阻塞）

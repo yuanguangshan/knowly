@@ -76,6 +76,22 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+// safeJoinPath 安全地拼接 BasePath 和用户提供的相对路径，防止路径遍历攻击。
+// 返回拼接后的绝对路径；如果 relPath 试图逃出 baseDir 则返回空字符串。
+func safeJoinPath(baseDir, relPath string) string {
+	// 清理路径，去除 ..、多余的 / 等
+	cleaned := filepath.Clean("/" + relPath) // 前置 / 使其成为绝对路径，消除开头的 ..
+	// 去掉开头的 /
+	cleaned = strings.TrimPrefix(cleaned, "/")
+	fullPath := filepath.Join(baseDir, cleaned)
+	// 二次校验：确保结果在 baseDir 之下
+	rel, err := filepath.Rel(baseDir, fullPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+	return fullPath
+}
+
 // parseLogLine 解析日志行
 func parseLogLine(line string) map[string]string {
 	result := map[string]string{"raw": line}
@@ -237,9 +253,14 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	logCh := s.SubscribeLog()
 	defer s.UnsubscribeLog(logCh)
 
-	// 文件轮询兜底（2s），防止行堆积在文件缓冲区
-	ticker := time.NewTicker(2 * time.Second)
+	// 文件轮询兜底（10s），频率降低以减少 IO 开销
+	// 内存推送通道已覆盖实时性，轮询仅作为缓冲区兜底
+	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
+
+	// 心跳定时器（30s），防止代理/浏览器因无数据超时断开连接
+	heartbeat := time.NewTicker(30 * time.Second)
+	defer heartbeat.Stop()
 
 	f, err := os.Open(logPath)
 	if err != nil {
@@ -300,6 +321,10 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 			sendLine(line)
 		case <-ticker.C:
 			pollFile()
+		case <-heartbeat.C:
+			// SSE 心跳注释行，不产生数据事件，仅保持连接活跃
+			fmt.Fprintf(w, ": heartbeat\n\n")
+			flusher.Flush()
 		}
 	}
 }
@@ -307,7 +332,11 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 // handleArchiveList 列出归档目录
 func (s *Server) handleArchiveList(w http.ResponseWriter, r *http.Request) {
 	relPath := r.URL.Query().Get("path")
-	fullPath := filepath.Join(s.cfg.SSH.BasePath, relPath)
+	fullPath := safeJoinPath(s.cfg.SSH.BasePath, relPath)
+	if fullPath == "" {
+		jsonError(w, "非法路径", http.StatusBadRequest)
+		return
+	}
 
 	entries, err := s.sshClient.ListDir(fullPath)
 	if err != nil {
@@ -459,7 +488,11 @@ func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fullPath := filepath.Join(s.cfg.SSH.BasePath, relPath)
+	fullPath := safeJoinPath(s.cfg.SSH.BasePath, relPath)
+	if fullPath == "" {
+		jsonError(w, "非法路径", http.StatusBadRequest)
+		return
+	}
 
 	// 检查文件大小
 	maxSize := s.cfg.Web.MaxDownloadSize
@@ -489,7 +522,11 @@ func (s *Server) handleArchiveDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fullPath := filepath.Join(s.cfg.SSH.BasePath, relPath)
+	fullPath := safeJoinPath(s.cfg.SSH.BasePath, relPath)
+	if fullPath == "" {
+		jsonError(w, "非法路径", http.StatusBadRequest)
+		return
+	}
 
 	// 检查文件大小
 	maxSize := s.cfg.Web.MaxDownloadSize
@@ -526,16 +563,12 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	var entries []history.Entry
 	var err error
 
-	// 有标签过滤时读取全部记录，因为目标条目可能不在最近 N 条中
+	// 有标签过滤时使用 FindByTag 逆向扫描，避免全量加载
 	if tagFilter != "" {
-		entries, err = s.histStore.ReadAll()
+		entries, err = s.histStore.FindByTag(tagFilter, limit)
 		if err != nil {
 			jsonError(w, fmt.Sprintf("无法读取历史: %v", err), http.StatusInternalServerError)
 			return
-		}
-		// 倒序：最新的在前面
-		for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
-			entries[i], entries[j] = entries[j], entries[i]
 		}
 	} else if afterStr != "" {
 		// 分页：加载指定时间戳之前的条目
@@ -1882,7 +1915,11 @@ func (s *Server) handleUploadsDownload(w http.ResponseWriter, r *http.Request) {
 
 	// 防止路径穿越
 	filename = filepath.Base(filename)
-	fullPath := filepath.Join(s.cfg.SSH.BasePath, "uploads", filename)
+	fullPath := safeJoinPath(filepath.Join(s.cfg.SSH.BasePath, "uploads"), filename)
+	if fullPath == "" {
+		jsonError(w, "非法路径", http.StatusBadRequest)
+		return
+	}
 
 	// 检查文件大小
 	maxSize := s.cfg.Web.MaxDownloadSize

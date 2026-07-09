@@ -4227,11 +4227,9 @@ data: {"step":"done","message":"发布完成"}</pre>
           const lines = await api(
             "/api/logs?level=" + currentLevel + "&limit=300",
           );
-          console.log("loadLogs:", lines.length, "entries");
           const container = document.getElementById("logContainer");
           const html = lines.map((l) => buildLogLineHtml(l)).join("");
           container.innerHTML = html;
-          console.log("rendered", html.length, "bytes");
         } catch (e) {
           console.error("loadLogs error:", e);
         }
@@ -5981,7 +5979,10 @@ data: {"step":"done","message":"发布完成"}</pre>
               }
             }
           }
-        } catch (e) {}
+        } catch (e) {
+          console.error("loadAllConfig error:", e);
+          document.getElementById("settingsLoading").textContent = "配置加载失败: " + e.message;
+        }
       }
 
       async function saveAllConfig() {
@@ -6582,58 +6583,84 @@ data: {"step":"done","message":"发布完成"}</pre>
         // AI 面板顶部隐藏（支持 iframe + 非 iframe 子面板）
         setupAiScrollHide();
       });
-    </script>
-  <script>
-  // === 聚类 ===
-  async function loadClusters() {
-    const grid = document.getElementById("clusterGrid");
-    const subtitle = document.getElementById("clusterSubtitle");
-    try {
-      const resp = await fetch("/api/clusters");
-      if (!resp.ok) { grid.innerHTML = '<div class="cluster-empty">❌ 无法加载聚类</div>'; return; }
-      const data = await resp.json();
-      if (!data.clusters || data.clusters.length === 0) {
-        grid.innerHTML = '<div class="cluster-empty">暂无聚类结果。请先启用 AI，然后点击"重新聚类"按钮生成聚类。</div>';
-        subtitle.textContent = "";
-        return;
-      }
-      const pct = data.total_entries > 0 ? Math.round(data.clustered_count / data.total_entries * 100) : 0;
-      const genAt = data.generated_at ? new Date(data.generated_at).toLocaleString("zh-CN") : "未知";
-      subtitle.textContent = `上次聚类: ${genAt} | 覆盖 ${data.clustered_count}/${data.total_entries} 条 (${pct}%)`;
-      grid.innerHTML = data.clusters.map(c => '\
+
+      // === 聚类 ===
+      async function loadClusters() {
+        const grid = document.getElementById("clusterGrid");
+        const subtitle = document.getElementById("clusterSubtitle");
+        try {
+          const resp = await fetch("/api/clusters");
+          if (!resp.ok) { grid.innerHTML = '<div class="cluster-empty">❌ 无法加载聚类</div>'; return; }
+          const data = await resp.json();
+          if (!data.clusters || data.clusters.length === 0) {
+            grid.innerHTML = '<div class="cluster-empty">暂无聚类结果。请先启用 AI，然后点击"重新聚类"按钮生成聚类。</div>';
+            subtitle.textContent = "";
+            return;
+          }
+          const pct = data.total_entries > 0 ? Math.round(data.clustered_count / data.total_entries * 100) : 0;
+          const genAt = data.generated_at ? new Date(data.generated_at).toLocaleString("zh-CN") : "未知";
+          subtitle.textContent = `上次聚类: ${genAt} | 覆盖 ${data.clustered_count}/${data.total_entries} 条 (${pct}%)`;
+          grid.innerHTML = data.clusters.map(c => '\
         <div class="cluster-card" onclick="toggleCluster(this)">\
           <div class="cluster-card-header">\
-            <span class="cluster-card-name">' + escapeHtml(c.name) + '</span>\
+            <span class="cluster-card-name">' + escHtml(c.name) + '</span>\
             <span class="cluster-card-count">' + c.entry_count + ' 条</span>\
           </div>\
-          <div class="cluster-card-desc">' + escapeHtml(c.description || "") + '</div>\
-          <div class="cluster-card-tags">' + (c.common_tags || []).map(t => '<span class="cluster-card-tag">' + escapeHtml(t) + '</span>').join("") + '</div>\
-          <div class="cluster-entries">' + (c.entry_ids || []).map(id => '<div class="cluster-entry">' + escapeHtml(id.slice(0, 14)) + '</div>').join("") + '</div>\
+          <div class="cluster-card-desc">' + escHtml(c.description || "") + '</div>\
+          <div class="cluster-card-tags">' + (c.common_tags || []).map(t => '<span class="cluster-card-tag">' + escHtml(t) + '</span>').join("") + '</div>\
+          <div class="cluster-entries">' + (c.entry_ids || []).map(id => '<div class="cluster-entry">' + escHtml(id.slice(0, 14)) + '</div>').join("") + '</div>\
         </div>').join("");
-    } catch (e) {
-      grid.innerHTML = '<div class="cluster-empty">❌ 加载失败: ' + e.message + '</div>';
-    }
-  }
+        } catch (e) {
+          grid.innerHTML = '<div class="cluster-empty">❌ 加载失败: ' + e.message + '</div>';
+        }
+      }
 
-  function toggleCluster(card) {
-    const entries = card.querySelector(".cluster-entries");
-    entries.classList.toggle("open");
-  }
+      function toggleCluster(card) {
+        const entries = card.querySelector(".cluster-entries");
+        entries.classList.toggle("open");
+      }
 
-  async function rerunCluster() {
-    const btn = document.getElementById("btnRerunCluster");
-    btn.disabled = true; btn.textContent = "⏳ 聚类中...";
-    try {
-      await fetch("/api/clusters/rerun", { method: "POST" });
-      setTimeout(loadClusters, 5000);
-      setTimeout(() => { btn.disabled = false; btn.textContent = "🔄 重新聚类"; }, 3000);
-    } catch (e) {
-      btn.disabled = false; btn.textContent = "🔄 重新聚类";
-      alert("启动聚类失败: " + e.message);
-    }
-  }
-
-  function escapeHtml(s) { if (!s) return ""; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  </script>
+      async function rerunCluster() {
+        const btn = document.getElementById("btnRerunCluster");
+        const subtitle = document.getElementById("clusterSubtitle");
+        btn.disabled = true; btn.textContent = "⏳ 聚类中...";
+        try {
+          await fetch("/api/clusters/rerun", { method: "POST" });
+          subtitle.textContent = "正在聚类，请稍候...";
+          // 记录请求时间作为基线，用于检测新结果
+          const startTime = Date.now();
+          // 轮询检查聚类是否完成（最多等待 120 秒）
+          const pollCluster = async () => {
+            try {
+              const resp = await fetch("/api/clusters");
+              if (resp.ok) {
+                const data = await resp.json();
+                const genAt = data.generated_at ? new Date(data.generated_at).getTime() : 0;
+                if (genAt > startTime) {
+                  // 聚类已完成，加载新结果
+                  loadClusters();
+                  btn.disabled = false; btn.textContent = "🔄 重新聚类";
+                  return;
+                }
+              }
+            } catch (e) { /* 忽略轮询错误，继续重试 */ }
+            // 未完成，3 秒后重试
+            setTimeout(pollCluster, 3000);
+          };
+          // 首次延迟 5 秒开始轮询（聚类通常需要 20-30 秒）
+          setTimeout(pollCluster, 5000);
+          // 超时保护：120 秒后恢复按钮
+          setTimeout(() => {
+            if (btn.disabled) {
+              btn.disabled = false; btn.textContent = "🔄 重新聚类";
+              loadClusters();
+            }
+          }, 120000);
+        } catch (e) {
+          btn.disabled = false; btn.textContent = "🔄 重新聚类";
+          alert("启动聚类失败: " + e.message);
+        }
+      }
+    </script>
 </body>
 </html>
