@@ -3,12 +3,18 @@ package web
 import (
 	"context"
 	"compress/gzip"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -61,6 +67,7 @@ type Server struct {
 	syncTextFn SyncTextFn
 	logSubs   []*logSubscriber // 日志实时订阅者列表
 	logMu     sync.RWMutex
+	sessionKey []byte // 用于签名 session cookie，启动时随机生成
 }
 
 // NewServer 创建 Web 服务器实例（创建新的 SSH 和 History 依赖）
@@ -83,6 +90,7 @@ func NewServer(cfg *config.Config, addr string) *Server {
 		aiProcessor: aiProcessor,
 		addr:        addr,
 		startTime:   time.Now(),
+		sessionKey:  sessionKeyInit(),
 	}
 }
 
@@ -98,6 +106,7 @@ func NewServerWithDeps(cfg *config.Config, addr string, sshClient *ssh.Client, h
 		addr:       addr,
 		startTime:  time.Now(),
 		syncTextFn: syncTextFn,
+		sessionKey: sessionKeyInit(),
 	}
 	// 接管日志输出：写入文件的同时推送给 SSE 订阅者
 	oldWriter := log.Writer()
@@ -192,10 +201,14 @@ func (s *Server) buildHandler() http.Handler {
 		// 完整配置 API
 		mux.HandleFunc("/api/config", s.handleConfig)
 
-	// 构建处理链：CSRF 防护 -> Basic Auth -> 路由
+	// 登录页和登录 API（无需认证）
+	mux.HandleFunc("/login", s.handleLoginPage)
+	mux.HandleFunc("/api/login", s.handleLogin)
+
+	// 构建处理链：认证 -> CSRF -> CORS -> Gzip
 	handler := http.Handler(mux)
 	if s.cfg.Web.Auth != "" {
-		handler = s.basicAuth(mux)
+		handler = s.authMiddleware(mux)
 	}
 	handler = s.csrfMiddleware(handler)
 	handler = s.corsMiddleware(handler)
@@ -306,30 +319,124 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// basicAuth 返回一个 HTTP Basic Auth 中间件
-func (s *Server) basicAuth(next http.Handler) http.Handler {
-	// 预计算期望的 Authorization header 值
+// authMiddleware 认证中间件，支持两种认证方式：
+// 1. Authorization: Basic header（curl / API / 前端 localStorage 拦截器）
+// 2. Session cookie（登录页面设置）
+// 未认证时：浏览器请求返回登录页，API 请求返回 401 JSON
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(s.cfg.Web.Auth))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// PWA 公共资源不需要认证（浏览器加载清单/SW 时不带 Auth 头）
-		if r.URL.Path == "/manifest.json" || r.URL.Path == "/sw.js" || r.URL.Path == "/favicon.ico" {
+		// 免认证路径
+		if r.URL.Path == "/login" || r.URL.Path == "/api/login" ||
+			r.URL.Path == "/manifest.json" || r.URL.Path == "/sw.js" || r.URL.Path == "/favicon.ico" {
 			next.ServeHTTP(w, r)
 			return
 		}
+
 		auth := r.Header.Get("Authorization")
-		if subtle.ConstantTimeCompare([]byte(auth), []byte(expectedAuth)) != 1 {
-			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		if subtle.ConstantTimeCompare([]byte(auth), []byte(expectedAuth)) == 1 {
+			next.ServeHTTP(w, r)
 			return
 		}
-		next.ServeHTTP(w, r)
+
+		// 检查 session cookie
+		if s.validateSession(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 未认证：浏览器请求返回登录页，API 请求返回 401
+		accept := r.Header.Get("Accept")
+		if strings.Contains(accept, "text/html") && r.Method == http.MethodGet {
+			s.handleLoginPage(w, r)
+			return
+		}
+		jsonError(w, "Unauthorized", http.StatusUnauthorized)
+	})
+}
+
+// sessionCookieName session cookie 名称
+const sessionCookieName = "knowly_session"
+
+// generateSession 创建签名 session token
+func (s *Server) generateSession() (string, error) {
+	expiry := time.Now().Add(30 * 24 * time.Hour).Unix()
+	token := fmt.Sprintf("%d", expiry)
+	return s.signToken(token), nil
+}
+
+// validateSession 验证请求中的 session cookie
+func (s *Server) validateSession(r *http.Request) bool {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return false
+	}
+	if !s.verifyToken(cookie.Value) {
+		return false
+	}
+	// 检查过期
+	parts := strings.SplitN(cookie.Value, ".", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	expiry, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || time.Now().Unix() > expiry {
+		return false
+	}
+	return true
+}
+
+// signToken 用 sessionKey 签名 token
+func (s *Server) signToken(data string) string {
+	mac := hmac.New(sha256.New, s.sessionKey)
+	mac.Write([]byte(data))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	return data + "." + sig
+}
+
+// verifyToken 验证签名
+func (s *Server) verifyToken(token string) bool {
+	parts := strings.SplitN(token, ".", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	expected := s.signToken(parts[0])
+	return subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
+}
+
+// setSessionCookie 设置 session cookie
+func (s *Server) setSessionCookie(w http.ResponseWriter) {
+	token, err := s.generateSession()
+	if err != nil {
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 3600, // 30 天
 	})
 }
 
 // basicAuthDisabled 检查是否配置了 Web 认证
 func basicAuthDisabled(auth string) bool {
 	return strings.TrimSpace(auth) == ""
+}
+
+// sessionKeyInit 初始化 sessionKey（启动时调用）
+func sessionKeyInit() []byte {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		// fallback：用时间戳 + PID 混合（不完美但可用）
+		pid := os.Getpid()
+		h := sha256.Sum256([]byte(fmt.Sprintf("%d-%d", time.Now().UnixNano(), pid)))
+		return h[:]
+	}
+	return key
 }
 
 // logBroadcastWriter 是一个 io.Writer，收到日志行后广播给所有 SSE 订阅者

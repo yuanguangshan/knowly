@@ -709,6 +709,71 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, status)
 }
 
+// handleLoginPage 返回自包含的 HTML 登录页面
+func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, `<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Knowly 登录</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;display:flex;align-items:center;justify-content:center;min-height:100vh;color:#e0e0e0}
+.login-box{background:#16213e;padding:40px;border-radius:16px;width:340px;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+h1{text-align:center;margin-bottom:8px;font-size:24px;color:#4fc3f7}
+.subtitle{text-align:center;margin-bottom:28px;font-size:13px;color:#888}
+label{display:block;margin-bottom:6px;font-size:13px;color:#aaa}
+input{width:100%;padding:12px 14px;border:1px solid #333;border-radius:8px;background:#0f3460;color:#e0e0e0;font-size:15px;outline:none;transition:border-color .2s}
+input:focus{border-color:#4fc3f7}
+.form-group{margin-bottom:18px}
+button{width:100%;padding:12px;border:none;border-radius:8px;background:linear-gradient(135deg,#1a73e8,#4fc3f7);color:#fff;font-size:16px;cursor:pointer;transition:opacity .2s}
+button:hover{opacity:.9}
+button:disabled{opacity:.5;cursor:not-allowed}
+.error{color:#ff5252;font-size:13px;margin-top:10px;text-align:center;display:none}
+.loading{display:none;text-align:center;margin-top:12px;font-size:13px;color:#888}
+</style>
+</head><body>
+<div class="login-box">
+<h1>Knowly</h1>
+<p class="subtitle">请输入管理密码</p>
+<form id="loginForm" onsubmit="return doLogin(event)">
+<div class="form-group"><label>用户名</label><input type="text" id="username" placeholder="用户名" autocomplete="username" required></div>
+<div class="form-group"><label>密码</label><input type="password" id="password" placeholder="密码" autocomplete="current-password" required></div>
+<button type="submit" id="loginBtn">登 录</button>
+<div class="loading" id="loading">验证中...</div>
+<div class="error" id="error"></div>
+</form>
+</div>
+<script>
+function doLogin(e){e.preventDefault();var u=document.getElementById("username").value,p=document.getElementById("password").value;document.getElementById("loginBtn").disabled=true;document.getElementById("loading").style.display="block";document.getElementById("error").style.display="none";fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})}).then(function(r){if(r.ok){localStorage.setItem("knowly_auth",btoa(u+":"+p));window.location.href="/"}else{document.getElementById("loginBtn").disabled=false;document.getElementById("loading").style.display="none";document.getElementById("error").textContent="用户名或密码错误";document.getElementById("error").style.display="block"}}).catch(function(){document.getElementById("loginBtn").disabled=false;document.getElementById("loading").style.display="none";document.getElementById("error").textContent="网络错误，请重试";document.getElementById("error").style.display="block"});return false}
+</script>
+</body></html>`)
+}
+
+// handleLogin 验证凭据，设置 session cookie
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var creds struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		jsonError(w, "无效的请求体", http.StatusBadRequest)
+		return
+	}
+	expected := s.cfg.Web.Auth // "user:password"
+	parts := strings.SplitN(expected, ":", 2)
+	if len(parts) != 2 || parts[0] != creds.Username || parts[1] != creds.Password {
+		jsonError(w, "用户名或密码错误", http.StatusUnauthorized)
+		return
+	}
+	s.setSessionCookie(w)
+	jsonResp(w, map[string]string{"status": "ok"})
+}
+
 // knowlyDaemonLabel 是管理 knowly daemon 的 LaunchAgent Label
 const knowlyDaemonLabel = "com.knowly.daemon"
 
