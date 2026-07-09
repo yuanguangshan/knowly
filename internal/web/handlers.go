@@ -854,20 +854,36 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 // findProjectRoot 从当前目录向上查找包含 go.mod 的目录
+// 随后回退到常见源码位置（守护进程的 cwd 可能是 / 或 ~）
 func findProjectRoot() string {
+	// 优先从 cwd 向上查找
 	dir, err := os.Getwd()
-	if err != nil {
-		return ""
+	if err == nil {
+		for i := 0; i < 20; i++ {
+			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+				return dir
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
 	}
-	for i := 0; i < 20; i++ {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
+
+	// 回退：检查常见源码路径
+	home, err := os.UserHomeDir()
+	if err == nil {
+		candidates := []string{
+			filepath.Join(home, "ygs", "knowly"),
+			filepath.Join(home, "knowly"),
+			filepath.Join(home, "src", "knowly"),
 		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
+		for _, path := range candidates {
+			if _, err := os.Stat(filepath.Join(path, "go.mod")); err == nil {
+				return path
+			}
 		}
-		dir = parent
 	}
 	return ""
 }
