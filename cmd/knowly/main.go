@@ -797,7 +797,30 @@ func removePidFile() {
 }
 
 // stopDaemon 停止守护进程
+// daemonPlistPath 返回 LaunchAgent plist 路径；不存在则返回空串。
+func daemonPlistPath() string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		return ""
+	}
+	p := filepath.Join(home, "Library", "LaunchAgents", "com.knowly.daemon.plist")
+	if _, err := os.Stat(p); err != nil {
+		return ""
+	}
+	return p
+}
+
 func stopDaemon() {
+	// 优先交给 LaunchAgent：unload 后 KeepAlive 不再拉起，避免「刚 stop 就被 launchd 重启」的循环。
+	if plist := daemonPlistPath(); plist != "" {
+		out, err := exec.Command("launchctl", "unload", plist).CombinedOutput()
+		if err == nil {
+			fmt.Println("✓ knowly daemon stopped (LaunchAgent unloaded)")
+			return
+		}
+		fmt.Fprintf(os.Stderr, "launchctl unload failed: %s; fallback to PID file\n", strings.TrimSpace(string(out)))
+	}
+	// 回退：靠 PID 文件发 SIGTERM
 	pidPath := config.GetPidPath()
 	data, err := os.ReadFile(pidPath)
 	if err != nil {
@@ -862,7 +885,21 @@ func handleCLI(args []string, cfg *config.Config, histStore *history.Store) {
 	cmd := args[0]
 	switch cmd {
 	case "start":
-		// Re-exec with --daemon flag to start the daemon
+		// 优先交给 LaunchAgent：load 让 launchd 拉起并持续看护（KeepAlive）。
+		if plist := daemonPlistPath(); plist != "" {
+			out, err := exec.Command("launchctl", "load", plist).CombinedOutput()
+			if err == nil {
+				fmt.Println("✓ knowly daemon started (LaunchAgent loaded)")
+				return
+			}
+			// 已加载时报错，视为已在运行
+			if strings.Contains(string(out), "already") {
+				fmt.Println("✓ knowly daemon already running (LaunchAgent)")
+				return
+			}
+			fmt.Fprintf(os.Stderr, "launchctl load failed: %s; fallback to re-exec\n", strings.TrimSpace(string(out)))
+		}
+		// 回退：直接 re-exec 一个独立 daemon（不由 launchd 管理）
 		cmd := exec.Command(os.Args[0], "--daemon")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

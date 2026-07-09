@@ -704,9 +704,19 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, status)
 }
 
-// restartDaemonScript 生成重启 daemon 的 shell 脚本
+// knowlyDaemonLabel 是管理 knowly daemon 的 LaunchAgent Label
+const knowlyDaemonLabel = "com.knowly.daemon"
+
+// restartDaemonScript 生成重启 daemon 的 shell 脚本。
+// 优先用 launchctl kickstart -k 让 launchd 原子地「杀旧实例 + 立即起新实例」，
+// 这样不会与 plist 的 KeepAlive 冲突，也不会出现双进程；
+// 仅当未安装 LaunchAgent（kickstart 失败）时回退到 knowly stop/start。
 func (s *Server) restartDaemonScript(pid int, exePath string) string {
-	return "knowly stop 2>/dev/null; sleep 1; knowly start"
+	target := fmt.Sprintf("gui/%d/%s", os.Getuid(), knowlyDaemonLabel)
+	return fmt.Sprintf(
+		"launchctl kickstart -k %s 2>/dev/null || { knowly stop 2>/dev/null; sleep 1; knowly start; }",
+		target,
+	)
 }
 
 // handleRestart 重启 knowly daemon 进程
