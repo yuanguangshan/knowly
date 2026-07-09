@@ -40,7 +40,7 @@ targets.forEach(target => {
   const outputPath = path.join(binDir, target.output);
 
   try {
-    execSync(`go build -o ${outputPath} -ldflags="-s -w" ./cmd/knowly`, {
+    execSync(`go build -o ${outputPath} -ldflags="-X github.com/yuanguangshan/knowly/internal/web.BuildTime=$(date +%Y%m%d%H%M%S) -s -w" ./cmd/knowly`, {
       env,
       stdio: 'inherit'
     });

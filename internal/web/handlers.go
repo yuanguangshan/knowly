@@ -57,11 +57,15 @@ func (s *Server) serveManifest(w http.ResponseWriter, r *http.Request) {
 	w.Write(manifestJSON)
 }
 
-// serveSW 返回 Service Worker
+// serveSW 返回 Service Worker。
+// 将编译版本号(BuildTime)注入 cache name 占位符，使每次发布后 sw.js 字节发生变化，
+// 浏览器据此更新 SW，新 SW 在 activate 阶段清掉旧版本缓存。
 func (s *Server) serveSW(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	w.Write(swJS)
+	// 用 ReplaceAll 替换所有版本占位符；BuildTime 变化 → sw.js 字节变化 → 浏览器更新 SW。
+	body := strings.ReplaceAll(string(swJS), "__BUILD_TIME__", BuildTime)
+	w.Write([]byte(body))
 }
 
 // jsonResp 写入 JSON 响应
@@ -798,7 +802,11 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendEvent("building", "编译中...")
-	cmd := exec.Command("go", "build", "-o", tmpBinary, "./cmd/knowly")
+	// 注入编译版本号，驱动前端 / SW 缓存失效
+	buildTS := time.Now().Format("20060102150405")
+	cmd := exec.Command("go", "build",
+		"-ldflags", "-X github.com/yuanguangshan/knowly/internal/web.BuildTime="+buildTS,
+		"-o", tmpBinary, "./cmd/knowly")
 	cmd.Dir = sourceDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {

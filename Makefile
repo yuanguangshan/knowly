@@ -5,8 +5,8 @@ BINARY_NAME=knowly
 BUILD_DIR=bin
 CMD_DIR=cmd/knowly
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-BUILD_TIME=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME) -s -w"
+BUILD_TIME=$(shell date -u +"%Y%m%d%H%M%S")
+LDFLAGS=-ldflags "-X github.com/yuanguangshan/knowly/internal/web.BuildTime=$(BUILD_TIME) -s -w"
 
 help:
 	@echo "可用命令:"

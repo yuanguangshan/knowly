@@ -1,4 +1,5 @@
-const CACHE = "knowly-v5";
+// CACHE 名内嵌编译版本号（由 serveSW 在响应时注入），版本一变即自动作废旧缓存。
+const CACHE = "knowly-__BUILD_TIME__";
 
 // 安装时跳过等待，立即生效
 self.addEventListener("install", (e) => {

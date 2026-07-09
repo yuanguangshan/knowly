@@ -6551,7 +6551,7 @@ data: {"step":"done","message":"发布完成"}</pre>
 
       // === PWA（版本号强制更新缓存） ===
       if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("/sw.js?v=5").catch(function() {});
+        navigator.serviceWorker.register("/sw.js?v=" + APP_BUILD).catch(function() {});
       }
 
       // === Init ===

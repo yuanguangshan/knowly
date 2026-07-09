@@ -62,7 +62,8 @@ if [ -f "$PLIST" ]; then
 fi
 
 echo "Building $BINARY_NAME..."
-go build -o "$BINARY_NAME" ./cmd/knowly
+BUILD_TS=$(date +%Y%m%d%H%M%S)
+go build -ldflags "-X github.com/yuanguangshan/knowly/internal/web.BuildTime=$BUILD_TS" -o "$BINARY_NAME" ./cmd/knowly
 
 echo "Stopping knowly daemon..."
 # unload 让 launchd 停止 KeepAlive 看护，再 pkill 清掉所有游离进程
