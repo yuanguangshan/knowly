@@ -249,18 +249,21 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// isSameOrigin 检查 origin URL 的 host 部分是否与预期 host 匹配
+// isSameOrigin 检查 origin/referer 的 host 部分是否与请求的 Host 匹配。
+// 支持完整 URL（scheme://host/path）和纯 host（由 extractRefererHost 产出）两种格式。
 func (s *Server) isSameOrigin(originURL, expectedHost string) bool {
 	if originURL == "" {
 		return false
 	}
-	// 提取 origin 中的 host:port
-	// origin 格式: scheme://host:port
-	u := strings.SplitN(originURL, "://", 2)
-	if len(u) != 2 {
-		return false
+	hostPart := originURL
+	// 如果包含 scheme://，则提取 host:port 部分
+	if strings.Contains(originURL, "://") {
+		u := strings.SplitN(originURL, "://", 2)
+		if len(u) != 2 {
+			return false
+		}
+		hostPart = u[1]
 	}
-	hostPart := u[1]
 	// 去掉路径部分（如果有）
 	if idx := strings.Index(hostPart, "/"); idx >= 0 {
 		hostPart = hostPart[:idx]
