@@ -46,6 +46,9 @@ var (
 	wechatContentRegex = regexp.MustCompile(`(?is)content_noencode:\s*JsDecode\(['"](.*?)['"]\)`)
 	wechatHexRegex     = regexp.MustCompile(`\\x([a-fA-F0-9]{2})`)
 
+	// appmsg_type 9 帖子图的 content_noencode 是直接字符串赋值，没有 JsDecode 包装
+	wechatContentDirectRegex = regexp.MustCompile(`(?is)content_noencode:\s*'(.*?)',\s`)
+
 	// 微信 DOM 提取：#js_content 容器（仅用于定位起始标签）
 	jsContentStartRegex = regexp.MustCompile(`(?i)<div[^>]*id=["']js_content["'][^>]*>`)
 
@@ -271,6 +274,14 @@ func extractContent(html string) string {
 
 	// 2. 尝试微信 JS 变量提取（备用方案，应对微信改版导致 DOM 结构变化）
 	if wm := wechatContentRegex.FindStringSubmatch(html); len(wm) >= 2 {
+		decoded := decodeWechatHex(wm[1])
+		if len(decoded) > 100 {
+			return cleanHTML(decoded)
+		}
+	}
+
+	// 2.5 appmsg_type 9 帖子图：content_noencode 是直接字符串赋值（无 JsDecode 包装）
+	if wm := wechatContentDirectRegex.FindStringSubmatch(html); len(wm) >= 2 {
 		decoded := decodeWechatHex(wm[1])
 		if len(decoded) > 100 {
 			return cleanHTML(decoded)
