@@ -597,7 +597,7 @@ func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp 
 	// AI 处理
 	var meta *ssh.ContentMetadata
 	var aiTags []string
-	if aiProcessor != nil && aiProcessor.ShouldProcess(content) {
+	if aiProcessor != nil && aiProcessor.ShouldProcess(content) && aiProcessor.ShouldSendToAI(content) {
 		aiStart := time.Now()
 		fmt.Fprintf(os.Stdout, "%s [INFO] %s AI processing started (len=%d)\n", time.Now().Format("2006/01/02 15:04:05"), source, len(content))
 		aiCtx, aiCancel := context.WithTimeout(context.Background(), time.Duration(cfg.AI.Timeout)*time.Second)

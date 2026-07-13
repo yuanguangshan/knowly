@@ -3081,6 +3081,15 @@
                     />
                   </div>
                   <div class="cfg-row">
+                    <span class="cfg-label">AI 排除词</span
+                    ><input
+                      class="cfg-input"
+                      type="text"
+                      id="cfg-ai-ai_exclude_words"
+                      placeholder="逗号分隔，含这些词不同步到 AI"
+                    />
+                  </div>
+                  <div class="cfg-row">
                     <span class="cfg-label">超时(秒)</span
                     ><input
                       class="cfg-input"
@@ -6059,6 +6068,7 @@ data: {"step":"done","message":"发布完成"}</pre>
           setVal("cfg-ai-prompt", ai.prompt || "");
           setVal("cfg-ai-min_content_len", ai.min_content_len);
           setVal("cfg-ai-max_content_len", ai.max_content_len);
+          setVal("cfg-ai-ai_exclude_words", (ai.ai_exclude_words || []).join(", "));
           setVal("cfg-ai-timeout_sec", ai.timeout_sec);
 
           // AI preset dropdown
@@ -6205,6 +6215,7 @@ data: {"step":"done","message":"发布完成"}</pre>
                 .selectedOptions[0]?.textContent || "",
             min_content_len: getInt("cfg-ai-min_content_len"),
             max_content_len: getInt("cfg-ai-max_content_len"),
+            ai_exclude_words: document.getElementById("cfg-ai-ai_exclude_words").value.split(",").map(function(s) { return s.trim(); }).filter(Boolean),
             timeout_sec: getInt("cfg-ai-timeout_sec"),
           },
           clustering: {

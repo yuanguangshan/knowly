@@ -48,6 +48,22 @@ func (p *Processor) ShouldProcess(content string) bool {
 	return length >= p.cfg.MinContentLen && length <= p.cfg.MaxContentLen
 }
 
+// ShouldSendToAI 检查内容是否应发送到外部 AI API。
+// 若内容包含 AIExcludeWords 中的任意关键词，返回 false（同步到 NAS，但不送 AI）。
+// 永远放行不包含排除词的内容（nil-safe）。
+func (p *Processor) ShouldSendToAI(content string) bool {
+	if p == nil {
+		return false
+	}
+	for _, word := range p.cfg.AIExcludeWords {
+		if strings.Contains(content, word) {
+			log.Printf("[INFO] AI excluded by keyword %q: content contains %q (len=%d, will sync but skip AI)", word, word, len(content))
+			return false
+		}
+	}
+	return true
+}
+
 const defaultSystemPrompt = `你是一个内容分析助手。用户会给你一段文本内容，你需要：
 1. 提炼一个精炼的中文标题（title）
 2. 为内容生成 3-5 个标签（tags）

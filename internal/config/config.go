@@ -97,16 +97,17 @@ type KindleConfig struct {
 }
 
 type AIConfig struct {
-	Enabled       bool   `json:"enabled"`
-	Preset        string `json:"preset"`           // 服务商预设：openrouter/ollama/deepseek/openai/custom
-	Endpoint      string `json:"endpoint"`          // OpenAI 兼容 API 地址，如 http://localhost:11434/v1
-	APIKey        string `json:"api_key"`           // 留空用于 Ollama 等本地模型
-	Model         string `json:"model"`             // 模型名称，如 deepseek-chat、gpt-4o-mini
-	MinContentLen int    `json:"min_content_len"`   // 跳过 AI 的最小内容长度，默认 100
-	MaxContentLen int    `json:"max_content_len"`   // 跳过 AI 的最大内容长度，默认 10000
-	Timeout        int    `json:"timeout_sec"`       // HTTP 请求超时秒数，默认 60
-	Prompt         string `json:"prompt"`            // 自定义系统提示词，留空使用默认
-	PromptTemplate string `json:"prompt_template"`   // 提示词模板名称：通用模式/代码模式/学术模式/极简模式
+	Enabled        bool     `json:"enabled"`
+	Preset         string   `json:"preset"`           // 服务商预设：openrouter/ollama/deepseek/openai/custom
+	Endpoint       string   `json:"endpoint"`          // OpenAI 兼容 API 地址，如 http://localhost:11434/v1
+	APIKey         string   `json:"api_key"`           // 留空用于 Ollama 等本地模型
+	Model          string   `json:"model"`             // 模型名称，如 deepseek-chat、gpt-4o-mini
+	MinContentLen  int      `json:"min_content_len"`   // 跳过 AI 的最小内容长度，默认 100
+	MaxContentLen  int      `json:"max_content_len"`   // 跳过 AI 的最大内容长度，默认 10000
+	Timeout        int      `json:"timeout_sec"`       // HTTP 请求超时秒数，默认 60
+	Prompt         string   `json:"prompt"`            // 自定义系统提示词，留空使用默认
+	PromptTemplate string   `json:"prompt_template"`   // 提示词模板名称：通用模式/代码模式/学术模式/极简模式
+	AIExcludeWords []string `json:"ai_exclude_words"`  // AI 排除词：匹配时不送 AI 但照常同步
 }
 
 type WebReaderConfig struct {
