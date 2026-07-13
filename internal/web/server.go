@@ -330,8 +330,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(s.cfg.Web.Auth))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 免认证路径
-		if r.URL.Path == "/login" || r.URL.Path == "/api/login" ||
+		// 免认证路径：登录页、登录 API、PWA 资源、首页（由 JS 检查 auth 状态）
+		if r.URL.Path == "/" || r.URL.Path == "/login" || r.URL.Path == "/api/login" ||
 			r.URL.Path == "/manifest.json" || r.URL.Path == "/sw.js" || r.URL.Path == "/favicon.ico" {
 			next.ServeHTTP(w, r)
 			return
