@@ -164,6 +164,23 @@ func main() {
 	mon.Start()
 	log.Println("[INFO] knowly daemon started")
 
+	// 启动时检查：如果历史记录过多（超过 2000 条），自动截断至 200 条
+	go func() {
+		entries, err := histStore.ReadAll()
+		if err != nil {
+			log.Printf("[WARN] Auto-trim: failed to read history: %v", err)
+			return
+		}
+		if len(entries) > 2000 {
+			log.Printf("[INFO] Auto-trim: history has %d entries, trimming to 200...", len(entries))
+			if err := histStore.TrimTo(200); err != nil {
+				log.Printf("[WARN] Auto-trim failed: %v", err)
+			} else {
+				log.Printf("[INFO] Auto-trim complete: 200 entries retained")
+			}
+		}
+	}()
+
 	// 启动后尝试排空之前积压的 outbox 条目
 	go drainOutbox(outboxStore, client, histStore)
 
@@ -967,6 +984,66 @@ func handleCLI(args []string, cfg *config.Config, histStore *history.Store) {
 			log.Fatalf("不支持的类型: %s", entry.Type)
 		}
 		fmt.Printf("✓ 已将记录 %s 恢复到剪贴板\n", id[:14])
+	case "trim-history":
+		n := 200
+		if len(args) > 1 {
+			fmt.Sscanf(args[1], "%d", &n)
+		}
+
+		// 1. 先读取本地记录数
+		allEntries, err := histStore.ReadAll()
+		if err != nil {
+			log.Fatalf("读取全部记录失败: %v", err)
+		}
+		total := len(allEntries)
+		if total <= n {
+			fmt.Printf("当前记录数 (%d) 未超过阈值 (%d)，无需截断\n", total, n)
+			return
+		}
+
+		// 2. 备份完整文件到 NAS
+		histPath := filepath.Join(config.GetConfigDir(), "history.jsonl")
+		backupName := fmt.Sprintf("history_backup_%s.jsonl", time.Now().Format("20060102_150405"))
+		remoteDir := filepath.Join(cfg.SSH.BasePath, "uploads")
+
+		backupClient := ssh.NewClient(&ssh.Config{
+			Host:                 cfg.SSH.Host,
+			Port:                 cfg.SSH.Port,
+			User:                 cfg.SSH.User,
+			KeyPath:              cfg.SSH.KeyPath,
+			BasePath:             cfg.SSH.BasePath,
+			FilenamePrefixLength: cfg.SSH.FilenamePrefixLength,
+		})
+		if err := backupClient.Connect(); err != nil {
+			log.Fatalf("SSH 连接失败: %v", err)
+		}
+
+		fmt.Println("正在备份完整历史记录到 NAS...")
+		if err := backupClient.MkdirAll(remoteDir); err != nil {
+			backupClient.Disconnect()
+			log.Fatalf("创建远程目录失败: %v", err)
+		}
+
+		data, err := os.ReadFile(histPath)
+		if err != nil {
+			backupClient.Disconnect()
+			log.Fatalf("读取历史文件失败: %v", err)
+		}
+
+		if err := backupClient.WriteFile(filepath.Join(remoteDir, backupName), string(data)); err != nil {
+			backupClient.Disconnect()
+			log.Fatalf("备份到 NAS 失败: %v", err)
+		}
+		backupClient.Disconnect()
+		fmt.Printf("✓ 已备份 %d 条记录到 NAS: %s\n", total, filepath.Join(remoteDir, backupName))
+
+		// 3. 截断本地文件到最近 n 条
+		fmt.Printf("正在截断本地历史记录，保留最近 %d 条...\n", n)
+		if err := histStore.TrimTo(n); err != nil {
+			log.Fatalf("截断历史记录失败: %v", err)
+		}
+		fmt.Printf("✓ 本地历史记录已截断，保留 %d 条最新记录\n", n)
+
 	case "web":
 		addr := ":8090"
 		if len(args) > 1 {

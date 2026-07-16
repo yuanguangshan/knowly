@@ -20,6 +20,9 @@ const defaultMaxEntries = 20000
 // readBlockSize 逆向读取的块大小
 const readBlockSize = 4096
 
+// maxLineSize 单行 JSON 最大扫描缓冲区，防止内容超长导致 bufio.Scanner 报错
+const maxLineSize = 100 * 1024 * 1024 // 100MB
+
 // chunkPool 复用 readRecent 的读取缓冲区，减少高频调用时的 GC 压力
 var chunkPool = sync.Pool{
 	New: func() interface{} {
@@ -133,7 +136,7 @@ func (s *Store) ensureCount() {
 
 	scanner := bufio.NewScanner(f)
 	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 20*1024*1024)
+	scanner.Buffer(buf, maxLineSize)
 	for scanner.Scan() {
 		s.count++
 	}
@@ -258,6 +261,79 @@ func (s *Store) compact() error {
 	return nil
 }
 
+// TrimTo 保留最近 n 条记录，删除更早的条目，做原子替换
+// 线程安全；与 compact() 类似但接受显式参数，用于手动清理大文件
+func (s *Store) TrimTo(n int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := s.readAll()
+	if err != nil {
+		return fmt.Errorf("trim: readAll failed: %w", err)
+	}
+
+	if len(entries) <= n {
+		return nil // 不需要截断
+	}
+
+	// 保留最近 n 条
+	keep := entries[len(entries)-n:]
+
+	// 写入临时文件
+	tmpPath := s.path + ".tmp"
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		return fmt.Errorf("trim: create tmp failed: %w", err)
+	}
+
+	writer := bufio.NewWriter(f)
+	for _, e := range keep {
+		data, err := json.Marshal(e)
+		if err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("trim: marshal failed: %w", err)
+		}
+		if _, err := writer.Write(append(data, '\n')); err != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("trim: write failed: %w", err)
+		}
+	}
+
+	if err := writer.Flush(); err != nil {
+		f.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("trim: flush failed: %w", err)
+	}
+	f.Close()
+
+	// 原子替换
+	if err := os.Rename(tmpPath, s.path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("trim: rename failed: %w", err)
+	}
+
+	s.count = len(keep)
+	s.counted = true
+
+	// 重建标签缓存
+	s.tagCache = make(map[string]int)
+	for _, e := range keep {
+		for _, tag := range e.Tags {
+			s.tagCache[tag]++
+		}
+	}
+	s.tagCacheBuilt = true
+	s.saveTagCache()
+
+	// 清除统计缓存
+	s.statsCache = nil
+
+	log.Printf("[INFO] History trimmed to %d entries (removed %d old entries)", n, len(entries)-n)
+	return nil
+}
+
 // ReadAll 读取所有条目（线程安全，带锁）
 func (s *Store) ReadAll() ([]Entry, error) {
 	s.mu.Lock()
@@ -279,7 +355,7 @@ func (s *Store) readAll() ([]Entry, error) {
 	var entries []Entry
 	scanner := bufio.NewScanner(f)
 	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 20*1024*1024)
+	scanner.Buffer(buf, maxLineSize)
 	for scanner.Scan() {
 		var e Entry
 		if err := json.Unmarshal(scanner.Bytes(), &e); err == nil {
@@ -712,7 +788,7 @@ func (s *Store) Find(id string) (*Entry, error) {
 
 	scanner := bufio.NewScanner(f)
 	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 20*1024*1024)
+	scanner.Buffer(buf, maxLineSize)
 	for scanner.Scan() {
 		var e Entry
 		if json.Unmarshal(scanner.Bytes(), &e) == nil && (e.ID == id || strings.HasPrefix(e.ID, id)) {
