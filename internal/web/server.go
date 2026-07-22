@@ -210,81 +210,10 @@ func (s *Server) buildHandler() http.Handler {
 	if s.cfg.Web.Auth != "" {
 		handler = s.authMiddleware(mux)
 	}
-	handler = s.csrfMiddleware(handler)
 	handler = s.corsMiddleware(handler)
 	handler = s.gzipMiddleware(handler)
 
 	return handler
-}
-
-// csrfMiddleware 校验非 GET 请求的 Origin/Referer 头，防止跨站请求伪造。
-// 对于同源请求直接放行；localhost 访问时 Origin 可能与 Host 端口不同但属于本机。
-func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// GET/HEAD/OPTIONS 不需要 CSRF 校验
-		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		origin := r.Header.Get("Origin")
-		referer := r.Header.Get("Referer")
-
-		// 如果 Origin 和 Referer 都为空，说明是同源的非浏览器请求（如 curl），放行
-		// Basic Auth 已提供认证层保护
-		if origin == "" && referer == "" {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// 校验 Origin 或 Referer 与请求的 Host 匹配
-		host := r.Host
-		if s.isSameOrigin(origin, host) || s.isSameOrigin(s.extractRefererHost(referer), host) {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		log.Printf("[WARN] CSRF blocked: origin=%s referer=%s host=%s", origin, referer, host)
-		jsonError(w, "跨站请求已被拦截", http.StatusForbidden)
-	})
-}
-
-// isSameOrigin 检查 origin/referer 的 host 部分是否与请求的 Host 匹配。
-// 支持完整 URL（scheme://host/path）和纯 host（由 extractRefererHost 产出）两种格式。
-func (s *Server) isSameOrigin(originURL, expectedHost string) bool {
-	if originURL == "" {
-		return false
-	}
-	hostPart := originURL
-	// 如果包含 scheme://，则提取 host:port 部分
-	if strings.Contains(originURL, "://") {
-		u := strings.SplitN(originURL, "://", 2)
-		if len(u) != 2 {
-			return false
-		}
-		hostPart = u[1]
-	}
-	// 去掉路径部分（如果有）
-	if idx := strings.Index(hostPart, "/"); idx >= 0 {
-		hostPart = hostPart[:idx]
-	}
-	return hostPart == expectedHost
-}
-
-// extractRefererHost 从 referer URL 中提取 host:port
-func (s *Server) extractRefererHost(refererURL string) string {
-	if refererURL == "" {
-		return ""
-	}
-	u := strings.SplitN(refererURL, "://", 2)
-	if len(u) != 2 {
-		return ""
-	}
-	hostPart := u[1]
-	if idx := strings.Index(hostPart, "/"); idx >= 0 {
-		hostPart = hostPart[:idx]
-	}
-	return hostPart
 }
 
 // Start 启动 Web 服务器（阻塞）
