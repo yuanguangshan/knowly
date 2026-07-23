@@ -5384,8 +5384,11 @@ data: {"step":"done","message":"发布完成"}</pre>
             btn.addEventListener("click", async function (e) {
             e.stopPropagation();
             const id = this.dataset.id;
+            // 在点击的同步阶段先开新窗口，避免 1 秒后再 window.open 被浏览器当作弹窗拦截
+            var win = window.open("about:blank", "_blank");
             if (!id) {
               showToast("无内容可复制");
+              if (win) win.close();
               return;
             }
             var text = "";
@@ -5397,12 +5400,19 @@ data: {"step":"done","message":"发布完成"}</pre>
             }
             if (!text) {
               showToast("无内容可复制");
+              if (win) win.close();
               return;
             }
             copyText(text);
             showToast("已复制，1 秒后跳转到 md.want.biz …");
             setTimeout(function () {
-              window.open("https://md.want.biz", "_blank");
+              var url = "https://md.want.biz";
+              if (win) {
+                try { win.location.href = url; }
+                catch (_) { window.location.href = url; }
+              } else {
+                window.location.href = url;
+              }
             }, 1000);
             });
           });
