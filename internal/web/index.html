@@ -1948,6 +1948,20 @@
         background: var(--bg-hover);
         color: var(--text-primary);
       }
+      .md-jump-btn {
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+        padding: 2px 8px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.15s;
+      }
+      .md-jump-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
 
       /* Edit Modal */
       .edit-modal-overlay {
@@ -5327,6 +5341,9 @@ data: {"step":"done","message":"发布完成"}</pre>
           '<span class="copy-btn btn" data-id="' +
           escHtml(entry.id || "") +
           '"></span>' +
+          '<button class="md-jump-btn" data-id="' +
+          escHtml(entry.id || "") +
+          '" title="复制并跳转到 md.want.biz">✍️ MD</button>' +
           '<button class="fullscreen-maximize-btn" data-id="' +
           escHtml(entry.id || "") +
           '" title="全屏查看">⛶ 全屏</button>' +
@@ -5358,6 +5375,35 @@ data: {"step":"done","message":"发布完成"}</pre>
               showToast("获取完整内容失败，尝试复制预览内容");
               copyText(entry.content || "");
             }
+            });
+          });
+        // 复制并跳转到 md.want.biz
+        detail
+          .querySelectorAll(".md-jump-btn")
+          .forEach(function(btn) {
+            btn.addEventListener("click", async function (e) {
+            e.stopPropagation();
+            const id = this.dataset.id;
+            if (!id) {
+              showToast("无内容可复制");
+              return;
+            }
+            var text = "";
+            try {
+              const resp = await api("/api/history/" + id + "/full");
+              text = stripAIOrganized(resp.content || "");
+            } catch (err) {
+              text = stripAIOrganized(entry.content || "");
+            }
+            if (!text) {
+              showToast("无内容可复制");
+              return;
+            }
+            copyText(text);
+            showToast("已复制，1 秒后跳转到 md.want.biz …");
+            setTimeout(function () {
+              window.open("https://md.want.biz", "_blank");
+            }, 1000);
             });
           });
         // 全屏查看按钮
