@@ -30,29 +30,27 @@
       (function() {
         var auth = null;
         try { auth = localStorage.getItem("knowly_auth"); } catch(e) {}
-        if (auth) {
-          var origFetch = window.fetch;
-          window.fetch = function(url, opts) {
-            opts = opts || {};
-            opts.headers = opts.headers || {};
-            if (auth) { opts.headers["Authorization"] = "Basic " + auth; }
-            return origFetch.call(window, url, opts).then(function(resp) {
-              if (resp.status === 401 && resp.headers.get("content-type") && resp.headers.get("content-type").indexOf("application/json") >= 0) {
-                localStorage.removeItem("knowly_auth");
-                window.location.href = "/login";
-                return resp;
-              }
-              return resp;
-            });
-          };
-          // 页面加载后发一个 HEAD 请求验证凭据有效
-          fetch("/api/status", { method: "HEAD", cache: "no-store" }).then(function(r) {
-            if (r.status === 401) {
+        var origFetch = window.fetch;
+        window.fetch = function(url, opts) {
+          opts = opts || {};
+          opts.headers = opts.headers || {};
+          if (auth) { opts.headers["Authorization"] = "Basic " + auth; }
+          return origFetch.call(window, url, opts).then(function(resp) {
+            if (resp.status === 401 && resp.headers.get("content-type") && resp.headers.get("content-type").indexOf("application/json") >= 0) {
               localStorage.removeItem("knowly_auth");
               window.location.href = "/login";
+              return resp;
             }
-          }).catch(function(){});
-        }
+            return resp;
+          });
+        };
+        // 页面加载后无条件验证认证状态；无 knowly_auth 或凭据失效都跳登录页
+        fetch("/api/status", { method: "HEAD", cache: "no-store" }).then(function(r) {
+          if (r.status === 401) {
+            localStorage.removeItem("knowly_auth");
+            window.location.href = "/login";
+          }
+        }).catch(function(){});
       })();
     </script>
     <style>
