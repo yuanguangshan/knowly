@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -236,25 +237,49 @@ func (s *Server) Start() error {
 	if err := s.sshClient.Connect(); err != nil {
 		log.Printf("[WARN] SSH connect failed: %v (archive browsing will be unavailable)", err)
 	}
-
-	handler := s.buildHandler()
-	s.httpServer = &http.Server{Addr: s.addr, Handler: handler}
-
-	fmt.Printf("Knowly Web UI 启动: http://localhost%s\n", s.addr)
-	return s.httpServer.ListenAndServe()
+	return s.serveWithRetry()
 }
 
 // StartAsync 启动 Web 服务器（非阻塞）
 func (s *Server) StartAsync() {
-	handler := s.buildHandler()
-	s.httpServer = &http.Server{Addr: s.addr, Handler: handler}
-
 	go func() {
-		fmt.Printf("Knowly Web UI 启动: http://localhost%s\n", s.addr)
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.serveWithRetry(); err != nil {
 			log.Printf("[ERROR] Web server error: %v", err)
 		}
 	}()
+}
+
+// serveWithRetry 监听并提供服务；端口被占用等启动失败按退避策略重试
+// （2s→5s→10s→30s→60s 封顶），解决双实例抢端口时 Web 服务静默消失、
+// 且之后永不恢复的问题（2026-08-26 事故：同步正常但 UI 挂了近两天）。
+// 优雅关闭（Shutdown）时返回 nil 退出循环。
+func (s *Server) serveWithRetry() error {
+	handler := s.buildHandler()
+	delays := []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second, 30 * time.Second, 60 * time.Second}
+	for attempt := 0; ; attempt++ {
+		delay := delays[min(attempt, len(delays)-1)]
+
+		ln, err := net.Listen("tcp", s.addr)
+		if err != nil {
+			log.Printf("[WARN] Web UI listen %s failed: %v, retry in %s (attempt %d)",
+				s.addr, err, delay, attempt+1)
+			time.Sleep(delay)
+			continue
+		}
+		if attempt > 0 {
+			log.Printf("[INFO] Web UI bound to %s after %d retries", s.addr, attempt)
+		}
+		fmt.Printf("Knowly Web UI 启动: http://localhost%s\n", s.addr)
+
+		srv := &http.Server{Addr: s.addr, Handler: handler}
+		s.httpServer = srv
+		if serveErr := srv.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
+			log.Printf("[ERROR] Web server error: %v, retry in %s", serveErr, delay)
+			time.Sleep(delay)
+			continue
+		}
+		return nil // 正常关闭
+	}
 }
 
 // Shutdown 优雅关闭 Web 服务器
