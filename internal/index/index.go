@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -299,13 +300,44 @@ func (ix *Index) Count() (int, error) {
 }
 
 // makeSnippet 围绕 query 在 content 中截取一段上下文，前后加省略号。
+// indexRune 在 rs 中查找 sub 首次出现的下标（均为 rune 空间），未命中返回 -1。
+func indexRune(rs, sub []rune) int {
+	if len(sub) == 0 {
+		return 0
+	}
+	for i := 0; i+len(sub) <= len(rs); i++ {
+		ok := true
+		for j := range sub {
+			if rs[i+j] != sub[j] {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return i
+		}
+	}
+	return -1
+}
+
 func makeSnippet(content, q string, around int) string {
 	if around <= 0 {
 		around = 60
 	}
 	c := []rune(content)
-	lower := strings.ToLower(string(c))
-	idx := strings.Index(lower, strings.ToLower(q))
+	// 匹配必须在 rune 空间：strings.Index 返回字节偏移，中文内容字节偏移 ≈3× rune
+	// 偏移，匹配点靠后时 start>end 直接 panic（2026-08-29 热榜类短词全崩，
+	// slice bounds out of range [16990:9250]，panic 栈在 makeSnippet）。
+	// 逐 rune ToLower 保证大小写映射不改变 rune 数，下标严格对齐。
+	lq := make([]rune, 0, len(q))
+	for _, r := range q {
+		lq = append(lq, unicode.ToLower(r))
+	}
+	lc := make([]rune, len(c))
+	for i, r := range c {
+		lc[i] = unicode.ToLower(r)
+	}
+	idx := indexRune(lc, lq)
 	if idx < 0 {
 		if len(c) > around*2 {
 			return string(c[:around*2]) + "…"
@@ -316,9 +348,12 @@ func makeSnippet(content, q string, around int) string {
 	if start < 0 {
 		start = 0
 	}
-	end := idx + len([]rune(q)) + around
+	end := idx + len(lq) + around
 	if end > len(c) {
 		end = len(c)
+	}
+	if start > end {
+		start = end
 	}
 	snip := string(c[start:end])
 	if start > 0 {
