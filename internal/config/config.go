@@ -22,6 +22,19 @@ type Config struct {
 	WebReader    WebReaderConfig    `json:"web_reader"`
 	Knasync      KnasyncConfig      `json:"knasync"`
 	Webhook      WebhookConfig      `json:"webhook"`
+	API          APIConfig          `json:"api"`
+}
+
+// APIConfig 对外查询 API（/api/v1/*）配置。
+// Token 为 Bearer 凭证；留空表示信任网络层隔离（如 WireGuard 内网）不做应用层鉴权。
+type APIConfig struct {
+	Enabled *bool  `json:"enabled"` // 是否启用 /api/v1 查询接口，nil 或 true 表示启用
+	Token   string `json:"token"`   // Bearer token，留空则仅依赖网络隔离
+}
+
+// IsEnabled API 未显式配置时默认启用。
+func (a *APIConfig) IsEnabled() bool {
+	return a.Enabled == nil || *a.Enabled
 }
 
 type SSHConfig struct {

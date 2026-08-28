@@ -362,6 +362,75 @@ AI 会自动生成标题。
 
 ---
 
+## 5.2 对外查询 API（/api/v1，推荐外部服务使用）
+
+供外部服务（经 WireGuard 直连 Mac，或反代）调用的**毫秒级本地索引查询接口**。
+数据来自 Mac 本地的 SQLite FTS5 索引（trigram 分词，中文子串友好），不再跨 SSH 全树 grep；NAS 仍是唯一真源，索引可从 NAS 回溯重建。
+
+**鉴权：** 若配置了 `api.token`，请求需带 `Authorization: Bearer <token>`；留空则仅依赖网络隔离。
+
+### GET /api/v1/search
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `q` | string | 是 | 关键词（≥3 字符走 FTS5 trigram，1-2 字符自动走 LIKE 兜底） |
+| `limit` | int | 否 | 返回条数，默认 50 |
+
+```bash
+curl -H "Authorization: Bearer <token>" \
+  "http://<mac-wg-ip>:8090/api/v1/search?q=双螺旋&limit=10"
+```
+
+**响应:**
+
+```json
+{
+  "query": "双螺旋",
+  "count": 1,
+  "results": [
+    {
+      "path": "2026/08/28/180000_dna.md",
+      "nas_path": "/data/archive/2026/08/28/180000_dna.md",
+      "title": "DNA双螺旋与成长",
+      "tags": "科学, 生物",
+      "type": "text",
+      "time": "2026-08-28T18:00:00+08:00",
+      "snippet": "…牛顿的棱镜把白光分解为七色，<mark>DNA双螺旋</mark>则把生命写成…",
+      "rank": 0
+    }
+  ]
+}
+```
+
+### GET /api/v1/entry?path=
+
+按相对路径取条目全文。优先本地索引（零 SSH）；未命中（如图片/历史文件）回源 NAS 读取。
+
+### GET /api/v1/tags
+
+聚合索引内全部标签及出现次数（降序）。
+
+### GET /api/v1/status
+
+索引健康状态：`{"api":"v1","index":"ok","entries":1234}`。
+
+### POST /api/v1/admin/backfill
+
+后台触发一次全量回溯：遍历 NAS 归档把所有 md/txt 灌入本地索引（幂等）。首次启动若索引为空会自动执行一次。
+
+**配置示例（config.json）:**
+
+```json
+{
+  "api": {
+    "enabled": true,
+    "token": "你的随机长token"
+  }
+}
+```
+
+---
+
 ## 6. 统计 API
 
 ### 6.1 GET /api/stats

@@ -22,6 +22,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+
+	"github.com/yuanguangshan/knowly/internal/index"
 )
 
 // DirEntry 目录条目
@@ -69,6 +71,20 @@ type Client struct {
 	hasConnected bool                       // 是否曾成功连接：区分首连与重连
 	titleCache   map[string]titleCacheEntry // TTL 缓存：key=目录路径
 	titleCacheMu sync.Mutex
+	idx          index.Indexer // 本地全文索引（可空），同步成功后自动写入
+}
+
+// SetIndexer 注入本地全文索引。注入后，文本/PDF 同步成功会自动增量入索引。
+func (c *Client) SetIndexer(ix index.Indexer) { c.idx = ix }
+
+// indexDoc 尽力把一条已成功落盘的条目写入本地索引（失败仅告警，不影响同步主流程）。
+func (c *Client) indexDoc(rel, fullPath, title, tags, typ, content string, t time.Time) {
+	if c.idx == nil {
+		return
+	}
+	if err := c.idx.Index(rel, fullPath, title, tags, typ, content, t); err != nil {
+		log.Printf("[WARN] local index failed for %s: %v", rel, err)
+	}
 }
 
 const maxConcurrentSessions = 3
@@ -563,6 +579,14 @@ func (c *Client) SyncItem(content string, timestamp time.Time, meta *ContentMeta
 	// 而不是等 5 分钟 TTL 自然过期
 	c.invalidateTitleCache(relPath)
 
+	// 增量写入本地全文索引（零额外 SSH：content/meta 此刻都在手上；NAS 仍是唯一真源）
+	title, tags := "", ""
+	if meta != nil {
+		title = meta.Title
+		tags = strings.Join(meta.Tags, ", ")
+	}
+	c.indexDoc(filepath.Join(relPath, fileName), fullPath, title, tags, "text", content, timestamp)
+
 	log.Printf("[INFO] Synced to remote: %s", fullPath)
 	return fullPath, nil
 }
@@ -761,6 +785,9 @@ func (c *Client) SyncPDF(data []byte, timestamp time.Time, url string) (string, 
 	if err := c.WriteBinary(fullPath, data); err != nil {
 		return "", fmt.Errorf("failed to write PDF: %w", err)
 	}
+
+	// 索引 URL（PDF 为二进制，可检索文本即来源 URL 与文件名）
+	c.indexDoc(filepath.Join(relPath, fileName), fullPath, fileName, "", "pdf", url, timestamp)
 
 	log.Printf("[INFO] Synced PDF to remote: %s", fullPath)
 	return fullPath, nil

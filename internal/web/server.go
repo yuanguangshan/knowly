@@ -23,6 +23,7 @@ import (
 	"github.com/yuanguangshan/knowly/internal/cluster"
 	"github.com/yuanguangshan/knowly/internal/config"
 	"github.com/yuanguangshan/knowly/internal/history"
+	"github.com/yuanguangshan/knowly/internal/index"
 
 	"github.com/yuanguangshan/knowly/internal/ssh"
 )
@@ -68,7 +69,11 @@ type Server struct {
 	logSubs   []*logSubscriber // 日志实时订阅者列表
 	logMu     sync.RWMutex
 	sessionKey []byte // 用于签名 session cookie，启动时随机生成
+	indexer    index.Indexer // 本地全文索引（可空），支撑 /api/v1 查询
 }
+
+// SetIndexer 注入本地全文索引，启用 /api/v1 查询接口。
+func (s *Server) SetIndexer(ix index.Indexer) { s.indexer = ix }
 
 // NewServer 创建 Web 服务器实例（创建新的 SSH 和 History 依赖）
 func NewServer(cfg *config.Config, addr string) *Server {
@@ -191,6 +196,15 @@ func (s *Server) buildHandler() http.Handler {
 	// 搜索 API
 	mux.HandleFunc("/api/search", s.handleSearch)
 
+	// 对外查询 API（/api/v1，独立 Bearer token 鉴权，供外部服务经 WireGuard 调用）
+	if s.cfg.API.IsEnabled() {
+		mux.HandleFunc("/api/v1/search", s.handleV1Search)
+		mux.HandleFunc("/api/v1/entry", s.handleV1Entry)
+		mux.HandleFunc("/api/v1/tags", s.handleV1Tags)
+		mux.HandleFunc("/api/v1/status", s.handleV1Status)
+		mux.HandleFunc("/api/v1/admin/backfill", s.handleV1Backfill)
+	}
+
 	// 文件上传/下载 API
 	mux.HandleFunc("/api/upload", s.handleUpload)
 	mux.HandleFunc("/api/uploads/download", s.handleUploadsDownload)
@@ -262,6 +276,12 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		// 免认证路径：登录页、登录 API、PWA 资源、首页（由 JS 检查 auth 状态）
 		if r.URL.Path == "/" || r.URL.Path == "/login" || r.URL.Path == "/api/login" ||
 			r.URL.Path == "/manifest.json" || r.URL.Path == "/sw.js" || r.URL.Path == "/favicon.ico" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// /api/v1 走独立的 Bearer token 鉴权（在 handler 内校验），不走 Basic/session
+		if strings.HasPrefix(r.URL.Path, "/api/v1/") {
 			next.ServeHTTP(w, r)
 			return
 		}

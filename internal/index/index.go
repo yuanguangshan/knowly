@@ -1,0 +1,276 @@
+// Package index 提供基于 SQLite FTS5（trigram 分词）的本地全文索引。
+// 设计目标：在 Mac 本机为群晖归档建立毫秒级全文检索，对外暴露干净的查询接口，
+// 同时群晖仍是唯一真源（索引可随时从 NAS 回溯重建）。
+//
+// 为什么用 trigram：对中文/英文子串匹配均友好，且 modernc.org/sqlite 为纯 Go 实现，
+// 无 cgo、零系统依赖，契合「私有化、自主可控」的哲学。
+package index
+
+import (
+	"database/sql"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+// Indexer 是索引能力的最小接口，便于在 ssh / web 包中注入，也便于测试 mock。
+type Indexer interface {
+	Index(path, nasPath, title, tags, typ, content string, t time.Time) error
+	Search(q string, limit int) ([]Hit, error)
+	GetByPath(path string) (*Doc, error)
+	AllTags() ([]TagCount, error)
+	Count() (int, error)
+	Close() error
+}
+
+// Doc 一条已被索引的归档条目（含完整正文，供详情接口直接返回，无需再走 SSH）。
+type Doc struct {
+	Path    string    `json:"path"`
+	NasPath string    `json:"nas_path"`
+	Title   string    `json:"title"`
+	Tags    string    `json:"tags"`
+	Type    string    `json:"type"`
+	Time    time.Time `json:"time"`
+	Content string    `json:"content"`
+}
+
+// Hit 搜索命中。
+type Hit struct {
+	Path    string `json:"path"`
+	NasPath string `json:"nas_path"`
+	Title   string `json:"title"`
+	Tags    string `json:"tags"`
+	Type    string `json:"type"`
+	Time    string `json:"time"`
+	Snippet string `json:"snippet"`
+	Rank    int    `json:"rank"`
+}
+
+// TagCount 标签计数。
+type TagCount struct {
+	Tag   string `json:"tag"`
+	Count int    `json:"count"`
+}
+
+// Index 基于 SQLite FTS5 trigram 的本地全文索引。
+type Index struct {
+	db   *sql.DB
+	path string
+}
+
+// Open 打开（或创建）索引数据库，建表并启用 FTS5 trigram 分词。
+func Open(path string) (*Index, error) {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, fmt.Errorf("open index db: %w", err)
+	}
+	// trigram 分词：将文本切成 3 字符重叠片段，对子串/中文匹配友好。
+	// path/nas_path/type/time 为 UNINDEXED（仅存储，不参与全文检索）。
+	if _, err := db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(
+		path UNINDEXED,
+		nas_path UNINDEXED,
+		title,
+		tags,
+		type UNINDEXED,
+		time UNINDEXED,
+		content,
+		tokenize='trigram'
+	)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create fts5 table: %w", err)
+	}
+	return &Index{db: db, path: path}, nil
+}
+
+// Close 关闭数据库。
+func (ix *Index) Close() error { return ix.db.Close() }
+
+// Index 增量写入一条。同 path 先删后插，保证幂等（重复同步不会重复索引）。
+func (ix *Index) Index(path, nasPath, title, tags, typ, content string, t time.Time) error {
+	tx, err := ix.db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM docs WHERE path = ?`, path); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO docs(path, nas_path, title, tags, type, time, content) VALUES(?,?,?,?,?,?,?)`,
+		path, nasPath, title, tags, typ, t.Format(time.RFC3339), content); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// Search 全文搜索。query 长度 >= 3 个字符走 FTS5 trigram；否则（如 1-2 字中文）
+// 走 LIKE 兜底，保证短词也能命中。
+func (ix *Index) Search(q string, limit int) ([]Hit, error) {
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return []Hit{}, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if len([]rune(q)) >= 3 {
+		return ix.searchFTS(q, limit)
+	}
+	return ix.searchLike(q, limit)
+}
+
+// searchFTS 使用 FTS5 trigram 匹配，按相关度 rank 排序，并生成高亮摘要。
+func (ix *Index) searchFTS(q string, limit int) ([]Hit, error) {
+	escaped := strings.ReplaceAll(q, "\"", "\"\"")
+	match := "\"" + escaped + "\""
+	// content 是表第 7 列（0 基），snippet 从 content 中提取上下文。
+	rows, err := ix.db.Query(`
+		SELECT path, nas_path, title, tags, type, time,
+		       snippet(docs, 6, '<mark>', '</mark>', '…', 24)
+		FROM docs
+		WHERE docs MATCH ?
+		ORDER BY rank
+		LIMIT ?`, match, limit)
+	if err != nil {
+		return nil, fmt.Errorf("fts search: %w", err)
+	}
+	defer rows.Close()
+
+	var hits []Hit
+	rank := 0
+	for rows.Next() {
+		var h Hit
+		var t string
+		if err := rows.Scan(&h.Path, &h.NasPath, &h.Title, &h.Tags, &h.Type, &t, &h.Snippet); err != nil {
+			return nil, err
+		}
+		h.Time = t
+		h.Rank = rank
+		rank++
+		hits = append(hits, h)
+	}
+	return hits, rows.Err()
+}
+
+// searchLike 短词兜底：在 content/title/tags 上做 LIKE 扫描，手动生成摘要。
+func (ix *Index) searchLike(q string, limit int) ([]Hit, error) {
+	like := "%" + q + "%"
+	rows, err := ix.db.Query(`
+		SELECT path, nas_path, title, tags, type, time, content
+		FROM docs
+		WHERE content LIKE ? OR title LIKE ? OR tags LIKE ?
+		LIMIT ?`, like, like, like, limit)
+	if err != nil {
+		return nil, fmt.Errorf("like search: %w", err)
+	}
+	defer rows.Close()
+
+	var hits []Hit
+	rank := 0
+	for rows.Next() {
+		var h Hit
+		var t, content string
+		if err := rows.Scan(&h.Path, &h.NasPath, &h.Title, &h.Tags, &h.Type, &t, &content); err != nil {
+			return nil, err
+		}
+		h.Time = t
+		h.Snippet = makeSnippet(content, q, 60)
+		h.Rank = rank
+		rank++
+		hits = append(hits, h)
+	}
+	return hits, rows.Err()
+}
+
+// GetByPath 按路径取回完整条目（含正文）。未命中返回 (nil, nil)。
+func (ix *Index) GetByPath(path string) (*Doc, error) {
+	var d Doc
+	var t string
+	err := ix.db.QueryRow(
+		`SELECT path, nas_path, title, tags, type, time, content FROM docs WHERE path = ? LIMIT 1`, path,
+	).Scan(&d.Path, &d.NasPath, &d.Title, &d.Tags, &d.Type, &t, &d.Content)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	d.Time, _ = time.Parse(time.RFC3339, t)
+	return &d, nil
+}
+
+// AllTags 聚合所有标签及出现次数，按次数降序。
+func (ix *Index) AllTags() ([]TagCount, error) {
+	rows, err := ix.db.Query(`SELECT tags FROM docs WHERE tags != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := map[string]int{}
+	for rows.Next() {
+		var tags string
+		if err := rows.Scan(&tags); err != nil {
+			return nil, err
+		}
+		for _, tk := range strings.Split(tags, ", ") {
+			tk = strings.TrimSpace(tk)
+			if tk != "" {
+				counts[tk]++
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	res := make([]TagCount, 0, len(counts))
+	for t, c := range counts {
+		res = append(res, TagCount{Tag: t, Count: c})
+	}
+	sort.Slice(res, func(i, j int) bool { return res[i].Count > res[j].Count })
+	return res, nil
+}
+
+// Count 返回索引条目总数。
+func (ix *Index) Count() (int, error) {
+	var n int
+	err := ix.db.QueryRow(`SELECT count(*) FROM docs`).Scan(&n)
+	return n, err
+}
+
+// makeSnippet 围绕 query 在 content 中截取一段上下文，前后加省略号。
+func makeSnippet(content, q string, around int) string {
+	if around <= 0 {
+		around = 60
+	}
+	c := []rune(content)
+	lower := strings.ToLower(string(c))
+	idx := strings.Index(lower, strings.ToLower(q))
+	if idx < 0 {
+		if len(c) > around*2 {
+			return string(c[:around*2]) + "…"
+		}
+		return string(c)
+	}
+	start := idx - around
+	if start < 0 {
+		start = 0
+	}
+	end := idx + len([]rune(q)) + around
+	if end > len(c) {
+		end = len(c)
+	}
+	snip := string(c[start:end])
+	if start > 0 {
+		snip = "…" + snip
+	}
+	if end < len(c) {
+		snip = snip + "…"
+	}
+	return snip
+}

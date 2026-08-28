@@ -22,6 +22,7 @@ import (
 	"github.com/yuanguangshan/knowly/internal/config"
 	"github.com/yuanguangshan/knowly/internal/fetcher"
 	"github.com/yuanguangshan/knowly/internal/history"
+	"github.com/yuanguangshan/knowly/internal/index"
 	"github.com/yuanguangshan/knowly/internal/outbox"
 	"github.com/yuanguangshan/knowly/internal/publisher"
 	"github.com/yuanguangshan/knowly/internal/relay"
@@ -81,6 +82,17 @@ func main() {
 	histStore := history.NewStore(config.GetConfigDir())
 	outboxStore := outbox.NewStore(config.GetConfigDir())
 
+	// 打开本地全文索引（SQLite FTS5）。注入 client 后，同步成功自动增量入索引；
+	// 注入 web server 后，/api/v1 查询接口可用。NAS 仍是唯一真源，索引可重建。
+	var localIndex index.Indexer
+	if ix, err := index.Open(filepath.Join(config.GetConfigDir(), "index.db")); err != nil {
+		log.Printf("[WARN] open index.db failed: %v (/api/v1 search disabled)", err)
+	} else {
+		localIndex = ix
+		client.SetIndexer(ix)
+		defer ix.Close()
+	}
+
 	aiProcessor := ai.NewProcessor(&cfg.AI)
 	if aiProcessor != nil {
 		preset := cfg.AI.Preset
@@ -138,6 +150,9 @@ func main() {
 		webSrv = web.NewServerWithDeps(cfg, webAddr, client, histStore, func(content string, timestamp time.Time) {
 			syncText(client, cfg, content, timestamp, histStore, aiProcessor, outboxStore, "Upload")
 		}, clusterEngine)
+		if localIndex != nil {
+			webSrv.SetIndexer(localIndex)
+		}
 		webSrv.StartAsync()
 	}
 
@@ -160,6 +175,21 @@ func main() {
 		}
 	}()
 	defer client.Disconnect()
+
+	// 索引为空时自动后台回溯 NAS 归档（一次性；之后靠同步增量维护，无需再全树扫描）
+	if localIndex != nil {
+		go func() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(15 * time.Second):
+			}
+			if n, err := localIndex.Count(); err == nil && n == 0 {
+				log.Printf("[INFO] local index empty, starting backfill from NAS archive...")
+				web.RunBackfill(cfg, client, localIndex)
+			}
+		}()
+	}
 
 	mon.Start()
 	log.Println("[INFO] knowly daemon started")
