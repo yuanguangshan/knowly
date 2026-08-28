@@ -137,3 +137,53 @@ func TestGetByPathAndTags(t *testing.T) {
 		t.Fatalf("top tag = %+v, want 科学=2", tags[0])
 	}
 }
+
+func TestBulkIndex(t *testing.T) {
+	ix := openTest(t)
+	now := time.Now()
+
+	batch1 := []Doc{
+		{Path: "2026/08/28/180000_dna.md", NasPath: "/dna.md", Title: "DNA双螺旋", Tags: "科学", Type: "text", Time: now, Content: "DNA 双螺旋把生命写成四个字母的诗。"},
+		{Path: "2026/08/28/190000_go.md", NasPath: "/go.md", Title: "Go 并发", Tags: "编程", Type: "text", Time: now, Content: "Goroutine 是轻量级协程。"},
+	}
+	batch2 := []Doc{
+		{Path: "2026/08/28/200000_ai.md", NasPath: "/ai.md", Title: "AI 归档", Tags: "工具", Type: "text", Time: now, Content: "私有化存储到 NAS。"},
+		// 与 batch1 同 path，应幂等覆盖而非重复
+		{Path: "2026/08/28/180000_dna.md", NasPath: "/dna2.md", Title: "DNA双螺旋(改)", Tags: "科学, 生物", Type: "text", Time: now, Content: "牛顿的棱镜把白光分解为七色。"},
+	}
+	if err := ix.BulkIndex(batch1); err != nil {
+		t.Fatalf("bulk1: %v", err)
+	}
+	if err := ix.BulkIndex(batch2); err != nil {
+		t.Fatalf("bulk2: %v", err)
+	}
+	if n, _ := ix.Count(); n != 3 {
+		t.Fatalf("count = %d, want 3 (含跨批幂等去重)", n)
+	}
+
+	// 跨批覆盖生效：dna.md 的标题应更新为改后版本
+	doc, err := ix.GetByPath("2026/08/28/180000_dna.md")
+	if err != nil || doc == nil {
+		t.Fatalf("get dna: %v %v", doc, err)
+	}
+	if doc.Title != "DNA双螺旋(改)" || doc.NasPath != "/dna2.md" {
+		t.Fatalf("跨批覆盖未生效: %+v", doc)
+	}
+
+	// 空批量应安全返回
+	if err := ix.BulkIndex(nil); err != nil {
+		t.Fatalf("bulk nil: %v", err)
+	}
+	if n, _ := ix.Count(); n != 3 {
+		t.Fatalf("after nil bulk count = %d, want 3", n)
+	}
+
+	// 检索仍正常
+	hits, err := ix.Search("双螺旋", 10)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("search 双螺旋 hits = %d", len(hits))
+	}
+}

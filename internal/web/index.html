@@ -5833,9 +5833,8 @@ data: {"step":"done","message":"发布完成"}</pre>
             const highlighted = highlightMatch(escHtml(r.content), keyword);
             div.innerHTML =
               '<div class="search-result-path">' +
-              escHtml(r.path) +
-              " : " +
-              r.line +
+              escHtml(r.title || r.path) +
+              (r.line ? " : " + r.line : "") +
               "</div>" +
               '<div class="search-result-content">' +
               highlighted +

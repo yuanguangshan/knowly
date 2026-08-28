@@ -15,6 +15,9 @@ import (
 // backfillMu 防止并发回溯（同一时刻只允许一个 backfill 在跑）。
 var backfillMu sync.Mutex
 
+// backfillBatch 回溯时每批聚合的文档数，平衡事务开销与写入锁占用时间。
+const backfillBatch = 200
+
 // RunBackfill 回溯建索引：递归遍历 NAS 归档目录，把全部 md/txt 文件
 // 解析 frontmatter 后灌入本地索引。幂等（同路径先删后插），可随时重复执行。
 func RunBackfill(cfg *config.Config, sc SSHClient, ix index.Indexer) {
@@ -39,6 +42,8 @@ func RunBackfill(cfg *config.Config, sc SSHClient, ix index.Indexer) {
 }
 
 // walkAndIndex 递归遍历远端目录，索引所有 .md/.txt 文件，返回已索引条数。
+// 写入采用批量聚合（每 backfillBatch 条一次性 BulkIndex），避免逐条事务带来的
+// 大量锁竞争与提交开销；同时串行化写入由 index.Index 的互斥锁保证。
 func walkAndIndex(ctx context.Context, sc SSHClient, ix index.Indexer, dir, base string) (int, error) {
 	select {
 	case <-ctx.Done():
@@ -52,6 +57,19 @@ func walkAndIndex(ctx context.Context, sc SSHClient, ix index.Indexer, dir, base
 	}
 
 	count := 0
+	batch := make([]index.Doc, 0, backfillBatch)
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		if err := ix.BulkIndex(batch); err != nil {
+			log.Printf("[WARN] backfill batch: %v", err)
+			return
+		}
+		count += len(batch)
+		batch = batch[:0]
+	}
+
 	for _, e := range entries {
 		full := filepath.Join(dir, e.Name)
 		if e.IsDir {
@@ -75,12 +93,20 @@ func walkAndIndex(ctx context.Context, sc SSHClient, ix index.Indexer, dir, base
 		rel := strings.TrimPrefix(full, base)
 		rel = strings.TrimPrefix(rel, "/")
 		title, tags, body := parseFrontmatter(string(data))
-		if err := ix.Index(rel, full, title, tags, "text", body, parseTimeFromRelPath(rel)); err != nil {
-			log.Printf("[WARN] backfill index %s: %v", rel, err)
-			continue
+		batch = append(batch, index.Doc{
+			Path:    rel,
+			NasPath: full,
+			Title:   title,
+			Tags:    tags,
+			Type:    "text",
+			Time:    parseTimeFromRelPath(rel),
+			Content: body,
+		})
+		if len(batch) >= backfillBatch {
+			flush()
 		}
-		count++
 	}
+	flush()
 	return count, nil
 }
 

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -19,6 +20,7 @@ import (
 // Indexer 是索引能力的最小接口，便于在 ssh / web 包中注入，也便于测试 mock。
 type Indexer interface {
 	Index(path, nasPath, title, tags, typ, content string, t time.Time) error
+	BulkIndex(docs []Doc) error
 	Search(q string, limit int) ([]Hit, error)
 	GetByPath(path string) (*Doc, error)
 	AllTags() ([]TagCount, error)
@@ -59,14 +61,26 @@ type TagCount struct {
 type Index struct {
 	db   *sql.DB
 	path string
+	mu   sync.Mutex // 串行化所有写入，杜绝并发写竞争导致 SQLITE_BUSY 丢数据
 }
 
 // Open 打开（或创建）索引数据库，建表并启用 FTS5 trigram 分词。
+//
+// 通过 DSN 在【连接池的每个连接】上启用 WAL + busy_timeout + synchronous=NORMAL：
+//   - journal_mode=WAL：读写可并发，写不再阻塞读；
+//   - busy_timeout=5000：写冲突时等待而非立即返回 SQLITE_BUSY；
+//   - synchronous=NORMAL：WAL 下提交更快且安全。
+//
+// 这些 PRAGMA 由 modernc 驱动在每次建立连接时自动执行，因此连接池里
+// 任意连接都具备一致的行为，无需在每条语句前后手动 SET。
 func Open(path string) (*Index, error) {
-	db, err := sql.Open("sqlite", path)
+	dsn := fmt.Sprintf("file:%s?_busy_timeout=5000&_journal_mode=WAL&_synchronous=NORMAL", path)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open index db: %w", err)
 	}
+	// 允许多个读连接并发（WAL 下读不阻塞写），写入由 mu 串行化。
+	db.SetMaxOpenConns(8)
 	// trigram 分词：将文本切成 3 字符重叠片段，对子串/中文匹配友好。
 	// path/nas_path/type/time 为 UNINDEXED（仅存储，不参与全文检索）。
 	if _, err := db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(
@@ -89,7 +103,10 @@ func Open(path string) (*Index, error) {
 func (ix *Index) Close() error { return ix.db.Close() }
 
 // Index 增量写入一条。同 path 先删后插，保证幂等（重复同步不会重复索引）。
+// 写入经 mu 串行化，与 BulkIndex / 增量同步的写互斥，从根本上消除 SQLITE_BUSY。
 func (ix *Index) Index(path, nasPath, title, tags, typ, content string, t time.Time) error {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
 	tx, err := ix.db.Begin()
 	if err != nil {
 		return err
@@ -103,6 +120,44 @@ func (ix *Index) Index(path, nasPath, title, tags, typ, content string, t time.T
 		path, nasPath, title, tags, typ, t.Format(time.RFC3339), content); err != nil {
 		tx.Rollback()
 		return err
+	}
+	return tx.Commit()
+}
+
+// BulkIndex 在一个事务内批量写入多条，供 backfill 使用：把上千次单条事务
+// 压缩为少量批量事务，大幅降低锁竞争与提交开销。幂等（同 path 先删后插）。
+// 写入同样经 mu 串行化，与 Index 的写互斥。
+func (ix *Index) BulkIndex(docs []Doc) error {
+	if len(docs) == 0 {
+		return nil
+	}
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	tx, err := ix.db.Begin()
+	if err != nil {
+		return err
+	}
+	del, err := tx.Prepare(`DELETE FROM docs WHERE path = ?`)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer del.Close()
+	ins, err := tx.Prepare(`INSERT INTO docs(path, nas_path, title, tags, type, time, content) VALUES(?,?,?,?,?,?,?)`)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer ins.Close()
+	for _, d := range docs {
+		if _, err := del.Exec(d.Path); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if _, err := ins.Exec(d.Path, d.NasPath, d.Title, d.Tags, d.Type, d.Time.Format(time.RFC3339), d.Content); err != nil {
+			tx.Rollback()
+			return err
+		}
 	}
 	return tx.Commit()
 }

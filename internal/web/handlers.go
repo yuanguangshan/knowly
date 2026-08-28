@@ -1331,6 +1331,10 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSearch 全文搜索归档内容
+//
+// 优先走本地 FTS5 索引（毫秒级，无需 SSH 往返），把命中映射成与旧接口一致的
+// [{path, content, line}] 数组，归档页前端零改动即可获得极速搜索；
+// 本地索引不可用时，回退到旧的 SSH grep 全量扫描，保证可用性。
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	keyword := r.URL.Query().Get("q")
 	if keyword == "" {
@@ -1343,6 +1347,26 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 
+	if s.indexer != nil {
+		hits, err := s.indexer.Search(keyword, limit)
+		if err == nil {
+			out := make([]map[string]interface{}, 0, len(hits))
+			for _, h := range hits {
+				out = append(out, map[string]interface{}{
+					"path":    h.Path,
+					"content": stripMarks(h.Snippet), // 去除 FTS5 自带 <mark>，交给前端按关键词高亮
+					"line":    0,
+					"title":   h.Title,
+					"time":    h.Time,
+					"tags":    h.Tags,
+				})
+			}
+			jsonResp(w, out)
+			return
+		}
+		log.Printf("[WARN] index search failed, fallback to ssh: %v", err)
+	}
+
 	results, err := s.sshClient.Search(keyword, limit)
 	if err != nil {
 		jsonError(w, fmt.Sprintf("搜索失败: %v", err), http.StatusServiceUnavailable)
@@ -1352,6 +1376,13 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		results = []ssh.SearchResult{}
 	}
 	jsonResp(w, results)
+}
+
+// stripMarks 去除 FTS5 snippet 自带的 <mark>/</mark> 标记，避免与前端关键词高亮重复。
+func stripMarks(s string) string {
+	s = strings.ReplaceAll(s, "<mark>", "")
+	s = strings.ReplaceAll(s, "</mark>", "")
+	return s
 }
 
 // handleAIConfig 处理 AI 配置的读取和更新（GET/PUT）
