@@ -24,6 +24,8 @@ build:
 	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/knowly-darwin ./$(CMD_DIR)
 	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/knowly-darwin-arm64 ./$(CMD_DIR)
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/knowly-linux ./$(CMD_DIR)
+	go build -o $(BUILD_DIR)/knowly-mcp ./cmd/knowly-mcp
+	GOOS=linux GOARCH=amd64 go build -ldflags '-s -w' -o $(BUILD_DIR)/knowly-mcp-linux ./cmd/knowly-mcp
 	@chmod +x $(BUILD_DIR)/*
 	@echo "✓ 构建完成"
 
@@ -40,6 +42,14 @@ linux:
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/knowly-linux ./$(CMD_DIR)
 	@chmod +x $(BUILD_DIR)/knowly-linux
 	@echo "✓ Linux 版本构建完成"
+
+mcp:
+	@echo "构建 knowly-mcp（知识库 MCP 服务器）..."
+	@mkdir -p $(BUILD_DIR)
+	go build -o $(BUILD_DIR)/knowly-mcp ./cmd/knowly-mcp
+	GOOS=linux GOARCH=amd64 go build -ldflags '-s -w' -o $(BUILD_DIR)/knowly-mcp-linux ./cmd/knowly-mcp
+	@chmod +x $(BUILD_DIR)/knowly-mcp*
+	@echo "✓ knowly-mcp 构建完成（darwin + linux）"
 
 clean:
 	@echo "清理构建文件..."

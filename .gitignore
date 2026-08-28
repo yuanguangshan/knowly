@@ -45,3 +45,7 @@ yarn-error.log*
 .knowly/
 
 # Generated snapshots
+
+# knowly-mcp 源码目录（根级 knowly-* 忽略规则会误伤，显式豁免）
+!cmd/knowly-mcp
+!cmd/knowly-mcp/**
