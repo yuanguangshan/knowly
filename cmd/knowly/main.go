@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -850,6 +851,68 @@ func daemonPlistPath() string {
 	return p
 }
 
+// ensureDaemonPlist 确保 LaunchAgent plist 存在，缺失时按当前可执行文件路径生成。
+// 过去 plist 缺失会让 start 静默滑向孤儿进程回退（不受 launchd 看护，stop/新实例
+// 接管都会被拖累），这里把「安装 plist」变成 start 的自愈步骤。
+// 无法在 launchd 环境下工作（非 macOS / 无 HOME / 写入失败）时返回空串。
+func ensureDaemonPlist() string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	home := os.Getenv("HOME")
+	if home == "" {
+		return ""
+	}
+	p := filepath.Join(home, "Library", "LaunchAgents", "com.knowly.daemon.plist")
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	logPath := filepath.Join(config.GetConfigDir(), "daemon.log")
+	const tmpl = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.knowly.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>%s</string>
+        <string>--daemon</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>%s</string>
+    <key>StandardErrorPath</key>
+    <string>%s</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
+`
+	content := fmt.Sprintf(tmpl, exe, logPath, logPath)
+	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		return ""
+	}
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+		return ""
+	}
+	fmt.Printf("✓ 已生成 LaunchAgent plist: %s\n", p)
+	return p
+}
+
 func stopDaemon() {
 	// 优先交给 LaunchAgent：unload 后 KeepAlive 不再拉起，避免「刚 stop 就被 launchd 重启」的循环。
 	if plist := daemonPlistPath(); plist != "" {
@@ -946,7 +1009,8 @@ func handleCLI(args []string, cfg *config.Config, histStore *history.Store) {
 	switch cmd {
 	case "start":
 		// 优先交给 LaunchAgent：load 让 launchd 拉起并持续看护（KeepAlive）。
-		if plist := daemonPlistPath(); plist != "" {
+		// plist 缺失时先自愈式生成（按当前可执行文件路径），避免静默滑向孤儿进程回退。
+		if plist := ensureDaemonPlist(); plist != "" {
 			out, err := exec.Command("launchctl", "load", plist).CombinedOutput()
 			if err == nil {
 				fmt.Println("✓ knowly daemon started (LaunchAgent loaded)")
@@ -957,17 +1021,32 @@ func handleCLI(args []string, cfg *config.Config, histStore *history.Store) {
 				fmt.Println("✓ knowly daemon already running (LaunchAgent)")
 				return
 			}
-			fmt.Fprintf(os.Stderr, "launchctl load failed: %s; fallback to re-exec\n", strings.TrimSpace(string(out)))
+			// load 失败时尝试现代 API bootstrap（部分 macOS 场景 load 不可用）
+			bootstrap := exec.Command("launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), plist)
+			if berr := bootstrap.Run(); berr == nil {
+				fmt.Println("✓ knowly daemon started (LaunchAgent bootstrapped)")
+				return
+			}
+			fmt.Fprintf(os.Stderr, "[WARN] LaunchAgent 启动失败（load: %s）\n", strings.TrimSpace(string(out)))
 		}
-		// 回退：直接 re-exec 一个独立 daemon（不由 launchd 管理）
+		// launchd 全部失败：若已有实例在跑（PID 文件可探活），视为已在运行，防止双开
+		if data, err := os.ReadFile(config.GetPidPath()); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 && syscall.Kill(pid, 0) == nil {
+				fmt.Printf("✓ knowly daemon already running (PID %d)\n", pid)
+				return
+			}
+		}
+		// 最后回退：直接 re-exec 一个独立 daemon（不由 launchd 管理，崩溃不会自动重启）。
+		// Setsid 使其脱离当前终端会话，关闭终端不会因 SIGHUP 连带退出。
 		cmd := exec.Command(os.Args[0], "--daemon")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = nil
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		if err := cmd.Start(); err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("✓ knowly daemon started (PID %d)\n", cmd.Process.Pid)
+		fmt.Printf("⚠️  knowly daemon 以独立模式启动 (PID %d)——无 launchd 看护，崩溃不会自动重启\n", cmd.Process.Pid)
 	case "stop":
 		stopDaemon()
 	case "history":
