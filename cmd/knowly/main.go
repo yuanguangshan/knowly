@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -987,10 +989,8 @@ func showStatus(cfg *config.Config) {
 		fmt.Printf("  SSH: %s@%s:%s\n", cfg.SSH.User, cfg.SSH.Host, cfg.SSH.Port)
 		fmt.Printf("  Base Path: %s\n", cfg.SSH.BasePath)
 	}
-	histFile := filepath.Join(config.GetConfigDir(), "history.jsonl")
-	if data, err := os.ReadFile(histFile); err == nil {
-		count := strings.Count(string(data), "\n")
-		fmt.Printf("  Total syncs: %d\n", count)
+	if s := history.NewStore(config.GetConfigDir()); s != nil {
+		fmt.Printf("  Total syncs: %d\n", s.Count())
 	}
 	if entries, err := history.NewStore(config.GetConfigDir()).Recent(1); err == nil && len(entries) > 0 {
 		last := entries[0]
@@ -1135,8 +1135,7 @@ func handleCLI(args []string, cfg *config.Config, histStore *history.Store) {
 			return
 		}
 
-		// 2. 备份完整文件到 NAS
-		histPath := filepath.Join(config.GetConfigDir(), "history.jsonl")
+		// 2. 备份完整历史到 NAS（从 Store 导出 JSONL，格式与旧备份文件一致）
 		backupName := fmt.Sprintf("history_backup_%s.jsonl", time.Now().Format("20060102_150405"))
 		remoteDir := filepath.Join(cfg.SSH.BasePath, "uploads")
 
@@ -1158,13 +1157,16 @@ func handleCLI(args []string, cfg *config.Config, histStore *history.Store) {
 			log.Fatalf("创建远程目录失败: %v", err)
 		}
 
-		data, err := os.ReadFile(histPath)
-		if err != nil {
-			backupClient.Disconnect()
-			log.Fatalf("读取历史文件失败: %v", err)
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		for _, e := range allEntries {
+			if err := enc.Encode(e); err != nil {
+				backupClient.Disconnect()
+				log.Fatalf("序列化历史记录失败: %v", err)
+			}
 		}
 
-		if err := backupClient.WriteFile(filepath.Join(remoteDir, backupName), string(data)); err != nil {
+		if err := backupClient.WriteFile(filepath.Join(remoteDir, backupName), buf.String()); err != nil {
 			backupClient.Disconnect()
 			log.Fatalf("备份到 NAS 失败: %v", err)
 		}

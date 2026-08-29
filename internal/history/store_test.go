@@ -1,6 +1,8 @@
 package history
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -194,5 +196,66 @@ func TestStatsIncremental(t *testing.T) {
 	}
 	if st2.TotalSyncs != 5 {
 		t.Errorf("TotalSyncs after TrimTo = %d, want 5", st2.TotalSyncs)
+	}
+}
+
+func TestJSONLMigration(t *testing.T) {
+	dir := t.TempDir()
+
+	// 手工构造旧版 history.jsonl（含一条坏行，应被跳过）
+	jsonl := `{"id":"20260101_aaaa","content":"first","type":"text","timestamp":"2026-01-01T10:00:00+08:00","nas_path":"/nas/a.md","tags":["t1","t2"],"title":"标题A"}
+not-a-json-line
+{"id":"20260102_bbbb","content":"second","type":"image","timestamp":"2026-01-02T11:00:00+08:00","tags":["t1"],"manual_edit":true}
+`
+	if err := os.WriteFile(filepath.Join(dir, "history.jsonl"), []byte(jsonl), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewStore(dir)
+	defer s.Close()
+
+	if got := s.Count(); got != 2 {
+		t.Fatalf("Count after migration = %d, want 2", got)
+	}
+
+	// Recent 倒序：最新在前
+	entries, err := s.Recent(10)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("Recent after migration = %d entries, err %v", len(entries), err)
+	}
+	if entries[0].ID != "20260102_bbbb" || entries[1].ID != "20260101_aaaa" {
+		t.Errorf("migration order wrong: %s, %s", entries[0].ID, entries[1].ID)
+	}
+	if !entries[0].ManualEdit {
+		t.Error("manual_edit flag lost in migration")
+	}
+	if entries[1].Title != "标题A" {
+		t.Errorf("title lost in migration: %q", entries[1].Title)
+	}
+
+	// 标签倒排可用
+	byTag, _ := s.FindByTag("t1", 10)
+	if len(byTag) != 2 {
+		t.Errorf("FindByTag t1 = %d entries, want 2", len(byTag))
+	}
+	tags, _ := s.AllTags()
+	if len(tags) != 2 || tags[0].Tag != "t1" || tags[0].Count != 2 {
+		t.Errorf("AllTags wrong: %+v", tags)
+	}
+
+	// 幂等：重开同一目录不应重复导入
+	s2 := NewStore(dir)
+	defer s2.Close()
+	if got := s2.Count(); got != 2 {
+		t.Errorf("re-open Count = %d, want 2 (migration not idempotent)", got)
+	}
+
+	// UpdateTags 合并语义
+	if err := s.UpdateTags("20260101_aaaa", []string{"t3"}); err != nil {
+		t.Fatalf("UpdateTags failed: %v", err)
+	}
+	e, _ := s.GetByID("20260101_aaaa")
+	if len(e.Tags) != 3 {
+		t.Errorf("merged tags = %v, want 3 tags", e.Tags)
 	}
 }
