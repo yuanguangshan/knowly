@@ -208,7 +208,7 @@ ssh user@your-server.com
 
 ## 开机自启动
 
-使用 LaunchAgent 实现开机自启动：
+使用 LaunchAgent 实现开机自启动（`knowly start` 会在 plist 缺失时自动生成，具备自愈能力）：
 
 ```bash
 # 安装服务

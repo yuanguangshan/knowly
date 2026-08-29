@@ -1,6 +1,6 @@
 # 知识系统运行手册 (RUNBOOK)
 
-> 最后更新：2026-05-28
+> 最后更新：2026-08-29
 > 基于 knowly、weclaw、knasync 最新文档
 
 ---
@@ -23,12 +23,17 @@
 | 文件/目录 | 用途 |
 |-----------|------|
 | `config.json` | 主配置（SSH、剪贴板、AI、Relay、发布渠道） |
-| `knowly.log` | 守护进程日志 |
+| `knowly.log` / `daemon.log` | 守护进程日志 |
 | `knowly.pid` | PID 文件（带文件锁） |
 | `status.json` | 上次剪贴板哈希（进程重启去重） |
-| `history.jsonl` | 本地历史记录（JSONL 格式） |
+| `history.db` | **本地历史主库**（SQLite，WAL 模式；2026-08-29 起替代 jsonl） |
+| `history.db-wal` / `-shm` | SQLite WAL 伴随文件（正常存在，非垃圾） |
+| `history.jsonl` | 旧版历史文件，**只读留档不再写入**（首次打开时已自动迁入 SQLite） |
+| `index.db` | 全文检索索引（SQLite FTS5 trigram，NAS 归档镜像） |
 | `outbox/pending.jsonl` | 离线暂存队列 |
 | `cron_jobs.json` | 定时任务（Knowly 内置 cron） |
+
+> 旧文件 `tag_cache.json` 已废弃（标签计数改为 SQLite 实时聚合），残留可删。
 
 关键配置片段：
 
@@ -268,6 +273,7 @@ curl -X POST http://127.0.0.1:18011/api/send \
 - Relay 拉取：`curl -H "X-Auth-Key: xxx" https://knasync.want.biz/pull?queue=general` 看是否有积压
 - AI 配置：访问 `https://knowly.want.biz/api/config/ai` 检查 API Key 是否正确
 - 本地 outbox：`cat ~/.knowly/outbox/pending.jsonl` 看是否有未重试内容
+- 历史库健康：`sqlite3 ~/.knowly/history.db "SELECT COUNT(*) FROM entries"`；`history.db-wal/-shm` 是 WAL 正常伴随文件，不要手动删
 
 ### 2. WeClaw 收不到消息 / 不回复
 
@@ -341,9 +347,10 @@ Cmd+C (text/image) → Knowly monitor (500ms) → 去重/过滤 → SSH → /dat
 3. **knasync 升级：** `git pull && wrangler deploy`，注意 D1 表结构变更需执行迁移。
 4. **WireGuard 密钥更换：** 需同步更新所有节点的 `PrivateKey` 和对应 `PublicKey`。
 5. **备份关键数据：**
-   - Knowly: `~/.knowly/config.json`, `history.jsonl`
+   - Knowly: `~/.knowly/config.json`, `history.db`（历史主库）, `index.db`（可选，可由 NAS 重建）
    - WeClaw: `~/.weclaw/config.json`, `accounts/`, `hub/`
    - NAS 归档: 定期 rsync 到另一个存储
+   - 注：`knowly trim-history` 会先把完整历史以 JSONL 备份到 NAS（格式与旧版一致，可回放）
 
 ---
 

@@ -134,7 +134,7 @@ knowly log -f       # 实时跟踪日志
 
 ## macOS 系统服务
 
-安装为 LaunchAgent 后，knowly 会在登录时自动启动，崩溃自动重启：
+安装为 LaunchAgent 后，knowly 会在登录时自动启动，崩溃自动重启。`knowly start` 会在 plist 缺失时自动生成（自愈）：
 
 ```bash
 # 停止服务

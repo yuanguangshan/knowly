@@ -661,7 +661,7 @@ curl -H "Authorization: Bearer <token>" \
 **特殊处理:** 当上传的文件后缀为 `.txt` 或 `.md` 时，文件保存后将**自动触发异步文本同步流程**，包括：
 - AI 处理：自动生成 tags、summary、评分及内容重组
 - 归档写入：另存一份处理后的文件至 NAS 标准归档目录（`{ssh.base_path}/YYYY/MM/DD/HHMMSS_<prefix>.md`）
-- 历史索引：记入 `history.jsonl`
+- 历史索引：记入本地 SQLite 历史库（`~/.knowly/history.db`）
 - 自动发布：若配置了 Blog/Podcast/IMA/Kindle 等发布渠道，将自动推送
 
 原始上传文件保留在 `uploads/` 目录（扁平，不按日期细分）。非文本文件（PDF、图片等）仅保存至该目录，不触发后续处理。
