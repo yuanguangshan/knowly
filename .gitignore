@@ -49,3 +49,7 @@ yarn-error.log*
 # knowly-mcp 源码目录（根级 knowly-* 忽略规则会误伤，显式豁免）
 !cmd/knowly-mcp
 !cmd/knowly-mcp/**
+
+# 生成物（gdox / sourcepack），不要提交；需要时本地重新生成
+project_snapshot.md
+docs/knowly.md
