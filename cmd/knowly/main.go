@@ -855,21 +855,30 @@ func stopDaemon() {
 	if plist := daemonPlistPath(); plist != "" {
 		out, err := exec.Command("launchctl", "unload", plist).CombinedOutput()
 		if err == nil {
-			fmt.Println("✓ knowly daemon stopped (LaunchAgent unloaded)")
-			return
+			fmt.Println("✓ LaunchAgent unloaded")
+		} else {
+			fmt.Fprintf(os.Stderr, "launchctl unload failed: %s; fallback to PID file\n", strings.TrimSpace(string(out)))
 		}
-		fmt.Fprintf(os.Stderr, "launchctl unload failed: %s; fallback to PID file\n", strings.TrimSpace(string(out)))
 	}
-	// 回退：靠 PID 文件发 SIGTERM
+	// 无论 unload 是否成功，都要处理 PID 文件里的活进程：
+	// 孤儿进程（非 launchd 拉起，如早期 fallback 启动）不会因 unload 而退出，
+	// 只打印成功会导致「stop 了但旧实例还在跑」，后续新实例因 PID 检查无法接管。
 	pidPath := config.GetPidPath()
 	data, err := os.ReadFile(pidPath)
 	if err != nil {
-		fmt.Println("knowly daemon is not running (no PID file)")
+		fmt.Println("✓ knowly daemon stopped (no live PID)")
 		return
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil {
-		fmt.Println("Invalid PID file")
+		os.Remove(pidPath)
+		fmt.Println("✓ knowly daemon stopped (cleared invalid PID file)")
+		return
+	}
+	// 进程已死：清理陈旧 PID 文件即可
+	if syscall.Kill(pid, 0) != nil {
+		os.Remove(pidPath)
+		fmt.Println("✓ knowly daemon stopped (cleaned stale PID file)")
 		return
 	}
 	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
@@ -877,8 +886,19 @@ func stopDaemon() {
 		os.Remove(pidPath)
 		return
 	}
+	// 等待优雅退出，最多 5 秒，超时强杀（避免卡死的关闭钩子让 stop 永远不生效）
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if syscall.Kill(pid, 0) != nil {
+			os.Remove(pidPath)
+			fmt.Printf("✓ knowly daemon stopped (PID %d)\n", pid)
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	syscall.Kill(pid, syscall.SIGKILL)
 	os.Remove(pidPath)
-	fmt.Printf("✓ knowly daemon stopped (PID %d)\n", pid)
+	fmt.Printf("✓ knowly daemon force-killed (PID %d)\n", pid)
 }
 
 // showStatus 显示守护进程状态
