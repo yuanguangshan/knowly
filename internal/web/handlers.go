@@ -20,6 +20,7 @@ import (
 	"github.com/yuanguangshan/knowly/internal/ai"
 	"github.com/yuanguangshan/knowly/internal/config"
 	"github.com/yuanguangshan/knowly/internal/history"
+	"github.com/yuanguangshan/knowly/internal/index"
 	"github.com/yuanguangshan/knowly/internal/publisher"
 	"github.com/yuanguangshan/knowly/internal/ssh"
 )
@@ -1678,7 +1679,21 @@ func (s *Server) handleHistoryEntryFull(w http.ResponseWriter, r *http.Request) 
 
 	content := entry.Content
 
-	// 如果有 NASPath，从 NAS 读取完整内容
+	// 优先命中本地索引（全文早已随同步入索引，读它只要几毫秒），
+	// 未命中才走 SSH 回源 NAS（一次 2~3 秒的往返）。
+	// 用接口升级断言取 GetByNasPath，不改 Indexer 接口定义，测试 mock 不受影响。
+	if entry.NASPath != "" && s.indexer != nil {
+		if gnp, ok := s.indexer.(interface {
+			GetByNasPath(string) (*index.Doc, error)
+		}); ok {
+			if doc, err := gnp.GetByNasPath(entry.NASPath); err == nil && doc != nil {
+				jsonResp(w, map[string]string{"content": doc.Content})
+				return
+			}
+		}
+	}
+
+	// 回源：从 NAS 读取完整内容
 	if entry.NASPath != "" && s.sshClient != nil {
 		data, err := s.sshClient.ReadFile(entry.NASPath)
 		if err != nil {

@@ -259,6 +259,25 @@ func (ix *Index) GetByPath(path string) (*Doc, error) {
 	return &d, nil
 }
 
+// GetByNasPath 按 NAS 绝对路径取全文。供 /api/history/{id}/full 等
+// 历史详情接口优先命中本地索引，省去一次 2~3 秒的 SSH 往返。
+// nas_path 是 UNINDEXED 列，走线性扫描；数千条规模下毫秒级，可接受。
+func (ix *Index) GetByNasPath(nasPath string) (*Doc, error) {
+	var d Doc
+	var t string
+	err := ix.db.QueryRow(
+		`SELECT path, nas_path, title, tags, type, time, content FROM docs WHERE nas_path = ? LIMIT 1`, nasPath,
+	).Scan(&d.Path, &d.NasPath, &d.Title, &d.Tags, &d.Type, &t, &d.Content)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	d.Time, _ = time.Parse(time.RFC3339, t)
+	return &d, nil
+}
+
 // AllTags 聚合所有标签及出现次数，按次数降序。
 func (ix *Index) AllTags() ([]TagCount, error) {
 	rows, err := ix.db.Query(`SELECT tags FROM docs WHERE tags != ''`)
