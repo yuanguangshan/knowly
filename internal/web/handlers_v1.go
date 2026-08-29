@@ -1,6 +1,7 @@
 package web
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -16,7 +17,9 @@ func (s *Server) requireAPIToken(r *http.Request) bool {
 		return true
 	}
 	auth := r.Header.Get("Authorization")
-	return auth == "Bearer "+s.cfg.API.Token
+	expected := "Bearer " + s.cfg.API.Token
+	// 常量时间比较，避免 token 被逐字节时序侧信道猜测
+	return subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) == 1
 }
 
 // handleV1Search GET /api/v1/search?q=&limit=

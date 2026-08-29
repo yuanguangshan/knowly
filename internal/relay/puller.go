@@ -16,6 +16,7 @@ type Puller struct {
 	interval time.Duration
 	stopChan chan struct{}
 	callback func(string)
+	client   *http.Client // 共享 keep-alive 客户端：轮询周期性触发，复用连接省去每次 TCP+TLS 握手
 }
 
 func NewPuller(endpoint, secret string, interval time.Duration, callback func(string)) *Puller {
@@ -25,6 +26,7 @@ func NewPuller(endpoint, secret string, interval time.Duration, callback func(st
 		interval: interval,
 		stopChan: make(chan struct{}),
 		callback: callback,
+		client:   &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -64,8 +66,7 @@ func (p *Puller) pull() ([]string, error) {
 	}
 	req.Header.Set("X-Auth-Key", p.secret)
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -115,8 +116,7 @@ func (p *Puller) Push(content string, original ...string) error {
 	req.Header.Set("X-Auth-Key", p.secret)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := p.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -149,8 +149,7 @@ func (p *Puller) Ack(original string) error {
 	req.Header.Set("X-Auth-Key", p.secret)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := p.client.Do(req)
 	if err != nil {
 		return err
 	}

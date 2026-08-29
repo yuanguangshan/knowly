@@ -20,6 +20,7 @@ type ResultPuller struct {
 	interval   time.Duration
 	stopChan   chan struct{}
 	callback   func(content string)
+	client     *http.Client // 共享 keep-alive 客户端，避免每次轮询重新握手
 	cursor     int64
 	cursorMu   sync.Mutex
 	cursorFile string
@@ -43,6 +44,7 @@ func NewResultPuller(endpoint, secret, cursorFile string, interval time.Duration
 		interval:   interval,
 		stopChan:   make(chan struct{}),
 		callback:   callback,
+		client:     &http.Client{Timeout: 10 * time.Second},
 		cursorFile: cursorFile,
 	}
 	// 从文件恢复游标
@@ -95,8 +97,7 @@ func (rp *ResultPuller) pullResults() ([]resultsItem, error) {
 	}
 	req.Header.Set("X-Auth-Key", rp.secret)
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := rp.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
