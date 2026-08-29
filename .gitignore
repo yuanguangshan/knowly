@@ -53,3 +53,8 @@ yarn-error.log*
 # 生成物（gdox / sourcepack），不要提交；需要时本地重新生成
 project_snapshot.md
 docs/knowly.md
+
+# 编译产物一律不入库（npm 发布走 package.json，安装走 GitHub Release）
+bin/knowly
+bin/knas
+bin/knas-*
