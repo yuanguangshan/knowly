@@ -668,17 +668,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	// Web 服务能运行就说明守护进程在跑
 	status["daemon_running"] = true
 
-	histFile := filepath.Join(config.GetConfigDir(), "history.jsonl")
-	if f, err := os.Open(histFile); err == nil {
-		scanner := bufio.NewScanner(f)
-		scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024) // 10MB max line
-		count := 0
-		for scanner.Scan() {
-			count++
-		}
-		f.Close()
-		status["total_syncs"] = count
-	}
+	// 复用 Store 的计数（首次统计一次，之后 O(1)），避免状态页每次全量扫描 history.jsonl
+	status["total_syncs"] = s.histStore.Count()
 
 	status["ssh_connected"] = s.sshClient != nil
 	status["start_time"] = s.startTime.Format("2006-01-02 15:04:05")
@@ -1347,35 +1338,38 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 
-	if s.indexer != nil {
-		hits, err := s.indexer.Search(keyword, limit)
-		if err == nil {
-			out := make([]map[string]interface{}, 0, len(hits))
-			for _, h := range hits {
-				out = append(out, map[string]interface{}{
-					"path":    h.Path,
-					"content": stripMarks(h.Snippet), // 去除 FTS5 自带 <mark>，交给前端按关键词高亮
-					"line":    0,
-					"title":   h.Title,
-					"time":    h.Time,
-					"tags":    h.Tags,
-				})
-			}
-			jsonResp(w, out)
+	if s.indexer == nil {
+		// 本地索引不可用（如 index.db 尚未构建），回退到 SSH grep 全量扫描（可用性兜底）。
+		// 注意：仅当索引完全缺失时才走此路径，避免索引可用却偶发报错时打满一次全盘 grep。
+		results, err := s.sshClient.Search(keyword, limit)
+		if err != nil {
+			jsonError(w, fmt.Sprintf("搜索失败: %v", err), http.StatusServiceUnavailable)
 			return
 		}
-		log.Printf("[WARN] index search failed, fallback to ssh: %v", err)
-	}
-
-	results, err := s.sshClient.Search(keyword, limit)
-	if err != nil {
-		jsonError(w, fmt.Sprintf("搜索失败: %v", err), http.StatusServiceUnavailable)
+		if results == nil {
+			results = []ssh.SearchResult{}
+		}
+		jsonResp(w, results)
 		return
 	}
-	if results == nil {
-		results = []ssh.SearchResult{}
+
+	hits, err := s.indexer.Search(keyword, limit)
+	if err != nil {
+		jsonError(w, fmt.Sprintf("索引搜索失败: %v", err), http.StatusInternalServerError)
+		return
 	}
-	jsonResp(w, results)
+	out := make([]map[string]interface{}, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, map[string]interface{}{
+			"path":    h.Path,
+			"content": stripMarks(h.Snippet), // 去除 FTS5 自带 <mark>，交给前端按关键词高亮
+			"line":    0,
+			"title":   h.Title,
+			"time":    h.Time,
+			"tags":    h.Tags,
+		})
+	}
+	jsonResp(w, out)
 }
 
 // stripMarks 去除 FTS5 snippet 自带的 <mark>/</mark> 标记，避免与前端关键词高亮重复。

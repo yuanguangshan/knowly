@@ -795,9 +795,15 @@ func PublishWebhookTargetWithTitle(target config.WebhookTarget, content string, 
 	return nil
 }
 
+// publishSem 限制对外发布的并发数，避免批量回灌/高频同步瞬间起大量 goroutine
+// 打满外部服务连接（每个发布都是一个同步 HTTP 请求）。
+var publishSem = make(chan struct{}, 8)
+
 func PublishIfNeeded(cfg *config.Config, content string) {
 	if cfg.Blog.Enabled {
 		go func() {
+			publishSem <- struct{}{}
+			defer func() { <-publishSem }()
 			if err := PublishBlog(cfg.Blog, content, ""); err != nil {
 				log.Printf("[ERROR] Blog publish failed: %v", err)
 			}
@@ -806,6 +812,8 @@ func PublishIfNeeded(cfg *config.Config, content string) {
 
 	if cfg.Podcast.Enabled {
 		go func() {
+			publishSem <- struct{}{}
+			defer func() { <-publishSem }()
 			if err := PublishPodcast(cfg.Podcast, content, ""); err != nil {
 				log.Printf("[ERROR] Podcast publish failed: %v", err)
 			}
@@ -814,6 +822,8 @@ func PublishIfNeeded(cfg *config.Config, content string) {
 
 	if cfg.IMA.Enabled && cfg.IMA.ClientID != "" && cfg.IMA.APIKey != "" {
 		go func() {
+			publishSem <- struct{}{}
+			defer func() { <-publishSem }()
 			if err := PublishIMA(cfg.IMA, content, ""); err != nil {
 				log.Printf("[ERROR] IMA publish failed: %v", err)
 			}
@@ -822,6 +832,8 @@ func PublishIfNeeded(cfg *config.Config, content string) {
 
 	if cfg.Kindle.Enabled && cfg.Kindle.SenderEmail != "" && cfg.Kindle.SenderPassword != "" {
 		go func() {
+			publishSem <- struct{}{}
+			defer func() { <-publishSem }()
 			if err := PublishKindle(cfg.Kindle, content, ""); err != nil {
 				log.Printf("[ERROR] Kindle publish failed: %v", err)
 			}

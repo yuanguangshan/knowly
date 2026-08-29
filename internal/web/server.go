@@ -271,7 +271,17 @@ func (s *Server) serveWithRetry() error {
 		}
 		fmt.Printf("Knowly Web UI 启动: http://localhost%s\n", s.addr)
 
-		srv := &http.Server{Addr: s.addr, Handler: handler}
+		// 超时与头大小限制：防止慢速/恶意客户端长期占用连接与 goroutine，
+		// 这是 Go 生产服务的标配（避免 Slowloris 类耗尽连接池）。
+		// 上传接口允许 500MB，故 WriteTimeout 放宽到 10 分钟。
+		srv := &http.Server{
+			Addr:           s.addr,
+			Handler:        handler,
+			ReadTimeout:    15 * time.Second,
+			WriteTimeout:   10 * time.Minute,
+			IdleTimeout:    120 * time.Second,
+			MaxHeaderBytes: 1 << 20,
+		}
 		s.httpServer = srv
 		if serveErr := srv.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
 			log.Printf("[ERROR] Web server error: %v, retry in %s", serveErr, delay)

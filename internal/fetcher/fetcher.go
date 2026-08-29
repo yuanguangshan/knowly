@@ -155,11 +155,13 @@ func FetchTitle(ctx context.Context, url string) (string, error) {
 // fetchHTML 获取页面 HTML 内容（最多重试 2 次）
 func fetchHTML(ctx context.Context, url string) ([]byte, error) {
 	// 创建 HTTP 客户端（整个重试周期复用同一个 client）
-	// 强制 HTTP/1.1 + 禁用连接复用，避免微信服务器 HTTP/2 unexpected EOF
+	// 微信：强制 HTTP/1.1 + 禁用连接复用，避免微信服务器 HTTP/2 unexpected EOF；
+	// 其他站点：保持连接复用（keep-alive），省去每次请求的 TCP+TLS 握手延迟。
+	disableKeepAlives := isWeChatURL(url)
 	client := &http.Client{
 		Timeout: 20 * time.Second,
 		Transport: &http.Transport{
-			DisableKeepAlives: true,
+			DisableKeepAlives: disableKeepAlives,
 			TLSNextProto:      make(map[string]func(string, *tls.Conn) http.RoundTripper),
 		},
 	}

@@ -62,6 +62,14 @@ type Store struct {
 
 	statsCache     *Stats // 统计结果缓存
 	statsCacheTime time.Time // 缓存构建时间
+
+	// 增量统计：避免 Stats() 每次全量扫描 history.jsonl
+	incTotal    int            // 累计同步总数
+	incText     int            // 文本条目数
+	incImage    int            // 图片条目数
+	incDayText  map[string]int // 按天(YYYY-MM-DD)统计文本条目数
+	incDayImage map[string]int // 按天(YYYY-MM-DD)统计图片条目数
+	incBuilt    bool           // 增量统计是否已构建（首次/压缩/截断后重建）
 }
 
 // NewStore 创建历史存储实例
@@ -71,6 +79,8 @@ func NewStore(dir string) *Store {
 		maxEntries:   defaultMaxEntries,
 		tagCache:     make(map[string]int),
 		tagCachePath: filepath.Join(dir, "tag_cache.json"),
+		incDayText:   make(map[string]int),
+		incDayImage:  make(map[string]int),
 	}
 	s.loadTagCache()
 	return s
@@ -83,6 +93,8 @@ func NewStoreWithLimit(dir string, maxEntries int) *Store {
 		maxEntries:   maxEntries,
 		tagCache:     make(map[string]int),
 		tagCachePath: filepath.Join(dir, "tag_cache.json"),
+		incDayText:   make(map[string]int),
+		incDayImage:  make(map[string]int),
 	}
 	s.loadTagCache()
 	return s
@@ -175,6 +187,16 @@ func (s *Store) Append(entry Entry) (string, error) {
 
 	// 跟踪条目数，超过阈值时压缩
 	s.count++
+	// 增量维护统计计数，避免 Stats() 全量扫描 history.jsonl
+	s.incTotal++
+	dayKey := entry.Timestamp.Format("2006-01-02")
+	if entry.Type == "text" {
+		s.incText++
+		s.incDayText[dayKey]++
+	} else {
+		s.incImage++
+		s.incDayImage[dayKey]++
+	}
 	if s.count > s.maxEntries*2 {
 		if err := s.compact(); err != nil {
 			log.Printf("[WARN] History compaction failed: %v", err)
@@ -248,6 +270,14 @@ func (s *Store) compact() error {
 
 	s.count = len(keep)
 
+	// compact 后清空增量统计，下次 Stats() 重建一次（compact 低频，可接受）
+	s.incBuilt = false
+	s.incTotal = 0
+	s.incText = 0
+	s.incImage = 0
+	s.incDayText = make(map[string]int)
+	s.incDayImage = make(map[string]int)
+
 	// compact 后重建标签缓存
 	s.tagCache = make(map[string]int)
 	for _, e := range keep {
@@ -316,6 +346,14 @@ func (s *Store) TrimTo(n int) error {
 
 	s.count = len(keep)
 	s.counted = true
+
+	// 截断后清空增量统计，下次 Stats() 重建一次
+	s.incBuilt = false
+	s.incTotal = 0
+	s.incText = 0
+	s.incImage = 0
+	s.incDayText = make(map[string]int)
+	s.incDayImage = make(map[string]int)
 
 	// 重建标签缓存
 	s.tagCache = make(map[string]int)
@@ -506,6 +544,15 @@ func (s *Store) recentFallback(n int) ([]Entry, error) {
 	return entries, nil
 }
 
+// Count 返回已追踪的条目总数（首次调用时统计一次，之后复用计数）。
+// 供 /api/status 等高频接口使用，避免每次全量扫描 history.jsonl。
+func (s *Store) Count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureCount()
+	return s.count
+}
+
 // FindByTag 逆向扫描文件，返回包含指定标签的最近 limit 条记录。
 // 避免为标签过滤全量加载整个 history.jsonl 文件。
 func (s *Store) FindByTag(tag string, limit int) ([]Entry, error) {
@@ -682,7 +729,8 @@ type Stats struct {
 }
 
 // Stats 聚合统计历史数据
-// 结果缓存 60 秒，避免高频请求全量扫描 history.jsonl
+// 结果缓存 60 秒，避免高频请求全量扫描 history.jsonl。
+// 增量维护 TotalSyncs/TextCount/ImageCount/每日趋势，仅在首次及压缩/截断后全量重建一次。
 func (s *Store) Stats() (*Stats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -692,36 +740,36 @@ func (s *Store) Stats() (*Stats, error) {
 		return s.statsCache, nil
 	}
 
-	entries, err := s.readAll()
-	if err != nil {
-		log.Printf("[WARN] Stats: readAll failed, returning empty stats: %v", err)
-		entries = nil
+	// 首次或失效后：全量扫描一次以构建增量统计
+	if !s.incBuilt {
+		entries, err := s.readAll()
+		if err != nil {
+			log.Printf("[WARN] Stats: readAll failed, using empty stats: %v", err)
+			entries = nil
+		}
+		s.incTotal = len(entries)
+		s.incText = 0
+		s.incImage = 0
+		s.incDayText = make(map[string]int)
+		s.incDayImage = make(map[string]int)
+		for _, e := range entries {
+			if e.Type == "text" {
+				s.incText++
+				s.incDayText[e.Timestamp.Format("2006-01-02")]++
+			} else {
+				s.incImage++
+				s.incDayImage[e.Timestamp.Format("2006-01-02")]++
+			}
+		}
+		s.incBuilt = true
 	}
 
 	stats := &Stats{
-		TotalSyncs:  len(entries),
+		TotalSyncs:  s.incTotal,
+		TextCount:   s.incText,
+		ImageCount:  s.incImage,
 		WeeklyTrend: make([]WeekCount, 0, 8),
 		DailyTrend:  make([]DayCount, 0, 30),
-	}
-
-	// 计算类型计数
-	textCount := 0
-	imageCount := 0
-	for _, e := range entries {
-		if e.Type == "text" {
-			textCount++
-		} else {
-			imageCount++
-		}
-	}
-	stats.TextCount = textCount
-	stats.ImageCount = imageCount
-
-	// 按天聚合
-	dayMap := make(map[string]int)
-	for _, e := range entries {
-		day := e.Timestamp.Format("2006-01-02")
-		dayMap[day]++
 	}
 
 	// 最近 30 天趋势
@@ -730,38 +778,41 @@ func (s *Store) Stats() (*Stats, error) {
 		d := now.AddDate(0, 0, -i).Format("2006-01-02")
 		stats.DailyTrend = append(stats.DailyTrend, DayCount{
 			Date:  d,
-			Count: dayMap[d],
+			Count: s.incDayText[d] + s.incDayImage[d],
 		})
 	}
 
 	// 按周聚合（ISO 周）
-	type weekKey struct {
-		year, week int
-	}
-	weekMap := make(map[weekKey]struct {
-		text, image int
-	})
-	for _, e := range entries {
-		y, w := e.Timestamp.ISOWeek()
-		k := weekKey{y, w}
-		s := weekMap[k]
-		if e.Type == "text" {
-			s.text++
-		} else {
-			s.image++
+	type weekKey struct{ year, week int }
+	weekMap := make(map[weekKey]struct{ text, image int })
+	for d, tc := range s.incDayText {
+		t, err := time.Parse("2006-01-02", d)
+		if err != nil {
+			continue
 		}
-		weekMap[k] = s
+		y, w := t.ISOWeek()
+		s := weekMap[weekKey{y, w}]
+		s.text += tc
+		weekMap[weekKey{y, w}] = s
+	}
+	for d, ic := range s.incDayImage {
+		t, err := time.Parse("2006-01-02", d)
+		if err != nil {
+			continue
+		}
+		y, w := t.ISOWeek()
+		s := weekMap[weekKey{y, w}]
+		s.image += ic
+		weekMap[weekKey{y, w}] = s
 	}
 
 	// 最近 8 周
 	for i := 7; i >= 0; i-- {
 		t := now.AddDate(0, 0, -7*i)
 		y, w := t.ISOWeek()
-		k := weekKey{y, w}
-		s := weekMap[k]
-		label := fmt.Sprintf("%d-W%02d", y, w)
+		s := weekMap[weekKey{y, w}]
 		stats.WeeklyTrend = append(stats.WeeklyTrend, WeekCount{
-			Label:      label,
+			Label:      fmt.Sprintf("%d-W%02d", y, w),
 			Count:      s.text + s.image,
 			TextCount:  s.text,
 			ImageCount: s.image,

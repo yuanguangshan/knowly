@@ -308,7 +308,9 @@ func main() {
 			var acquiredHash string
 			if tp, ok := payload.(clipboard.TextPayload); ok {
 				h := ssh.ContentHash([]byte(tp.Content))
-				fmt.Fprintf(os.Stdout, "%s [DEBUG] main loop payload hash=%s len=%d\n", time.Now().Format("2006/01/02 15:04:05"), h[:12], len(tp.Content))
+				if verbose {
+					fmt.Fprintf(os.Stdout, "%s [DEBUG] main loop payload hash=%s len=%d\n", time.Now().Format("2006/01/02 15:04:05"), h[:12], len(tp.Content))
+				}
 				if !tryAcquire(h) {
 					fmt.Fprintf(os.Stdout, "%s [INFO] Payload dropped (hash: %s)\n", time.Now().Format("2006/01/02 15:04:05"), h[:8])
 					continue
@@ -360,21 +362,22 @@ func handlePayload(client *ssh.Client, cfg *config.Config, p clipboard.Payload, 
 // inFlight 全局正在处理中的内容 hash，防止并发重复
 var inFlightMu sync.Mutex
 var inFlight = make(map[string]bool)
-var lastProcessedTime time.Time
+
+// verbose 控制高频 DEBUG 日志（每条同步都会打印 hash/len）。默认关闭，
+// 设环境变量 KNOWLY_DEBUG=1 可开启，避免生产常开时放大磁盘 IO。
+var verbose = os.Getenv("KNOWLY_DEBUG") != ""
 
 // tryAcquire 尝试获取处理权，true 表示可以处理，false 表示已在处理中
 func tryAcquire(hash string) bool {
 	inFlightMu.Lock()
 	defer inFlightMu.Unlock()
-	// 时间窗口：5 秒内处理过的内容直接丢弃（解决剪贴板库返回不同编码导致 hash 不同的问题）
-	if time.Since(lastProcessedTime) < 5*time.Second {
-		return false
-	}
+	// 仅按内容 hash 去重，避免并发重复处理同一条内容。
+	// 注意：早期实现里有一个「5 秒内任何新内容一律丢弃」的全局时间闸门，
+	// 会误伤用户 5 秒内连续复制的不同内容（第二条被静默丢弃）。这里只保留 hash 去重。
 	if inFlight[hash] {
 		return false
 	}
 	inFlight[hash] = true
-	lastProcessedTime = time.Now()
 	return true
 }
 
@@ -600,7 +603,9 @@ var syncTextCallCount int64
 
 func syncText(client *ssh.Client, cfg *config.Config, content string, timestamp time.Time, histStore *history.Store, aiProcessor *ai.Processor, outboxStore *outbox.Store, source string) {
 	c := atomic.AddInt64(&syncTextCallCount, 1)
-	fmt.Fprintf(os.Stdout, "%s [DEBUG] syncText CALL #%d source=%s hash=%s\n", time.Now().Format("2006/01/02 15:04:05"), c, source, ssh.ContentHash([]byte(content))[:12])
+	if verbose {
+		fmt.Fprintf(os.Stdout, "%s [DEBUG] syncText CALL #%d source=%s hash=%s\n", time.Now().Format("2006/01/02 15:04:05"), c, source, ssh.ContentHash([]byte(content))[:12])
+	}
 	hash := ssh.ContentHash([]byte(content))
 	isURL := fetcher.IsURL(content)
 
