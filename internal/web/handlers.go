@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -1970,7 +1971,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-		http.Error(w, "file too large or invalid form", http.StatusBadRequest)
+		// 区分失败原因：只有真超限才报 "file too large"；body 被链路截断
+		// （unexpected EOF）或表单编码错误须如实报告，避免误导成"调大限制"。
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, fmt.Sprintf("file too large: exceeds %d bytes limit", mbe.Limit), http.StatusRequestEntityTooLarge)
+		} else {
+			http.Error(w, "invalid multipart form (body may be truncated): "+err.Error(), http.StatusBadRequest)
+		}
 		return
 	}
 
