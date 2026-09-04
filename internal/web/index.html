@@ -4263,6 +4263,13 @@ data: {"step":"done","message":"发布完成"}</pre>
           const container = document.getElementById("logContainer");
           const html = lines.map((l) => buildLogLineHtml(l)).join("");
           container.innerHTML = html;
+          // 全量刷新后重置批量队列和计数，避免旧 flush 插进新列表
+          pendingLogLines = [];
+          if (logFlushRaf) {
+            cancelAnimationFrame(logFlushRaf);
+            logFlushRaf = null;
+          }
+          logLineCount = container.children.length;
         } catch (e) {
           console.error("loadLogs error:", e);
         }
@@ -4301,8 +4308,11 @@ data: {"step":"done","message":"发布完成"}</pre>
       const MAX_LOG_LINES = 500;
 
       var recentLogKeys = new Set();
+      // SSE 洪峰时逐条 insertBefore 会每条触发一次布局；改为入队后 rAF 批量插入
+      var pendingLogLines = [];
+      var logFlushRaf = null;
+
       function appendLogLine(line) {
-        const container = document.getElementById("logContainer");
         // raw 可能带尾随换行，统一 trim 后计算 key
         var raw = (line.raw || line.message || "").trim();
         var key = (line.time || "") + "|" + raw;
@@ -4313,16 +4323,28 @@ data: {"step":"done","message":"发布完成"}</pre>
           var firstKey = recentLogKeys.values().next().value;
           recentLogKeys.delete(firstKey);
         }
-        if (
-          container.firstChild &&
-          container.firstChild.dataset &&
-          container.firstChild.dataset.key === key
-        )
-          return;
-        const div = document.createElement("div");
-        div.innerHTML = buildLogLineHtml(line);
-        container.insertBefore(div.firstChild, container.firstChild);
-        logLineCount++;
+        pendingLogLines.push(line);
+        if (!logFlushRaf) {
+          logFlushRaf = requestAnimationFrame(flushLogLines);
+        }
+      }
+
+      function flushLogLines() {
+        logFlushRaf = null;
+        const container = document.getElementById("logContainer");
+        var lines = pendingLogLines;
+        pendingLogLines = [];
+        if (!container || lines.length === 0) return;
+
+        var frag = document.createDocumentFragment();
+        // 倒序构建：界面是最新在上，frag 内保持「新→旧」，整体插到现有内容之前
+        for (var i = lines.length - 1; i >= 0; i--) {
+          var div = document.createElement("div");
+          div.innerHTML = buildLogLineHtml(lines[i]);
+          frag.appendChild(div.firstChild);
+        }
+        container.insertBefore(frag, container.firstChild);
+        logLineCount += lines.length;
         // 限制 DOM 行数，防止界面卡顿
         while (logLineCount > MAX_LOG_LINES && container.lastChild) {
           container.removeChild(container.lastChild);
