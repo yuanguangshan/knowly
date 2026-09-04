@@ -159,12 +159,16 @@
         display: flex;
         flex-direction: column;
       }
-      /* Top Section (header + motto) - auto-hide on scroll */
+      /* Top Section (header + motto) - auto-hide on scroll
+         max-height 不参与 transition：收起瞬间完成布局切换（单次重排），
+         视觉上的滑动由 setTopSectionHidden 用 Web Animations 在合成器层补，
+         避免滚动中逐帧 max-height 重排造成的卡顿 */
       .top-section {
         flex-shrink: 0;
         overflow: hidden;
-        transition: max-height 0.25s ease, opacity 0.2s ease;
-        max-height: 80px;
+        max-height: var(--top-h, 120px);
+        opacity: 1;
+        transition: opacity 0.15s ease;
       }
       .top-section.hidden {
         max-height: 0;
@@ -2504,6 +2508,7 @@
           </div>
           <div class="ai-subpanel active" id="ai-panel-poe">
             <iframe
+              id="poeIframe"
               src="https://poe.want.biz/"
               class="poe-iframe"
               allow="clipboard-read; clipboard-write"
@@ -4126,83 +4131,42 @@ data: {"step":"done","message":"发布完成"}</pre>
       }
 
       // === AI Sub-tab Switch ===
-      var deepseekLoaded = false;
-      var geminiLoaded = false;
-      var kimiLoaded = false;
-      var qwenLoaded = false;
+      // 各子面板 iframe 的地址表；切走时把非活跃 iframe 置为 about:blank 回收
+      // 内存/CPU（重型 AI 页面常驻是灵感页卡顿主因），切回时按表重新加载
+      var aiIframeUrls = {
+        poe: ['poeIframe', 'https://poe.want.biz/'],
+        deepseek: ['deepseekIframe', 'https://chat.deepseek.com/'],
+        gemini: ['geminiIframe', 'https://aistudio.google.com/prompts/new_chat'],
+        kimi: ['kimiIframe', 'https://www.kimi.com/agent'],
+        qwen: ['qwenIframe', 'https://chat.qwen.ai/']
+      };
       function switchAiSubTab(sub) {
         document.querySelectorAll('.ai-subtab').forEach(function(el) { el.classList.remove('active'); });
         document.querySelectorAll('.ai-subpanel').forEach(function(el) { el.classList.remove('active'); });
         document.getElementById('ai-subtab-' + sub).classList.add('active');
         document.getElementById('ai-panel-' + sub).classList.add('active');
 
-        if (sub === 'deepseek') {
-          var iframe = document.getElementById('deepseekIframe');
-          var fallback = document.getElementById('deepseekFallback');
-
-          // 判断环境：如果自身不是顶层窗口，说明是在 AI Studio Side Panel 的 iframe 内
-          if (window.self !== window.top) {
-            fallback.classList.remove('show');
-            iframe.style.display = 'block';
-            if (!deepseekLoaded) {
-              iframe.src = 'https://chat.deepseek.com/';
-              deepseekLoaded = true;
-            }
-          } else {
-            // 普通页面访问
-            iframe.style.display = 'none';
-            fallback.classList.add('show');
+        // 卸载所有非活跃 iframe（从未加载过的没有 src，跳过）
+        document.querySelectorAll('#panel-ai .ai-subpanel iframe').forEach(function (f) {
+          if (f.closest('.ai-subpanel').id === 'ai-panel-' + sub) return;
+          if (f.src && f.src.indexOf('http') === 0) {
+            f.src = 'about:blank';
           }
-        }
+        });
 
-        if (sub === 'gemini') {
-          var iframe = document.getElementById('geminiIframe');
-          var fallback = document.getElementById('geminiFallback');
-
+        var cfg = aiIframeUrls[sub];
+        if (cfg) {
+          var iframe = document.getElementById(cfg[0]);
+          var fallback = document.getElementById(sub + 'Fallback');
           if (window.self !== window.top) {
-            fallback.classList.remove('show');
+            // 嵌在 AI Studio Side Panel 里时才真正加载第三方站点
+            if (fallback) fallback.classList.remove('show');
             iframe.style.display = 'block';
-            if (!geminiLoaded) {
-              iframe.src = 'https://aistudio.google.com/prompts/new_chat';
-              geminiLoaded = true;
+            if (!iframe.src || iframe.src === 'about:blank') {
+              iframe.src = cfg[1];
             }
           } else {
-            iframe.style.display = 'none';
-            fallback.classList.add('show');
-          }
-        }
-
-        if (sub === 'kimi') {
-          var iframe = document.getElementById('kimiIframe');
-          var fallback = document.getElementById('kimiFallback');
-
-          if (window.self !== window.top) {
-            fallback.classList.remove('show');
-            iframe.style.display = 'block';
-            if (!kimiLoaded) {
-              iframe.src = 'https://www.kimi.com/agent';
-              kimiLoaded = true;
-            }
-          } else {
-            iframe.style.display = 'none';
-            fallback.classList.add('show');
-          }
-        }
-
-        if (sub === 'qwen') {
-          var iframe = document.getElementById('qwenIframe');
-          var fallback = document.getElementById('qwenFallback');
-
-          if (window.self !== window.top) {
-            fallback.classList.remove('show');
-            iframe.style.display = 'block';
-            if (!qwenLoaded) {
-              iframe.src = 'https://chat.qwen.ai/';
-              qwenLoaded = true;
-            }
-          } else {
-            iframe.style.display = 'none';
-            fallback.classList.add('show');
+            if (fallback) fallback.classList.add('show');
           }
         }
 
@@ -6633,18 +6597,50 @@ data: {"step":"done","message":"发布完成"}</pre>
       }
 
       // === Auto-hide top section on scroll ===
+      // 集中入口：所有页面（滚动容器 / AI 面板 / 内嵌 iframe 上报）都走这里。
+      // 布局类名瞬切（单次重排），随后用合成器动画补视觉滑动，不再逐帧 max-height 重排。
+      var _topSectionEl = null;
+      function setTopSectionHidden(hide) {
+        var ts = _topSectionEl || (_topSectionEl = document.getElementById('topSection'));
+        if (!ts || ts.classList.contains('hidden') === hide) return;
+        var main = document.querySelector('.main-layout');
+        var before = main ? main.getBoundingClientRect().top : 0;
+        ts.classList.toggle('hidden', hide); // 单次同步重排
+        if (main && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          var delta = main.getBoundingClientRect().top - before; // 隐藏:-h，显示:+h
+          if (delta !== 0) {
+            main.animate(
+              [{ transform: 'translateY(' + (-delta) + 'px)' }, { transform: 'translateY(0)' }],
+              { duration: 200, easing: 'ease-out' }
+            );
+          }
+        }
+      }
+      // 用真实内容高度设置 --top-h，修掉固定 80px 在窄屏（motto 换行）下裁掉底部的问题
+      function measureTopSection() {
+        var ts = _topSectionEl || (_topSectionEl = document.getElementById('topSection'));
+        if (!ts || ts.classList.contains('hidden')) return;
+        ts.style.setProperty('--top-h', ts.scrollHeight + 'px');
+      }
+      // 灵感页：接收内嵌 AI 页面（poe.want.biz）的滚动方向上报（iframe 内滚动事件无法穿透到父页面）
+      window.addEventListener('message', function (e) {
+        var d = e.data;
+        if (!d || d.source !== 'poe-embed' || d.type !== 'scroll') return;
+        if (d.dir === 'down' && (d.y || 0) > 16) setTopSectionHidden(true);
+        else if (d.dir === 'up') setTopSectionHidden(false);
+      });
+
       function setupScrollHide(el) {
         if (!el || el._scrollHideSetup) return;
         el._scrollHideSetup = true;
-        var topSection = document.getElementById('topSection');
         var lastY = 0;
         var timer = null;
         el.addEventListener('scroll', function() {
           var y = el.scrollTop;
           if (timer) cancelAnimationFrame(timer);
           timer = requestAnimationFrame(function() {
-            if (y > lastY && y > 16) topSection.classList.add('hidden');
-            else if (y < lastY) topSection.classList.remove('hidden');
+            if (y > lastY && y > 16) setTopSectionHidden(true);
+            else if (y < lastY) setTopSectionHidden(false);
             lastY = y;
           });
         }, { passive: true });
@@ -6662,14 +6658,13 @@ data: {"step":"done","message":"发布完成"}</pre>
         if (!panel || panel._aiScrollSetup) return;
         panel._aiScrollSetup = true;
 
-        var topSection = document.getElementById('topSection');
         var state = aiScrollState;
 
         function hide() {
-          if (!state.hidden) { topSection.classList.add('hidden'); state.hidden = true; }
+          if (!state.hidden) { setTopSectionHidden(true); state.hidden = true; }
         }
         function show() {
-          if (state.hidden) { topSection.classList.remove('hidden'); state.hidden = false; }
+          if (state.hidden) { setTopSectionHidden(false); state.hidden = false; }
           clearTimeout(state.hideTimer);
         }
 
@@ -6762,6 +6757,8 @@ data: {"step":"done","message":"发布完成"}</pre>
           });
 
         // Attach scroll-based auto-hide for top section
+        measureTopSection();
+        window.addEventListener('resize', measureTopSection);
         attachScrollHide('.log-container');
         attachScrollHide('.file-list');
         attachScrollHide('.preview-content');
