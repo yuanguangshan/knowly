@@ -4140,15 +4140,19 @@ data: {"step":"done","message":"发布完成"}</pre>
         kimi: ['kimiIframe', 'https://www.kimi.com/agent'],
         qwen: ['qwenIframe', 'https://chat.qwen.ai/']
       };
+      // 回收白名单：切走时不卸载的子面板（Poe 是默认页；DeepSeek 有 PoW 握手，重新加载代价高）
+      var aiIframeKeepAlive = { poe: true, deepseek: true };
       function switchAiSubTab(sub) {
         document.querySelectorAll('.ai-subtab').forEach(function(el) { el.classList.remove('active'); });
         document.querySelectorAll('.ai-subpanel').forEach(function(el) { el.classList.remove('active'); });
         document.getElementById('ai-subtab-' + sub).classList.add('active');
         document.getElementById('ai-panel-' + sub).classList.add('active');
 
-        // 卸载所有非活跃 iframe（从未加载过的没有 src，跳过）
+        // 卸载所有非活跃 iframe（从未加载过的没有 src，跳过；白名单内常驻）
         document.querySelectorAll('#panel-ai .ai-subpanel iframe').forEach(function (f) {
-          if (f.closest('.ai-subpanel').id === 'ai-panel-' + sub) return;
+          var panelId = f.closest('.ai-subpanel').id;
+          if (panelId === 'ai-panel-' + sub) return;
+          if (aiIframeKeepAlive[panelId.replace('ai-panel-', '')]) return;
           if (f.src && f.src.indexOf('http') === 0) {
             f.src = 'about:blank';
           }
