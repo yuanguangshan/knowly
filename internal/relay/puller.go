@@ -16,7 +16,7 @@ type Puller struct {
 	interval time.Duration
 	stopChan chan struct{}
 	callback func(string)
-	client   *http.Client // 共享 keep-alive 客户端：轮询周期性触发，复用连接省去每次 TCP+TLS 握手
+	client   *http.Client // 每次请求新建连接：8s 轮询下 keep-alive 收益极低，反而会被代理静默回收的半开连接拖入超时
 }
 
 func NewPuller(endpoint, secret string, interval time.Duration, callback func(string)) *Puller {
@@ -26,7 +26,16 @@ func NewPuller(endpoint, secret string, interval time.Duration, callback func(st
 		interval: interval,
 		stopChan: make(chan struct{}),
 		callback: callback,
-		client:   &http.Client{Timeout: 10 * time.Second},
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				// 不复用连接：避免被 Surge/代理静默回收的 keep-alive 连接
+				// 在 "awaiting headers" 阶段挂起直到超时（Relay pull failed）
+				DisableKeepAlives: true,
+				// 保持 HTTP/2：服务端对 HTTP/1.1 请求返回 403
+				ForceAttemptHTTP2: true,
+			},
+		},
 	}
 }
 

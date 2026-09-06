@@ -20,7 +20,7 @@ type ResultPuller struct {
 	interval   time.Duration
 	stopChan   chan struct{}
 	callback   func(content string)
-	client     *http.Client // 共享 keep-alive 客户端，避免每次轮询重新握手
+	client     *http.Client // 每次请求新建连接：避免复用被代理静默回收的半开连接导致 "awaiting headers" 超时
 	cursor     int64
 	cursorMu   sync.Mutex
 	cursorFile string
@@ -44,7 +44,13 @@ func NewResultPuller(endpoint, secret, cursorFile string, interval time.Duration
 		interval:   interval,
 		stopChan:   make(chan struct{}),
 		callback:   callback,
-		client:     &http.Client{Timeout: 10 * time.Second},
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				DisableKeepAlives: true, // 不复用连接，规避半开连接超时
+				ForceAttemptHTTP2: true, // 服务端对 HTTP/1.1 返回 403，保持 HTTP/2
+			},
+		},
 		cursorFile: cursorFile,
 	}
 	// 从文件恢复游标
