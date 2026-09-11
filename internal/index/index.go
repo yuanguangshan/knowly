@@ -99,23 +99,63 @@ func Open(path string) (*Index, error) {
 		db.Close()
 		return nil, fmt.Errorf("create fts5 table: %w", err)
 	}
+	// doc_paths 是普通表：FTS5 虚拟表不支持对 UNINDEXED 列做 WHERE 过滤
+	// （path LIKE 永远空），但 backfill 判重必须能按路径精确/前缀查找。
+	// 把它单独存普通表，写入时与 docs 同步维护。
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS doc_paths(path TEXT PRIMARY KEY) WITHOUT ROWID`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create doc_paths table: %w", err)
+	}
+	// 一次性迁移：doc_paths 为空但 docs 非空（旧库升级），从 docs 回填全部 path。
+	// FTS5 允许 SELECT UNINDEXED 列（仅 WHERE 不可用），全表扫一次即可。
+	var pathCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM doc_paths`).Scan(&pathCount); err == nil && pathCount == 0 {		if rows, rerr := db.Query(`SELECT path FROM docs`); rerr == nil {
+			tx, terr := db.Begin()
+			if terr == nil {
+				stmt, perr := tx.Prepare(`INSERT OR IGNORE INTO doc_paths(path) VALUES(?)`)
+				if perr == nil {
+					for rows.Next() {
+						var p string
+						if rows.Scan(&p) == nil {
+							_, _ = stmt.Exec(p)
+						}
+					}
+					_ = stmt.Close()
+					_ = tx.Commit()
+				} else {
+					_ = tx.Rollback()
+				}
+			}
+			_ = rows.Close()
+		}
+	}
 	return &Index{db: db, path: path}, nil
 }
 
 // Close 关闭数据库。
 func (ix *Index) Close() error { return ix.db.Close() }
 
-// Checkpoint 把 WAL 合并回主库并尽量截断 WAL（PASSIVE 模式，不阻塞读写）。
+// Checkpoint 把 WAL 合并回主库并截断 WAL（TRUNCATE 模式）。
 //
-// 为什么需要：大批量写入（如 backfill）会把 WAL 滚到数百 MB，而 FTS5 在
-// checkpoint 时会重读全部索引页——WAL 越大 checkpoint 越慢，最终变成 CPU
-// 黑洞（线上实测 200MB WAL 时 backfill 卡死、CPU 100%、docs 零推进）。
-// 每批写完后主动 checkpoint 一次，把 WAL 控制在 MB 级，cost 线性可预期。
+// 为什么必须 TRUNCATE 而不是 PASSIVE：PASSIVE 在检测到任何活动读事务时
+// 返回 busy 不截断——backfill 批量写入期间 WAL 会一路滚到数百 MB，FTS5 在
+// 大 WAL 上每次 INSERT 都要访问碎片化索引页，写入从毫秒级退化到 150ms/条
+// （线上实测 71MB WAL 时 200 条/批耗时 30s）。TRUNCATE 会等到无活动事务
+// 再把 WAL 清零（实验中另起连接 8s 内成功截断 71MB → 0MB）。
+//
+// 调用时机：backfill 每批 BulkIndex Commit 之后（无活动事务），此时
+// TRUNCATE 立即成功，WAL 恒定在 MB 级。
 func (ix *Index) Checkpoint() {
-	row := ix.db.QueryRow(`PRAGMA wal_checkpoint(PASSIVE)`)
+	// 单独新连接执行 TRUNCATE，避免在连接池写连接上等待造成死锁。
+	checkDb, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_busy_timeout=8000", ix.path))
+	if err != nil {
+		return
+	}
+	defer checkDb.Close()
+	row := checkDb.QueryRow(`PRAGMA wal_checkpoint(TRUNCATE)`)
 	var busy, log, checkpointed int
 	if err := row.Scan(&busy, &log, &checkpointed); err != nil {
-		return // 非致命：下次 checkpoint 或进程退出时自然合并
+		return // 非致命：WAL 继续增长，下次 checkpoint 或进程退出时自然合并
 	}
 }
 
@@ -135,6 +175,11 @@ func (ix *Index) Index(path, nasPath, title, tags, typ, content string, t time.T
 	if _, err := tx.Exec(
 		`INSERT INTO docs(path, nas_path, title, tags, type, time, content) VALUES(?,?,?,?,?,?,?)`,
 		path, nasPath, title, tags, typ, t.Format(time.RFC3339), content); err != nil {
+		tx.Rollback()
+		return err
+	}
+	// 同步维护普通表 doc_paths（FTS5 的 path 列不可 WHERE 查询）
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO doc_paths(path) VALUES(?)`, path); err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -166,12 +211,22 @@ func (ix *Index) BulkIndex(docs []Doc) error {
 		return err
 	}
 	defer ins.Close()
+	pathIns, err := tx.Prepare(`INSERT OR REPLACE INTO doc_paths(path) VALUES(?)`)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer pathIns.Close()
 	for _, d := range docs {
 		if _, err := del.Exec(d.Path); err != nil {
 			tx.Rollback()
 			return err
 		}
 		if _, err := ins.Exec(d.Path, d.NasPath, d.Title, d.Tags, d.Type, d.Time.Format(time.RFC3339), d.Content); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if _, err := pathIns.Exec(d.Path); err != nil {
 			tx.Rollback()
 			return err
 		}
@@ -277,13 +332,13 @@ func (ix *Index) GetByPath(path string) (*Doc, error) {
 
 // PathsInDir 返回指定相对目录前缀下所有已索引 path（如 "2026/05/02"）。
 //
-// 用途：backfill 跳过已索引条目时，用一次查询把整个目录的已索引 path 拉成 set，
-// 避免对每个文件各调一次 GetByPath——后者与 FTS5 表大小成线性（path 是
-// UNINDEXED 列），几千文件的目录 × 每次全表扫描会慢到不可用。
+// 查询走普通表 doc_paths（而非 FTS5 docs——FTS5 虚拟表不支持对 UNINDEXED
+// path 列做 LIKE/WHERE，返回恒为空）。backfill 用它一次拉回整个目录的
+// 已索引 path 成 set，避免对每文件各调一次全表扫描。
 func (ix *Index) PathsInDir(relDir string) (map[string]bool, error) {
 	prefix := strings.Trim(relDir, "/")
 	out := make(map[string]bool)
-	rows, err := ix.db.Query(`SELECT path FROM docs WHERE path LIKE ?`, prefix+"/%")
+	rows, err := ix.db.Query(`SELECT path FROM doc_paths WHERE path LIKE ?`, prefix+"/%")
 	if err != nil {
 		return nil, err
 	}
