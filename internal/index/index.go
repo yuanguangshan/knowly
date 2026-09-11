@@ -104,15 +104,19 @@ func Open(path string) (*Index, error) {
 	// （path LIKE 永远空），但 backfill 判重必须能按路径精确/前缀查找。
 	// 把它单独存普通表，写入时与 docs 同步维护。
 	//
-	// 除 path 外还冗余两份元数据：
+	// 除 path 外还冗余三份元数据：
 	//   - tags：status/tags 这类聚合接口若直接 COUNT/SELECT FTS5 的 docs，要遍历
 	//     整个倒排索引与内容页（实测 count(*) 2.7s、写入竞争时到 7.6s），
 	//     查这张紧凑普通表只要 0.03s。
 	//   - fts_rowid：docs 里对应行的 rowid。删除旧行时必须用它——FTS5 对
 	//     UNINDEXED 的 path 列做 WHERE 只能全表扫（实测 22.5k 行时 2.15s/次，
 	//     是 backfill 单批 8 分钟的真凶）；按 rowid 删是索引查找，微秒级。
+	//   - nas_path：NAS 绝对路径。/api/history/{id}/full（控制台点开历史看全文）
+	//     原先按 nas_path 查 docs，同样是 UNINDEXED 全表扫（46.8k 行实测 12.8s，
+	//     叠加 SSH 兜底后接口 20~29s）。存这里并建索引后按 rowid 命中，微秒级。
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS doc_paths(
 		path TEXT PRIMARY KEY,
+		nas_path TEXT NOT NULL DEFAULT '',
 		tags TEXT NOT NULL DEFAULT '',
 		fts_rowid INTEGER NOT NULL DEFAULT 0
 	) WITHOUT ROWID`); err != nil {
@@ -123,6 +127,7 @@ func Open(path string) (*Index, error) {
 	// 补过的列需要从 docs 回填一次，未补列的库不重复扫（避免每次启动都扫 1.5GB）。
 	upgraded := false
 	for _, col := range []struct{ name, ddl string }{
+		{"nas_path", `ALTER TABLE doc_paths ADD COLUMN nas_path TEXT NOT NULL DEFAULT ''`},
 		{"tags", `ALTER TABLE doc_paths ADD COLUMN tags TEXT NOT NULL DEFAULT ''`},
 		{"fts_rowid", `ALTER TABLE doc_paths ADD COLUMN fts_rowid INTEGER NOT NULL DEFAULT 0`},
 	} {
@@ -139,6 +144,12 @@ func Open(path string) (*Index, error) {
 	if needDocPathSync(db, upgraded) {
 		syncDocPathMeta(db)
 	}
+	// nas_path 索引：回填之后再建，让 4.6 万行一次性有序建树（先建后回填也行，
+	// 但要为每次 UPDATE 维护索引）。IF NOT EXISTS 保证重复启动零开销。
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_doc_paths_nas ON doc_paths(nas_path)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create nas_path index: %w", err)
+	}
 	return &Index{db: db, path: path}, nil
 }
 
@@ -147,7 +158,8 @@ func Open(path string) (*Index, error) {
 // 触发条件（任一）：
 //   - 本次刚补齐了缺失的列（upgraded）；
 //   - doc_paths 为空但 docs 非空（极老的库，doc_paths 表尚未存在过）；
-//   - doc_paths 里存在 fts_rowid=0 的行（上次进程在写入中途被杀，映射残缺）。
+//   - doc_paths 里存在 fts_rowid=0 的行（上次进程在写入中途被杀，映射残缺）；
+//   - doc_paths 里存在 nas_path 为空的行（新列刚补、回填被中断）。
 //
 // 全新库（doc_paths 与 docs 都空）不触发，避免无谓扫描。
 func needDocPathSync(db *sql.DB, upgraded bool) bool {
@@ -166,11 +178,14 @@ func needDocPathSync(db *sql.DB, upgraded bool) bool {
 		}
 		return hasDoc == 1
 	}
-	var zeros int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM doc_paths WHERE fts_rowid = 0`).Scan(&zeros); err != nil {
+	// 一次扫描同时检出两种残缺：fts_rowid 缺失、nas_path 空。
+	// docs 里的 nas_path 实测 100% 非空（46,846/46,846 唯一），故空值必是未回填。
+	var bad int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM doc_paths WHERE fts_rowid = 0 OR nas_path = ''`).Scan(&bad); err != nil {
 		return false
 	}
-	return zeros > 0
+	return bad > 0
 }
 
 // Close 关闭数据库。
@@ -202,15 +217,16 @@ func columnExists(db *sql.DB, table, col string) (bool, error) {
 // `WHERE path = ?` 去查——那是 22.5k × 2s ≈ 12 小时。
 // 每 500 条提交，避免长事务。
 func syncDocPathMeta(db *sql.DB) {
-	rows, err := db.Query(`SELECT rowid, path, tags FROM docs`)
+	rows, err := db.Query(`SELECT rowid, path, nas_path, tags FROM docs`)
 	if err != nil {
 		log.Printf("[WARN] doc_paths meta sync skipped: %v", err)
 		return
 	}
 	type rec struct {
-		id   int64
-		path string
-		tags string
+		id      int64
+		path    string
+		nasPath string
+		tags    string
 	}
 	buf := make([]rec, 0, 500)
 
@@ -223,15 +239,18 @@ func syncDocPathMeta(db *sql.DB) {
 			buf = buf[:0]
 			return
 		}
-		stmt, perr := tx.Prepare(`INSERT INTO doc_paths(path, tags, fts_rowid) VALUES(?,?,?)
-			ON CONFLICT(path) DO UPDATE SET tags = excluded.tags, fts_rowid = excluded.fts_rowid`)
+		stmt, perr := tx.Prepare(`INSERT INTO doc_paths(path, nas_path, tags, fts_rowid) VALUES(?,?,?,?)
+			ON CONFLICT(path) DO UPDATE SET
+				nas_path  = excluded.nas_path,
+				tags      = excluded.tags,
+				fts_rowid = excluded.fts_rowid`)
 		if perr != nil {
 			_ = tx.Rollback()
 			buf = buf[:0]
 			return
 		}
 		for _, e := range buf {
-			_, _ = stmt.Exec(e.path, e.tags, e.id)
+			_, _ = stmt.Exec(e.path, e.nasPath, e.tags, e.id)
 		}
 		_ = stmt.Close()
 		_ = tx.Commit()
@@ -241,7 +260,7 @@ func syncDocPathMeta(db *sql.DB) {
 	n := 0
 	for rows.Next() {
 		var e rec
-		if err := rows.Scan(&e.id, &e.path, &e.tags); err != nil {
+		if err := rows.Scan(&e.id, &e.path, &e.nasPath, &e.tags); err != nil {
 			continue
 		}
 		buf = append(buf, e)
@@ -326,14 +345,15 @@ func (ix *Index) Index(path, nasPath, title, tags, typ, content string, t time.T
 		return err
 	}
 	// 同步维护普通表 doc_paths（FTS5 的 path 列不可 WHERE 查询）：
-	// tags 供 status/tags 聚合，fts_rowid 供下次幂等写入精确删除旧行。
+	// tags 供 status/tags 聚合，fts_rowid 供下次幂等写入精确删除旧行，
+	// nas_path 供 /api/history/{id}/full 按 NAS 路径取全文。
 	var newID int64
 	if err := tx.QueryRow(`SELECT last_insert_rowid()`).Scan(&newID); err != nil {
 		tx.Rollback()
 		return err
 	}
-	if _, err := tx.Exec(`INSERT OR REPLACE INTO doc_paths(path, tags, fts_rowid) VALUES(?,?,?)`,
-		path, tags, newID); err != nil {
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO doc_paths(path, nas_path, tags, fts_rowid) VALUES(?,?,?,?)`,
+		path, nasPath, tags, newID); err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -377,7 +397,7 @@ func (ix *Index) BulkIndex(docs []Doc) error {
 		return err
 	}
 	defer lastID.Close()
-	pathIns, err := tx.Prepare(`INSERT OR REPLACE INTO doc_paths(path, tags, fts_rowid) VALUES(?,?,?)`)
+	pathIns, err := tx.Prepare(`INSERT OR REPLACE INTO doc_paths(path, nas_path, tags, fts_rowid) VALUES(?,?,?,?)`)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -409,7 +429,7 @@ func (ix *Index) BulkIndex(docs []Doc) error {
 			tx.Rollback()
 			return err
 		}
-		if _, err := pathIns.Exec(d.Path, d.Tags, newID); err != nil {
+		if _, err := pathIns.Exec(d.Path, d.NasPath, d.Tags, newID); err != nil {
 			tx.Rollback()
 			return err
 		}
@@ -509,19 +529,10 @@ func (ix *Index) GetByPath(path string) (*Doc, error) {
 	if err != nil {
 		return nil, err
 	}
-	var d Doc
-	var t string
-	err = ix.db.QueryRow(
-		`SELECT path, nas_path, title, tags, type, time, content FROM docs WHERE rowid = ?`, rid,
-	).Scan(&d.Path, &d.NasPath, &d.Title, &d.Tags, &d.Type, &t, &d.Content)
-	if err == sql.ErrNoRows {
-		return nil, nil
+	if rid <= 0 {
+		return nil, nil // 映射缺失：交由启动时的 syncDocPathMeta 修复
 	}
-	if err != nil {
-		return nil, err
-	}
-	d.Time, _ = time.Parse(time.RFC3339, t)
-	return &d, nil
+	return ix.getDocByRowid(rid)
 }
 
 // PathsInDir 返回指定相对目录前缀下所有已索引 path（如 "2026/05/02"）。
@@ -549,12 +560,36 @@ func (ix *Index) PathsInDir(relDir string) (map[string]bool, error) {
 
 // GetByNasPath 按 NAS 绝对路径取全文。供 /api/history/{id}/full 等
 // 历史详情接口优先命中本地索引，省去一次 2~3 秒的 SSH 往返。
-// nas_path 是 UNINDEXED 列，走线性扫描；数千条规模下毫秒级，可接受。
+//
+// 不由 FTS5 直接 WHERE nas_path 取——nas_path 是 UNINDEXED 列，只能全表扫
+// （46.8k 行实测 12.8s，接口端到端 20~29s）。改为经 doc_paths 的 nas_path
+// 索引取回 rowid 后按 rowid 命中，两次 O(log n)，微秒级。
+//
+// 未命中返回 (nil, nil)，调用方应回退到 SSH 读 NAS。
 func (ix *Index) GetByNasPath(nasPath string) (*Doc, error) {
+	if nasPath == "" {
+		return nil, nil
+	}
+	var rid int64
+	err := ix.db.QueryRow(`SELECT fts_rowid FROM doc_paths WHERE nas_path = ? LIMIT 1`, nasPath).Scan(&rid)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if rid <= 0 {
+		return nil, nil // 映射缺失：交由启动时的 syncDocPathMeta 修复
+	}
+	return ix.getDocByRowid(rid)
+}
+
+// getDocByRowid 按 FTS5 rowid 取回完整条目（含正文）。未命中返回 (nil, nil)。
+func (ix *Index) getDocByRowid(rid int64) (*Doc, error) {
 	var d Doc
 	var t string
 	err := ix.db.QueryRow(
-		`SELECT path, nas_path, title, tags, type, time, content FROM docs WHERE nas_path = ? LIMIT 1`, nasPath,
+		`SELECT path, nas_path, title, tags, type, time, content FROM docs WHERE rowid = ?`, rid,
 	).Scan(&d.Path, &d.NasPath, &d.Title, &d.Tags, &d.Type, &t, &d.Content)
 	if err == sql.ErrNoRows {
 		return nil, nil

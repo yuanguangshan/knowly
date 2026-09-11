@@ -166,6 +166,105 @@ func TestReindexDeletesOldRowByRowid(t *testing.T) {
 	}
 }
 
+// GetByNasPath 必须经 doc_paths 的 nas_path 索引按 rowid 取正文。
+// 这守护「FTS5 WHERE nas_path=? 全表扫 12.8s，接口 20~29s」这个 bug 不被改回去。
+func TestGetByNasPathHitsRowid(t *testing.T) {
+	ix := openTest(t)
+	now := time.Now()
+
+	if err := ix.BulkIndex([]Doc{
+		{Path: "2026/09/01/100000_a.md", NasPath: "/mnt/nas/knowly_archive/2026/09/01/100000_a.md",
+			Title: "A", Tags: "t", Type: "text", Time: now, Content: "正文甲"},
+		{Path: "2026/09/02/110000_b.md", NasPath: "/mnt/nas/knowly_archive/2026/09/02/110000_b.md",
+			Title: "B", Tags: "t", Type: "text", Time: now, Content: "正文乙"},
+	}); err != nil {
+		t.Fatalf("bulk index: %v", err)
+	}
+
+	nas := "/mnt/nas/knowly_archive/2026/09/02/110000_b.md"
+	d, err := ix.GetByNasPath(nas)
+	if err != nil || d == nil {
+		t.Fatalf("GetByNasPath: d=%v err=%v", d, err)
+	}
+	if d.Path != "2026/09/02/110000_b.md" || d.Content != "正文乙" {
+		t.Fatalf("按 nas_path 命中错误条目: path=%q content=%q", d.Path, d.Content)
+	}
+
+	// 未命中必须返回 (nil, nil)，让调用方安全回退到 SSH 读 NAS。
+	if d, err := ix.GetByNasPath("/mnt/nas/knowly_archive/不存在.md"); err != nil || d != nil {
+		t.Fatalf("未命中应返回 (nil,nil): d=%v err=%v", d, err)
+	}
+	// 空 nas_path 直接短路，不应误命中镜像行。
+	if d, err := ix.GetByNasPath(""); err != nil || d != nil {
+		t.Fatalf("空 nas_path 应返回 (nil,nil): d=%v err=%v", d, err)
+	}
+
+	// 同 path 重写后，nas_path 映射仍须指向新行（否则会读到旧正文）。
+	if err := ix.Index("2026/09/02/110000_b.md", nas, "B2", "t", "text", "改写后的正文", now); err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+	d, err = ix.GetByNasPath(nas)
+	if err != nil || d == nil {
+		t.Fatalf("reindex 后 GetByNasPath: d=%v err=%v", d, err)
+	}
+	if d.Content != "改写后的正文" {
+		t.Fatalf("nas_path 映射指向了旧行: content=%q", d.Content)
+	}
+}
+
+// 老库（doc_paths 只有 path 列）升级时必须一并回填 nas_path，
+// 否则 GetByNasPath 永远未命中，历史详情接口静默退化成 SSH 回源。
+func TestLegacyUpgradeBackfillsNasPath(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy_nas.db")
+
+	raw, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	stmts := []string{
+		`CREATE VIRTUAL TABLE docs USING fts5(path UNINDEXED, nas_path UNINDEXED, title, tags, type UNINDEXED, time UNINDEXED, content, tokenize='trigram')`,
+		`CREATE TABLE doc_paths(path TEXT PRIMARY KEY) WITHOUT ROWID`,
+		`INSERT INTO docs(path, nas_path, title, tags, type, time, content) VALUES('2026/06/01/100000_x.md','/mnt/nas/knowly_archive/2026/06/01/100000_x.md','X','历史','text','2026-06-01T10:00:00Z','原始正文')`,
+		`INSERT INTO doc_paths(path) VALUES('2026/06/01/100000_x.md')`,
+	}
+	for _, s := range stmts {
+		if _, err := raw.Exec(s); err != nil {
+			raw.Close()
+			t.Fatalf("setup %q: %v", s, err)
+		}
+	}
+	raw.Close()
+
+	ix, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open legacy: %v", err)
+	}
+	defer ix.Close()
+
+	if has, err := columnExists(ix.db, "doc_paths", "nas_path"); err != nil || !has {
+		t.Fatalf("nas_path column not added (has=%v err=%v)", has, err)
+	}
+	nas := "/mnt/nas/knowly_archive/2026/06/01/100000_x.md"
+	d, err := ix.GetByNasPath(nas)
+	if err != nil || d == nil {
+		t.Fatalf("升级后 GetByNasPath 未命中（nas_path 未回填）: d=%v err=%v", d, err)
+	}
+	if d.Content != "原始正文" {
+		t.Fatalf("content = %q; want 原始正文", d.Content)
+	}
+
+	// 再次 Open 应幂等：nas_path 已回填，不再触发全表扫。
+	ix.Close()
+	ix2, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer ix2.Close()
+	if d, _ := ix2.GetByNasPath(nas); d == nil {
+		t.Fatalf("reopen 后 GetByNasPath 失效")
+	}
+}
+
 // 老库升级时必须一并回填 fts_rowid，否则后续重写会退化成全表扫或产生重复行。
 func TestLegacyUpgradeBackfillsFtsRowid(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "legacy_rowid.db")
