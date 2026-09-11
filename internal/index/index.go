@@ -25,6 +25,7 @@ type Indexer interface {
 	Checkpoint()
 	Search(q string, limit int) ([]Hit, error)
 	GetByPath(path string) (*Doc, error)
+	PathsInDir(relDir string) (map[string]bool, error)
 	AllTags() ([]TagCount, error)
 	Count() (int, error)
 	Close() error
@@ -272,6 +273,29 @@ func (ix *Index) GetByPath(path string) (*Doc, error) {
 	}
 	d.Time, _ = time.Parse(time.RFC3339, t)
 	return &d, nil
+}
+
+// PathsInDir 返回指定相对目录前缀下所有已索引 path（如 "2026/05/02"）。
+//
+// 用途：backfill 跳过已索引条目时，用一次查询把整个目录的已索引 path 拉成 set，
+// 避免对每个文件各调一次 GetByPath——后者与 FTS5 表大小成线性（path 是
+// UNINDEXED 列），几千文件的目录 × 每次全表扫描会慢到不可用。
+func (ix *Index) PathsInDir(relDir string) (map[string]bool, error) {
+	prefix := strings.Trim(relDir, "/")
+	out := make(map[string]bool)
+	rows, err := ix.db.Query(`SELECT path FROM docs WHERE path LIKE ?`, prefix+"/%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out[p] = true
+	}
+	return out, rows.Err()
 }
 
 // GetByNasPath 按 NAS 绝对路径取全文。供 /api/history/{id}/full 等

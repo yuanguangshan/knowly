@@ -140,6 +140,11 @@ func walkAndIndex(ctx context.Context, sc SSHClient, ix index.Indexer, dir, base
 			log.Printf("[INFO] backfill dir %s: %d files read in %v (%d ok)",
 				dir, len(names), time.Since(dirStart).Round(time.Millisecond), len(contents))
 		}
+		// 一次性预取该目录已索引的 path 集合（一次 LIKE 查询 vs 每文件一次
+		// 全表 GetByPath——后者在大目录 + 大表下慢到不可用）。
+		relDir := strings.TrimPrefix(dir, base)
+		relDir = strings.TrimPrefix(relDir, "/")
+		indexedSet, _ := ix.PathsInDir(relDir)
 		var skipped int
 		for _, name := range names {
 			data, ok := contents[name]
@@ -153,7 +158,7 @@ func walkAndIndex(ctx context.Context, sc SSHClient, ix index.Indexer, dir, base
 			// 会对倒排索引整块重写（13 倍慢于纯插入），且滚动滚大 WAL——
 			// WAL 上 200MB 后 checkpoint 变成 CPU 黑洞（线上卡死真凶）。
 			// 回填语义是补齐缺口（uploads/、断档月份），已索引内容不变。
-			if existing, err := ix.GetByPath(rel); err == nil && existing != nil {
+			if indexedSet[rel] {
 				skipped++
 				continue
 			}
