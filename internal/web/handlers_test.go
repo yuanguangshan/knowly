@@ -201,6 +201,14 @@ func (m *mockSSHClient) ReadFile(path string) ([]byte, error) {
 	return []byte("mock content"), nil
 }
 
+func (m *mockSSHClient) ReadFilesBatch(dir string, names []string) (map[string][]byte, error) {
+	out := make(map[string][]byte, len(names))
+	for _, n := range names {
+		out[n] = []byte("mock content")
+	}
+	return out, nil
+}
+
 func (m *mockSSHClient) ListDir(path string) ([]ssh.DirEntry, error) {
 	return nil, nil
 }

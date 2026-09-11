@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"unicode"
 	"time"
+	"unicode"
 
 	_ "modernc.org/sqlite"
 )
@@ -22,6 +22,7 @@ import (
 type Indexer interface {
 	Index(path, nasPath, title, tags, typ, content string, t time.Time) error
 	BulkIndex(docs []Doc) error
+	Checkpoint()
 	Search(q string, limit int) ([]Hit, error)
 	GetByPath(path string) (*Doc, error)
 	AllTags() ([]TagCount, error)
@@ -102,6 +103,20 @@ func Open(path string) (*Index, error) {
 
 // Close 关闭数据库。
 func (ix *Index) Close() error { return ix.db.Close() }
+
+// Checkpoint 把 WAL 合并回主库并尽量截断 WAL（PASSIVE 模式，不阻塞读写）。
+//
+// 为什么需要：大批量写入（如 backfill）会把 WAL 滚到数百 MB，而 FTS5 在
+// checkpoint 时会重读全部索引页——WAL 越大 checkpoint 越慢，最终变成 CPU
+// 黑洞（线上实测 200MB WAL 时 backfill 卡死、CPU 100%、docs 零推进）。
+// 每批写完后主动 checkpoint 一次，把 WAL 控制在 MB 级，cost 线性可预期。
+func (ix *Index) Checkpoint() {
+	row := ix.db.QueryRow(`PRAGMA wal_checkpoint(PASSIVE)`)
+	var busy, log, checkpointed int
+	if err := row.Scan(&busy, &log, &checkpointed); err != nil {
+		return // 非致命：下次 checkpoint 或进程退出时自然合并
+	}
+}
 
 // Index 增量写入一条。同 path 先删后插，保证幂等（重复同步不会重复索引）。
 // 写入经 mu 串行化，与 BulkIndex / 增量同步的写互斥，从根本上消除 SQLITE_BUSY。

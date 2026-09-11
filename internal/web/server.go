@@ -1,8 +1,8 @@
 package web
 
 import (
-	"context"
 	"compress/gzip"
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -41,6 +41,7 @@ type SSHClient interface {
 	FileExists(path string) bool
 	FileSize(path string) (int64, error)
 	ReadFile(path string) ([]byte, error)
+	ReadFilesBatch(dir string, names []string) (map[string][]byte, error)
 	ReadFileToWriter(path string, w io.Writer) error
 	WriteBinary(path string, data []byte) error
 	ListDir(path string) ([]ssh.DirEntry, error)
@@ -58,19 +59,19 @@ type logSubscriber struct {
 
 // Server Web 管理界面服务器
 type Server struct {
-	cfg        *config.Config
-	sshClient  SSHClient
-	histStore  *history.Store
-	aiProcessor *ai.Processor
+	cfg           *config.Config
+	sshClient     SSHClient
+	histStore     *history.Store
+	aiProcessor   *ai.Processor
 	clusterEngine *cluster.Engine
-	addr       string
-	startTime  time.Time
-	httpServer *http.Server
-	syncTextFn SyncTextFn
-	logSubs   []*logSubscriber // 日志实时订阅者列表
-	logMu     sync.RWMutex
-	sessionKey []byte // 用于签名 session cookie，启动时随机生成
-	indexer    index.Indexer // 本地全文索引（可空），支撑 /api/v1 查询
+	addr          string
+	startTime     time.Time
+	httpServer    *http.Server
+	syncTextFn    SyncTextFn
+	logSubs       []*logSubscriber // 日志实时订阅者列表
+	logMu         sync.RWMutex
+	sessionKey    []byte        // 用于签名 session cookie，启动时随机生成
+	indexer       index.Indexer // 本地全文索引（可空），支撑 /api/v1 查询
 }
 
 // SetIndexer 注入本地全文索引，启用 /api/v1 查询接口。
@@ -104,15 +105,15 @@ func NewServer(cfg *config.Config, addr string) *Server {
 func NewServerWithDeps(cfg *config.Config, addr string, sshClient *ssh.Client, histStore *history.Store, syncTextFn SyncTextFn, clusterEngine *cluster.Engine) *Server {
 	aiProcessor := ai.NewProcessor(&cfg.AI)
 	s := &Server{
-		cfg:        cfg,
-		sshClient:  sshClient,
-		histStore:  histStore,
-		aiProcessor: aiProcessor,
+		cfg:           cfg,
+		sshClient:     sshClient,
+		histStore:     histStore,
+		aiProcessor:   aiProcessor,
 		clusterEngine: clusterEngine,
-		addr:       addr,
-		startTime:  time.Now(),
-		syncTextFn: syncTextFn,
-		sessionKey: sessionKeyInit(),
+		addr:          addr,
+		startTime:     time.Now(),
+		syncTextFn:    syncTextFn,
+		sessionKey:    sessionKeyInit(),
 	}
 	// 接管日志输出：写入文件的同时推送给 SSE 订阅者
 	oldWriter := log.Writer()
@@ -213,8 +214,8 @@ func (s *Server) buildHandler() http.Handler {
 	// AI 配置 API
 	mux.HandleFunc("/api/config/ai", s.handleAIConfig)
 
-		// 完整配置 API
-		mux.HandleFunc("/api/config", s.handleConfig)
+	// 完整配置 API
+	mux.HandleFunc("/api/config", s.handleConfig)
 
 	// 登录页和登录 API（无需认证）
 	mux.HandleFunc("/login", s.handleLoginPage)

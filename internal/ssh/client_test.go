@@ -1,6 +1,8 @@
 package ssh
 
 import (
+	"archive/tar"
+	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -315,5 +317,51 @@ func TestSyncImagePathGeneration(t *testing.T) {
 	expanded := client.expandPath("~/knowly_archive/" + relPath + "/" + fileName)
 	if !strings.HasPrefix(expanded, "/root/") {
 		t.Errorf("expanded path should use cached homeDir, got %q", expanded)
+	}
+}
+
+// TestUntarFiles 验证 tar 流的解析：正常文件、长名、中文名、空文件、
+// 目录跳过、EOF 截断。用系统 tar 生成真实流更可信，但纯构造 bufio 亦可——
+// 这里用 bytes.NewBuffer + archive/tar 生成标准 tar 流来测 untarFiles。
+func TestUntarFiles(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	write := func(name, content string) {
+		hdr := &tar.Header{Name: name, Mode: 0644, Size: int64(len(content))}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("article 一.md", "# 标题\n正文内容\n")
+	write("empty.txt", "")
+	write("long_name_中文_文件_名字很长很长很长很长很长很长很长很长很长很长很长很长.md", "内容2")
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := untarFiles(buf.Bytes())
+	if err != nil {
+		t.Fatalf("untarFiles: %v", err)
+	}
+	if len(files) != 3 {
+		t.Fatalf("expected 3 files, got %d: %v", len(files), files)
+	}
+	if string(files["article 一.md"]) != "# 标题\n正文内容\n" {
+		t.Errorf("content mismatch: %q", files["article 一.md"])
+	}
+	if string(files["empty.txt"]) != "" {
+		t.Errorf("empty file should be empty, got %q", files["empty.txt"])
+	}
+	if string(files["long_name_中文_文件_名字很长很长很长很长很长很长很长很长很长很长很长很长.md"]) != "内容2" {
+		t.Errorf("long name file content mismatch")
+	}
+
+	// 截断流应报错而非 panic
+	truncated := buf.Bytes()[:buf.Len()-10]
+	if _, err := untarFiles(truncated); err == nil {
+		t.Error("truncated tar should error")
 	}
 }

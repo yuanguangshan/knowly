@@ -18,6 +18,48 @@ var backfillMu sync.Mutex
 // backfillBatch 回溯时每批聚合的文档数，平衡事务开销与写入锁占用时间。
 const backfillBatch = 200
 
+// batchChunkSize 是单次 tar 批量读取的最大文件数。超大目录（如 uploads 1.6 万
+// 文件）一次打包会产生数百 MB 流，超出 SSH 缓冲且解析内存峰值过高——分块后
+// 单批体积可控，失败也只影响一块。
+const batchChunkSize = 400
+
+// readDirContents 读取目录下指定文件的内容：优先 tar 批量读（一次 SSH 往返
+// 读一块），整块失败时降级为逐文件读，保证不因个别坏文件丢失整目录。
+func readDirContents(sc SSHClient, dir string, names []string) (map[string][]byte, error) {
+	out := make(map[string][]byte, len(names))
+	var firstErr error
+
+	for start := 0; start < len(names); start += batchChunkSize {
+		end := start + batchChunkSize
+		if end > len(names) {
+			end = len(names)
+		}
+		chunk := names[start:end]
+
+		contents, err := sc.ReadFilesBatch(dir, chunk)
+		if err == nil {
+			for k, v := range contents {
+				out[k] = v
+			}
+			continue
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+		// 降级：逐文件读这一块（慢，但只针对失败块，且不会丢数据）
+		log.Printf("[WARN] backfill batch chunk failed at %s (%d files), falling back to per-file: %v",
+			dir, len(chunk), err)
+		for _, name := range chunk {
+			data, ferr := sc.ReadFile(filepath.Join(dir, name))
+			if ferr != nil {
+				continue
+			}
+			out[name] = data
+		}
+	}
+	return out, firstErr
+}
+
 // RunBackfill 回溯建索引：递归遍历 NAS 归档目录，把全部 md/txt 文件
 // 解析 frontmatter 后灌入本地索引。幂等（同路径先删后插），可随时重复执行。
 func RunBackfill(cfg *config.Config, sc SSHClient, ix index.Indexer) {
@@ -67,43 +109,83 @@ func walkAndIndex(ctx context.Context, sc SSHClient, ix index.Indexer, dir, base
 			return
 		}
 		count += len(batch)
+		log.Printf("[INFO] backfill %s: flushed %d (total %d)", dir, len(batch), count)
 		batch = batch[:0]
+		// 每批写后合并 WAL：防巨型 WAL 导致 checkpoint 变成 CPU 黑洞
+		// （200MB WAL 时 backfill 实测卡死）。
+		ix.Checkpoint()
 	}
 
+	// 先收集本目录下所有 .md/.txt 文件名，然后一次性批量读取整批文件。
+	// 逐文件 ReadFile 会让每个文件新建一次 SSH session（46k 文件 = 46k 次往返），
+	// 是本回填此前慢到不可用的根因；批量读把往返降到目录数量级。
+	var names []string
 	for _, e := range entries {
-		full := filepath.Join(dir, e.Name)
 		if e.IsDir {
-			n, err := walkAndIndex(ctx, sc, ix, full, base)
-			count += n
-			if err != nil {
-				log.Printf("[WARN] backfill dir %s: %v", full, err)
-			}
 			continue
 		}
-		if !strings.HasSuffix(e.Name, ".md") && !strings.HasSuffix(e.Name, ".txt") {
-			continue
+		if strings.HasSuffix(e.Name, ".md") || strings.HasSuffix(e.Name, ".txt") {
+			names = append(names, e.Name)
 		}
-
-		data, err := sc.ReadFile(full)
+	}
+	if len(names) > 0 {
+		dirStart := time.Now()
+		contents, err := readDirContents(sc, dir, names)
 		if err != nil {
-			log.Printf("[WARN] backfill read %s: %v", full, err)
+			// 已降级逐文件读过，这里只提示哪块批量失败（非致命）
+			log.Printf("[INFO] backfill %s: some batches fell back to per-file reads: %v", dir, err)
+		}
+		// 进度可观测性：大目录回填慢时能看出卡在哪个目录、读了多少文件耗时多少
+		if len(names) >= 50 || time.Since(dirStart) > 5*time.Second {
+			log.Printf("[INFO] backfill dir %s: %d files read in %v (%d ok)",
+				dir, len(names), time.Since(dirStart).Round(time.Millisecond), len(contents))
+		}
+		var skipped int
+		for _, name := range names {
+			data, ok := contents[name]
+			if !ok {
+				continue // 单个文件缺失/不可读：静默跳过，不中断整批
+			}
+			full := filepath.Join(dir, name)
+			rel := strings.TrimPrefix(full, base)
+			rel = strings.TrimPrefix(rel, "/")
+			// 增量跳过：已索引的 path 不再重复 DELETE+INSERT。FTS5 的删插
+			// 会对倒排索引整块重写（13 倍慢于纯插入），且滚动滚大 WAL——
+			// WAL 上 200MB 后 checkpoint 变成 CPU 黑洞（线上卡死真凶）。
+			// 回填语义是补齐缺口（uploads/、断档月份），已索引内容不变。
+			if existing, err := ix.GetByPath(rel); err == nil && existing != nil {
+				skipped++
+				continue
+			}
+			title, tags, body := parseFrontmatter(string(data))
+			batch = append(batch, index.Doc{
+				Path:    rel,
+				NasPath: full,
+				Title:   title,
+				Tags:    tags,
+				Type:    "text",
+				Time:    parseTimeFromRelPath(rel),
+				Content: body,
+			})
+			if len(batch) >= backfillBatch {
+				flush()
+			}
+		}
+		if skipped > 0 {
+			log.Printf("[INFO] backfill %s: skipped %d already-indexed entries", dir, skipped)
+		}
+	}
+
+	// 递归子目录
+	for _, e := range entries {
+		if !e.IsDir {
 			continue
 		}
-
-		rel := strings.TrimPrefix(full, base)
-		rel = strings.TrimPrefix(rel, "/")
-		title, tags, body := parseFrontmatter(string(data))
-		batch = append(batch, index.Doc{
-			Path:    rel,
-			NasPath: full,
-			Title:   title,
-			Tags:    tags,
-			Type:    "text",
-			Time:    parseTimeFromRelPath(rel),
-			Content: body,
-		})
-		if len(batch) >= backfillBatch {
-			flush()
+		full := filepath.Join(dir, e.Name)
+		n, err := walkAndIndex(ctx, sc, ix, full, base)
+		count += n
+		if err != nil {
+			log.Printf("[WARN] backfill dir %s: %v", full, err)
 		}
 	}
 	flush()
