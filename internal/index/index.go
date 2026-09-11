@@ -9,6 +9,7 @@ package index
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -102,38 +103,183 @@ func Open(path string) (*Index, error) {
 	// doc_paths 是普通表：FTS5 虚拟表不支持对 UNINDEXED 列做 WHERE 过滤
 	// （path LIKE 永远空），但 backfill 判重必须能按路径精确/前缀查找。
 	// 把它单独存普通表，写入时与 docs 同步维护。
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS doc_paths(path TEXT PRIMARY KEY) WITHOUT ROWID`); err != nil {
+	//
+	// 除 path 外还冗余两份元数据：
+	//   - tags：status/tags 这类聚合接口若直接 COUNT/SELECT FTS5 的 docs，要遍历
+	//     整个倒排索引与内容页（实测 count(*) 2.7s、写入竞争时到 7.6s），
+	//     查这张紧凑普通表只要 0.03s。
+	//   - fts_rowid：docs 里对应行的 rowid。删除旧行时必须用它——FTS5 对
+	//     UNINDEXED 的 path 列做 WHERE 只能全表扫（实测 22.5k 行时 2.15s/次，
+	//     是 backfill 单批 8 分钟的真凶）；按 rowid 删是索引查找，微秒级。
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS doc_paths(
+		path TEXT PRIMARY KEY,
+		tags TEXT NOT NULL DEFAULT '',
+		fts_rowid INTEGER NOT NULL DEFAULT 0
+	) WITHOUT ROWID`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create doc_paths table: %w", err)
 	}
-	// 一次性迁移：doc_paths 为空但 docs 非空（旧库升级），从 docs 回填全部 path。
-	// FTS5 允许 SELECT UNINDEXED 列（仅 WHERE 不可用），全表扫一次即可。
-	var pathCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM doc_paths`).Scan(&pathCount); err == nil && pathCount == 0 {		if rows, rerr := db.Query(`SELECT path FROM docs`); rerr == nil {
-			tx, terr := db.Begin()
-			if terr == nil {
-				stmt, perr := tx.Prepare(`INSERT OR IGNORE INTO doc_paths(path) VALUES(?)`)
-				if perr == nil {
-					for rows.Next() {
-						var p string
-						if rows.Scan(&p) == nil {
-							_, _ = stmt.Exec(p)
-						}
-					}
-					_ = stmt.Close()
-					_ = tx.Commit()
-				} else {
-					_ = tx.Rollback()
-				}
-			}
-			_ = rows.Close()
+	// 轻量 schema 升级：老库的 doc_paths 缺列时逐列补上（新建库建表即带全列）。
+	// 补过的列需要从 docs 回填一次，未补列的库不重复扫（避免每次启动都扫 1.5GB）。
+	upgraded := false
+	for _, col := range []struct{ name, ddl string }{
+		{"tags", `ALTER TABLE doc_paths ADD COLUMN tags TEXT NOT NULL DEFAULT ''`},
+		{"fts_rowid", `ALTER TABLE doc_paths ADD COLUMN fts_rowid INTEGER NOT NULL DEFAULT 0`},
+	} {
+		has, cerr := columnExists(db, "doc_paths", col.name)
+		if cerr != nil || has {
+			continue
 		}
+		if _, err := db.Exec(col.ddl); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("upgrade doc_paths.%s: %w", col.name, err)
+		}
+		upgraded = true
+	}
+	if needDocPathSync(db, upgraded) {
+		syncDocPathMeta(db)
 	}
 	return &Index{db: db, path: path}, nil
 }
 
+// needDocPathSync 判断是否需要从 docs 全表扫一次重建 doc_paths 元数据。
+//
+// 触发条件（任一）：
+//   - 本次刚补齐了缺失的列（upgraded）；
+//   - doc_paths 为空但 docs 非空（极老的库，doc_paths 表尚未存在过）；
+//   - doc_paths 里存在 fts_rowid=0 的行（上次进程在写入中途被杀，映射残缺）。
+//
+// 全新库（doc_paths 与 docs 都空）不触发，避免无谓扫描。
+func needDocPathSync(db *sql.DB, upgraded bool) bool {
+	if upgraded {
+		return true
+	}
+	var pathCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM doc_paths`).Scan(&pathCount); err != nil {
+		return false
+	}
+	if pathCount == 0 {
+		// EXISTS+LIMIT 1：只在 docs 非空时才付出一次扫描代价。
+		var hasDoc int
+		if err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM docs LIMIT 1)`).Scan(&hasDoc); err != nil {
+			return false
+		}
+		return hasDoc == 1
+	}
+	var zeros int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM doc_paths WHERE fts_rowid = 0`).Scan(&zeros); err != nil {
+		return false
+	}
+	return zeros > 0
+}
+
 // Close 关闭数据库。
 func (ix *Index) Close() error { return ix.db.Close() }
+
+// columnExists 判断普通表 table 是否已有 col 列，用于轻量级 schema 升级判断。
+// 借助 SQLite 的 pragma_table_info 表值函数（3.16+，modernc 支持）。
+func columnExists(db *sql.DB, table, col string) (bool, error) {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return false, err
+		}
+		if name == col {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+// syncDocPathMeta 从 docs 一次性重建 doc_paths 的元数据（path → tags / fts_rowid）。
+//
+// 全表扫一次（22.5k 行实测 2–8s）即可拿到所有 rowid，绝不能逐条
+// `WHERE path = ?` 去查——那是 22.5k × 2s ≈ 12 小时。
+// 每 500 条提交，避免长事务。
+func syncDocPathMeta(db *sql.DB) {
+	rows, err := db.Query(`SELECT rowid, path, tags FROM docs`)
+	if err != nil {
+		log.Printf("[WARN] doc_paths meta sync skipped: %v", err)
+		return
+	}
+	type rec struct {
+		id   int64
+		path string
+		tags string
+	}
+	buf := make([]rec, 0, 500)
+
+	flush := func() {
+		if len(buf) == 0 {
+			return
+		}
+		tx, terr := db.Begin()
+		if terr != nil {
+			buf = buf[:0]
+			return
+		}
+		stmt, perr := tx.Prepare(`INSERT INTO doc_paths(path, tags, fts_rowid) VALUES(?,?,?)
+			ON CONFLICT(path) DO UPDATE SET tags = excluded.tags, fts_rowid = excluded.fts_rowid`)
+		if perr != nil {
+			_ = tx.Rollback()
+			buf = buf[:0]
+			return
+		}
+		for _, e := range buf {
+			_, _ = stmt.Exec(e.path, e.tags, e.id)
+		}
+		_ = stmt.Close()
+		_ = tx.Commit()
+		buf = buf[:0]
+	}
+
+	n := 0
+	for rows.Next() {
+		var e rec
+		if err := rows.Scan(&e.id, &e.path, &e.tags); err != nil {
+			continue
+		}
+		buf = append(buf, e)
+		n++
+		if len(buf) >= 500 {
+			flush()
+		}
+	}
+	_ = rows.Close()
+	flush()
+	log.Printf("[INFO] doc_paths meta synced: %d rows", n)
+}
+
+// deleteByPathTx 删除 path 在 FTS5 docs 中的旧行（幂等写入的前置步骤）。
+//
+// 关键：先查 doc_paths 取回 rowid，再 `DELETE ... WHERE rowid = ?`。
+// FTS5 虚拟表对 UNINDEXED 的 path 列做 WHERE 无法走索引，只能全表扫描——
+// 实测 22.5k 行时 2.15s/次，backfill 每批 200 条就要烧掉 7 分钟，且随数据量
+// 线性恶化。按 rowid 删除是 B-tree 索引查找，微秒级。
+//
+// 返回是否真的删除了行（false 表示该 path 尚未索引，无需删除）。
+func deleteByPathTx(tx *sql.Tx, path string) (bool, error) {
+	var old int64
+	err := tx.QueryRow(`SELECT fts_rowid FROM doc_paths WHERE path = ?`, path).Scan(&old)
+	if err == sql.ErrNoRows {
+		return false, nil // 新文档：FTS5 里没有旧行
+	}
+	if err != nil {
+		return false, err
+	}
+	if old <= 0 {
+		return false, nil // 映射缺失：交由启动时的 syncDocPathMeta 修复
+	}
+	if _, err := tx.Exec(`DELETE FROM docs WHERE rowid = ?`, old); err != nil {
+		return false, err
+	}
+	return true, nil
+}
 
 // Checkpoint 把 WAL 合并回主库并截断 WAL（TRUNCATE 模式）。
 //
@@ -168,7 +314,8 @@ func (ix *Index) Index(path, nasPath, title, tags, typ, content string, t time.T
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM docs WHERE path = ?`, path); err != nil {
+	// 先删旧行：经 doc_paths 取 rowid 后按 rowid 删（见 deleteByPathTx 注释）。
+	if _, err := deleteByPathTx(tx, path); err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -178,8 +325,15 @@ func (ix *Index) Index(path, nasPath, title, tags, typ, content string, t time.T
 		tx.Rollback()
 		return err
 	}
-	// 同步维护普通表 doc_paths（FTS5 的 path 列不可 WHERE 查询）
-	if _, err := tx.Exec(`INSERT OR REPLACE INTO doc_paths(path) VALUES(?)`, path); err != nil {
+	// 同步维护普通表 doc_paths（FTS5 的 path 列不可 WHERE 查询）：
+	// tags 供 status/tags 聚合，fts_rowid 供下次幂等写入精确删除旧行。
+	var newID int64
+	if err := tx.QueryRow(`SELECT last_insert_rowid()`).Scan(&newID); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO doc_paths(path, tags, fts_rowid) VALUES(?,?,?)`,
+		path, tags, newID); err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -199,26 +353,50 @@ func (ix *Index) BulkIndex(docs []Doc) error {
 	if err != nil {
 		return err
 	}
-	del, err := tx.Prepare(`DELETE FROM docs WHERE path = ?`)
+	del, err := tx.Prepare(`SELECT fts_rowid FROM doc_paths WHERE path = ?`)
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
 	defer del.Close()
+	ddel, err := tx.Prepare(`DELETE FROM docs WHERE rowid = ?`)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer ddel.Close()
 	ins, err := tx.Prepare(`INSERT INTO docs(path, nas_path, title, tags, type, time, content) VALUES(?,?,?,?,?,?,?)`)
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
 	defer ins.Close()
-	pathIns, err := tx.Prepare(`INSERT OR REPLACE INTO doc_paths(path) VALUES(?)`)
+	lastID, err := tx.Prepare(`SELECT last_insert_rowid()`)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer lastID.Close()
+	pathIns, err := tx.Prepare(`INSERT OR REPLACE INTO doc_paths(path, tags, fts_rowid) VALUES(?,?,?)`)
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
 	defer pathIns.Close()
 	for _, d := range docs {
-		if _, err := del.Exec(d.Path); err != nil {
+		// 幂等前置：若该 path 已索引，按 doc_paths 里记的 rowid 精确删除旧行。
+		// 直接 DELETE ... WHERE path = ? 会触发 FTS5 全表扫描（2.15s/条）。
+		var old int64
+		switch err := del.QueryRow(d.Path).Scan(&old); err {
+		case nil:
+			if old > 0 {
+				if _, err := ddel.Exec(old); err != nil {
+					tx.Rollback()
+					return err
+				}
+			}
+		case sql.ErrNoRows: // 新文档，无旧行
+		default:
 			tx.Rollback()
 			return err
 		}
@@ -226,7 +404,12 @@ func (ix *Index) BulkIndex(docs []Doc) error {
 			tx.Rollback()
 			return err
 		}
-		if _, err := pathIns.Exec(d.Path); err != nil {
+		var newID int64
+		if err := lastID.QueryRow().Scan(&newID); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if _, err := pathIns.Exec(d.Path, d.Tags, newID); err != nil {
 			tx.Rollback()
 			return err
 		}
@@ -314,11 +497,22 @@ func (ix *Index) searchLike(q string, limit int) ([]Hit, error) {
 }
 
 // GetByPath 按路径取回完整条目（含正文）。未命中返回 (nil, nil)。
+//
+// 不由 FTS5 直接 WHERE path 取——那是全表扫（22.5k 行实测 2.15s）。改为经
+// doc_paths 取回 rowid 后按 rowid 命中（索引查找），两次 O(log n)。
 func (ix *Index) GetByPath(path string) (*Doc, error) {
+	var rid int64
+	err := ix.db.QueryRow(`SELECT fts_rowid FROM doc_paths WHERE path = ?`, path).Scan(&rid)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 	var d Doc
 	var t string
-	err := ix.db.QueryRow(
-		`SELECT path, nas_path, title, tags, type, time, content FROM docs WHERE path = ? LIMIT 1`, path,
+	err = ix.db.QueryRow(
+		`SELECT path, nas_path, title, tags, type, time, content FROM docs WHERE rowid = ?`, rid,
 	).Scan(&d.Path, &d.NasPath, &d.Title, &d.Tags, &d.Type, &t, &d.Content)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -373,8 +567,10 @@ func (ix *Index) GetByNasPath(nasPath string) (*Doc, error) {
 }
 
 // AllTags 聚合所有标签及出现次数，按次数降序。
+// 走 doc_paths 普通表（紧凑 B 树，实测 ~0.03s）而非 FTS5 docs 全表扫
+// （1.5GB 索引上实测 ~1.9s，写入竞争时更慢）。
 func (ix *Index) AllTags() ([]TagCount, error) {
-	rows, err := ix.db.Query(`SELECT tags FROM docs WHERE tags != ''`)
+	rows, err := ix.db.Query(`SELECT tags FROM doc_paths WHERE tags != ''`)
 	if err != nil {
 		return nil, err
 	}
@@ -406,9 +602,12 @@ func (ix *Index) AllTags() ([]TagCount, error) {
 }
 
 // Count 返回索引条目总数。
+// 走 doc_paths 普通表（实测 ~0.03s）而非 FTS5 docs 的 count(*)（~2.7s，
+// backfill 批量写入竞争时劣化到 7s+，会让 /api/v1/status 与 Web UI 卡顿）。
+// doc_paths 与 docs 在同一事务内同步维护，两者条数恒等。
 func (ix *Index) Count() (int, error) {
 	var n int
-	err := ix.db.QueryRow(`SELECT count(*) FROM docs`).Scan(&n)
+	err := ix.db.QueryRow(`SELECT count(*) FROM doc_paths`).Scan(&n)
 	return n, err
 }
 
