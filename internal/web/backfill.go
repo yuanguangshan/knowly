@@ -18,23 +18,37 @@ var backfillMu sync.Mutex
 // backfillBatch 回溯时每批聚合的文档数，平衡事务开销与写入锁占用时间。
 const backfillBatch = 200
 
-// batchChunkSize 是单次 tar 批量读取的最大文件数。超大目录（如 uploads 1.6 万
-// 文件）一次打包会产生数百 MB 流，超出 SSH 缓冲且解析内存峰值过高——分块后
-// 单批体积可控，失败也只影响一块。
-const batchChunkSize = 400
+// batchChunkFiles 是单次 tar 批量读取的最大文件数。超大目录（如 uploads
+// 1.6 万文件）一次打包会产生数百 MB 流，超出 SSH 缓冲且解析内存峰值过高。
+const batchChunkFiles = 400
+
+// batchChunkBytes 是单块累计正文体积上限。仅按文件数分块不够：归档月份目录
+// 单文件约 9KB（400 个才 3.6MB），而 uploads 单文件平均约 900KB（400 个即
+// 367MB，session.Output 会在内存里留存整块，再乘上解包 map 就是 700MB+）。
+// 按体积封顶后大文件目录自动切成小块，内存峰值恒定在数十 MB。
+const batchChunkBytes = 64 << 20
 
 // readDirContents 读取目录下指定文件的内容：优先 tar 批量读（一次 SSH 往返
 // 读一块），整块失败时降级为逐文件读，保证不因个别坏文件丢失整目录。
-func readDirContents(sc SSHClient, dir string, names []string) (map[string][]byte, error) {
+// sizeOf 用于按体积分块（缺省视为 0，则退化为仅按文件数分块）。
+func readDirContents(sc SSHClient, dir string, names []string, sizeOf map[string]int64) (map[string][]byte, error) {
 	out := make(map[string][]byte, len(names))
 	var firstErr error
 
-	for start := 0; start < len(names); start += batchChunkSize {
-		end := start + batchChunkSize
-		if end > len(names) {
-			end = len(names)
+	for start := 0; start < len(names); {
+		end := start
+		var bytes int64
+		for end < len(names) && end-start < batchChunkFiles {
+			sz := sizeOf[names[end]]
+			// 至少收一个文件，避免单个超大文件把分块卡成死循环。
+			if end > start && bytes+sz > batchChunkBytes {
+				break
+			}
+			bytes += sz
+			end++
 		}
 		chunk := names[start:end]
+		start = end
 
 		contents, err := sc.ReadFilesBatch(dir, chunk)
 		if err == nil {
@@ -120,17 +134,19 @@ func walkAndIndex(ctx context.Context, sc SSHClient, ix index.Indexer, dir, base
 	// 逐文件 ReadFile 会让每个文件新建一次 SSH session（46k 文件 = 46k 次往返），
 	// 是本回填此前慢到不可用的根因；批量读把往返降到目录数量级。
 	var names []string
+	sizeOf := make(map[string]int64, len(entries))
 	for _, e := range entries {
 		if e.IsDir {
 			continue
 		}
+		sizeOf[e.Name] = e.Size
 		if strings.HasSuffix(e.Name, ".md") || strings.HasSuffix(e.Name, ".txt") {
 			names = append(names, e.Name)
 		}
 	}
 	if len(names) > 0 {
 		dirStart := time.Now()
-		contents, err := readDirContents(sc, dir, names)
+		contents, err := readDirContents(sc, dir, names, sizeOf)
 		if err != nil {
 			// 已降级逐文件读过，这里只提示哪块批量失败（非致命）
 			log.Printf("[INFO] backfill %s: some batches fell back to per-file reads: %v", dir, err)

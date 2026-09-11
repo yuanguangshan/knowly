@@ -1070,39 +1070,70 @@ func (c *Client) ListDir(remotePath string) ([]DirEntry, error) {
 
 	var entries []DirEntry
 	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "total") {
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r")
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "total") {
 			continue
 		}
 
-		fields := strings.Fields(line)
-		if len(fields) < 8 {
+		e, ok := parseLsLine(line)
+		if !ok {
 			continue
 		}
-
-		name := strings.Join(fields[7:], " ")
-		if name == "." || name == ".." || strings.HasPrefix(name, ".") || name == "@eaDir" {
+		if e.Name == "." || e.Name == ".." || strings.HasPrefix(e.Name, ".") || e.Name == "@eaDir" {
 			continue
 		}
-
-		perms := fields[0]
-		isDir := len(perms) > 0 && perms[0] == 'd'
-
-		var size int64
-		fmt.Sscanf(fields[4], "%d", &size)
-
-		modTime := fields[5] + " " + fields[6]
-
-		entries = append(entries, DirEntry{
-			Name:    name,
-			IsDir:   isDir,
-			Size:    size,
-			ModTime: modTime,
-		})
+		entries = append(entries, e)
 	}
 
 	return entries, nil
+}
+
+// parseLsLine 解析 `ls -la --time-style=long-iso` 的一行输出。
+//
+// 做法：前 7 个字段（权限/链接数/属主/属组/大小/日期/时间）按空白切分，
+// 第 7 个字段之后的**整行剩余部分原样作为文件名**。
+//
+// 不要退回 strings.Fields 全切再用 " " Join——那会把文件名中的连续空格
+// 折叠成一个。uploads 里有 186 个这种名字（如 "…___    _知识库.md"），
+// 还原出的路径在 NAS 上并不存在：tar 报 "Cannot stat" 退出码 2 导致整块
+// 批量读取失败，降级后的逐文件读也照样读不到，这些文件将永远无法索引。
+func parseLsLine(line string) (DirEntry, bool) {
+	fields := make([]string, 0, 7)
+	i := 0
+	for len(fields) < 7 {
+		for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+			i++
+		}
+		if i >= len(line) {
+			break
+		}
+		start := i
+		for i < len(line) && line[i] != ' ' && line[i] != '\t' {
+			i++
+		}
+		fields = append(fields, line[start:i])
+	}
+	if len(fields) < 7 {
+		return DirEntry{}, false
+	}
+	// 跳过文件名前的分隔空白，其余原样保留（含连续空格）。
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	if i >= len(line) {
+		return DirEntry{}, false
+	}
+
+	var size int64
+	fmt.Sscanf(fields[4], "%d", &size)
+
+	return DirEntry{
+		Name:    line[i:],
+		IsDir:   len(fields[0]) > 0 && fields[0][0] == 'd',
+		Size:    size,
+		ModTime: fields[5] + " " + fields[6],
+	}, true
 }
 
 // TitleEntry 批量提取的标题结果
