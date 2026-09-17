@@ -31,11 +31,12 @@ type Engine struct {
 
 // AIAPIConfig holds the connection parameters for the AI API (subset of ai config).
 type AIAPIConfig struct {
-	Enabled  bool   `json:"enabled"`
-	Endpoint string `json:"endpoint"`
-	APIKey   string `json:"api_key"`
-	Model    string `json:"model"`
-	Timeout  int    `json:"timeout_sec"`
+	Enabled     bool   `json:"enabled"`
+	Endpoint    string `json:"endpoint"`
+	APIKey      string `json:"api_key"`
+	Model       string `json:"model"`
+	Timeout     int    `json:"timeout_sec"`
+	ClientToken string `json:"client_token"` // 调用方鉴权 token（2026-09-13 加固）
 }
 
 // NewEngine creates a clustering engine.
@@ -323,6 +324,10 @@ func (e *Engine) callAI(ctx context.Context, prompt string) (string, error) {
 	req.Header.Set("X-Client-Id", "knowly-cluster")
 	if e.aiCfg.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+e.aiCfg.APIKey)
+	}
+	// 调用方鉴权（2026-09-13 加固）：走 aiproxy 网关时需带 X-Client-Token
+	if e.aiCfg.ClientToken != "" {
+		req.Header.Set("X-Client-Token", e.aiCfg.ClientToken)
 	}
 
 	client := &http.Client{}

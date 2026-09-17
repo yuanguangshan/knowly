@@ -31,8 +31,8 @@ const defaultMaxEntries = 20000
 // Entry 历史条目（JSON 标签与旧 jsonl 格式保持一致，NAS 备份文件格式不变）
 type Entry struct {
 	ID        string    `json:"id"`
-	Content   string    `json:"content"`   // 截断后的预览，完整内容从 NAS 反查
-	Type      string    `json:"type"`      // "text" 或 "image"
+	Content   string    `json:"content"` // 截断后的预览，完整内容从 NAS 反查
+	Type      string    `json:"type"`    // "text" 或 "image"
 	Timestamp time.Time `json:"timestamp"`
 	NASPath   string    `json:"nas_path"` // 可选，指向完整归档文件路径
 	Tags      []string  `json:"tags"`     // AI 生成的标签

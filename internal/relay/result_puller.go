@@ -39,11 +39,11 @@ type resultsItem struct {
 // NewResultPuller 创建结果拉取器
 func NewResultPuller(endpoint, secret, cursorFile string, interval time.Duration, callback func(string)) *ResultPuller {
 	rp := &ResultPuller{
-		baseURL:    endpoint,
-		secret:     secret,
-		interval:   interval,
-		stopChan:   make(chan struct{}),
-		callback:   callback,
+		baseURL:  endpoint,
+		secret:   secret,
+		interval: interval,
+		stopChan: make(chan struct{}),
+		callback: callback,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{

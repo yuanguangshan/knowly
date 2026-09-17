@@ -110,7 +110,6 @@ func TestFind(t *testing.T) {
 	}
 }
 
-
 func TestCompaction(t *testing.T) {
 	dir := t.TempDir()
 	// 设置小的 maxEntries 以便快速触发压缩

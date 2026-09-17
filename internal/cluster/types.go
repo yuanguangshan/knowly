@@ -5,9 +5,9 @@ import "time"
 // Config describes clustering behavior.
 type Config struct {
 	Enabled    bool `json:"enabled"`
-	IntervalH  int  `json:"interval_hours"`  // 0 = one-shot at startup
-	MinScore   int  `json:"min_score"`       // minimum AI score to include (0–10), 0 = no filter
-	MaxEntries int  `json:"max_entries"`     // max entries per run, 0 = default 500
+	IntervalH  int  `json:"interval_hours"` // 0 = one-shot at startup
+	MinScore   int  `json:"min_score"`      // minimum AI score to include (0–10), 0 = no filter
+	MaxEntries int  `json:"max_entries"`    // max entries per run, 0 = default 500
 }
 
 // DefaultConfig returns sensible defaults.

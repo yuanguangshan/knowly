@@ -8,21 +8,21 @@ import (
 )
 
 type Config struct {
-	SSH          SSHConfig          `json:"ssh"`
-	Clipboard    ClipboardConfig    `json:"clipboard"`
-	Sync         SyncConfig         `json:"sync"`
-	Web          WebConfig          `json:"web"`
-	Relay        RelayConfig        `json:"relay"`
-	Blog         BlogConfig         `json:"blog"`
-	Podcast      PodcastConfig      `json:"podcast"`
-	IMA          IMAConfig          `json:"ima"`
-	Kindle       KindleConfig       `json:"kindle"`
-	AI           AIConfig           `json:"ai"`
-	Clustering   ClusteringConfig   `json:"clustering"`
-	WebReader    WebReaderConfig    `json:"web_reader"`
-	Knasync      KnasyncConfig      `json:"knasync"`
-	Webhook      WebhookConfig      `json:"webhook"`
-	API          APIConfig          `json:"api"`
+	SSH        SSHConfig        `json:"ssh"`
+	Clipboard  ClipboardConfig  `json:"clipboard"`
+	Sync       SyncConfig       `json:"sync"`
+	Web        WebConfig        `json:"web"`
+	Relay      RelayConfig      `json:"relay"`
+	Blog       BlogConfig       `json:"blog"`
+	Podcast    PodcastConfig    `json:"podcast"`
+	IMA        IMAConfig        `json:"ima"`
+	Kindle     KindleConfig     `json:"kindle"`
+	AI         AIConfig         `json:"ai"`
+	Clustering ClusteringConfig `json:"clustering"`
+	WebReader  WebReaderConfig  `json:"web_reader"`
+	Knasync    KnasyncConfig    `json:"knasync"`
+	Webhook    WebhookConfig    `json:"webhook"`
+	API        APIConfig        `json:"api"`
 }
 
 // APIConfig 对外查询 API（/api/v1/*）配置。
@@ -47,26 +47,26 @@ type SSHConfig struct {
 }
 
 type ClipboardConfig struct {
-	MinLength     int      `json:"min_length"`
-	MaxLength     int      `json:"max_length"`
-	PollInterval  int      `json:"poll_interval_ms"`
-	ExcludeWords  []string `json:"exclude_words"`
+	MinLength    int      `json:"min_length"`
+	MaxLength    int      `json:"max_length"`
+	PollInterval int      `json:"poll_interval_ms"`
+	ExcludeWords []string `json:"exclude_words"`
 }
 
 type SyncConfig struct {
-	Enabled     bool `json:"enabled"`
-	MaxRetries  int  `json:"max_retries"`
-	RetryDelay  int  `json:"retry_delay_ms"`
+	Enabled    bool `json:"enabled"`
+	MaxRetries int  `json:"max_retries"`
+	RetryDelay int  `json:"retry_delay_ms"`
 }
 
 type WebConfig struct {
-	Enabled    *bool  `json:"enabled"`     // 是否启用 Web 管理界面，nil 或 true 表示启用
-	Port       int    `json:"port"`        // 监听端口，默认 8090
-	Auth       string `json:"auth"`        // HTTP Basic Auth 凭证，格式 "user:password"，留空则不启用认证
-	RefreshSec    int    `json:"refresh_sec"`     // 自动刷新间隔（秒），0=不自动刷新，默认30
-	LogRefreshSec int    `json:"log_refresh_sec"` // 日志页刷新间隔（秒），0=不自动刷新，默认30
-	MaxUploadSize   int64 `json:"max_upload_size"`   // 上传文件大小上限（字节），0=默认 500MB
-	MaxDownloadSize int64 `json:"max_download_size"` // 下载文件大小上限（字节），0=默认 500MB
+	Enabled         *bool  `json:"enabled"`           // 是否启用 Web 管理界面，nil 或 true 表示启用
+	Port            int    `json:"port"`              // 监听端口，默认 8090
+	Auth            string `json:"auth"`              // HTTP Basic Auth 凭证，格式 "user:password"，留空则不启用认证
+	RefreshSec      int    `json:"refresh_sec"`       // 自动刷新间隔（秒），0=不自动刷新，默认30
+	LogRefreshSec   int    `json:"log_refresh_sec"`   // 日志页刷新间隔（秒），0=不自动刷新，默认30
+	MaxUploadSize   int64  `json:"max_upload_size"`   // 上传文件大小上限（字节），0=默认 500MB
+	MaxDownloadSize int64  `json:"max_download_size"` // 下载文件大小上限（字节），0=默认 500MB
 }
 
 func (w *WebConfig) IsEnabled() bool {
@@ -112,15 +112,16 @@ type KindleConfig struct {
 type AIConfig struct {
 	Enabled        bool     `json:"enabled"`
 	Preset         string   `json:"preset"`           // 服务商预设：openrouter/ollama/deepseek/openai/custom
-	Endpoint       string   `json:"endpoint"`          // OpenAI 兼容 API 地址，如 http://localhost:11434/v1
-	APIKey         string   `json:"api_key"`           // 留空用于 Ollama 等本地模型
-	Model          string   `json:"model"`             // 模型名称，如 deepseek-chat、gpt-4o-mini
-	MinContentLen  int      `json:"min_content_len"`   // 跳过 AI 的最小内容长度，默认 100
-	MaxContentLen  int      `json:"max_content_len"`   // 跳过 AI 的最大内容长度，默认 10000
-	Timeout        int      `json:"timeout_sec"`       // HTTP 请求超时秒数，默认 60
-	Prompt         string   `json:"prompt"`            // 自定义系统提示词，留空使用默认
-	PromptTemplate string   `json:"prompt_template"`   // 提示词模板名称：通用模式/代码模式/学术模式/极简模式
-	AIExcludeWords []string `json:"ai_exclude_words"`  // AI 排除词：匹配时不送 AI 但照常同步
+	Endpoint       string   `json:"endpoint"`         // OpenAI 兼容 API 地址，如 http://localhost:11434/v1
+	APIKey         string   `json:"api_key"`          // 留空用于 Ollama 等本地模型
+	Model          string   `json:"model"`            // 模型名称，如 deepseek-chat、gpt-4o-mini
+	MinContentLen  int      `json:"min_content_len"`  // 跳过 AI 的最小内容长度，默认 100
+	MaxContentLen  int      `json:"max_content_len"`  // 跳过 AI 的最大内容长度，默认 10000
+	Timeout        int      `json:"timeout_sec"`      // HTTP 请求超时秒数，默认 60
+	Prompt         string   `json:"prompt"`           // 自定义系统提示词，留空使用默认
+	PromptTemplate string   `json:"prompt_template"`  // 提示词模板名称：通用模式/代码模式/学术模式/极简模式
+	AIExcludeWords []string `json:"ai_exclude_words"` // AI 排除词：匹配时不送 AI 但照常同步
+	ClientToken    string   `json:"client_token"`     // 调用方鉴权 token（aiproxy 等网关要求，2026-09-13 加固）
 }
 
 type WebReaderConfig struct {
@@ -152,8 +153,8 @@ type WebhookTarget struct {
 
 // WebhookConfig 通用 Webhook 推送配置
 type WebhookConfig struct {
-	Enabled     bool            `json:"enabled"` // 是否启用 Webhook 推送
-	Targets     []WebhookTarget `json:"targets"` // 推送目标列表
+	Enabled bool            `json:"enabled"` // 是否启用 Webhook 推送
+	Targets []WebhookTarget `json:"targets"` // 推送目标列表
 }
 
 // AIPresetOption 服务商预设选项
@@ -213,10 +214,10 @@ var AIPromptTemplates = map[string]string{
 }
 
 const (
-	DefaultConfigDir  = "~/.knowly"
-	ConfigFileName    = "config.json"
-	LogFileName       = "knowly.log"
-	PidFileName       = "knowly.pid"
+	DefaultConfigDir = "~/.knowly"
+	ConfigFileName   = "config.json"
+	LogFileName      = "knowly.log"
+	PidFileName      = "knowly.pid"
 )
 
 var (
@@ -414,15 +415,15 @@ func DefaultConfig() *Config {
 			FilenamePrefixLength: 20, // 默认使用前 20 个字符
 		},
 		Clipboard: ClipboardConfig{
-			MinLength:     100,
-			MaxLength:     1024 * 1024, // 1MB
-			PollInterval:  500,
-			ExcludeWords:  []string{"password", "密码", "token"},
+			MinLength:    100,
+			MaxLength:    1024 * 1024, // 1MB
+			PollInterval: 500,
+			ExcludeWords: []string{"password", "密码", "token"},
 		},
 		Sync: SyncConfig{
-			Enabled:     true,
-			MaxRetries:  3,
-			RetryDelay:  5000,
+			Enabled:    true,
+			MaxRetries: 3,
+			RetryDelay: 5000,
 		},
 		Relay: RelayConfig{
 			Enabled:  false,
@@ -471,7 +472,7 @@ func DefaultConfig() *Config {
 			Timeout:       60,
 		},
 		Web: WebConfig{
-			Port:             8090,
+			Port:            8090,
 			MaxUploadSize:   500 << 20, // 500MB
 			MaxDownloadSize: 500 << 20, // 500MB
 		},

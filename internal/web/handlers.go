@@ -369,7 +369,6 @@ func (s *Server) handleArchiveList(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, entries)
 }
 
-
 // handleArchiveToday 一次性返回归档初始化数据（年/月/日列表 + 当日文件）
 // 避免前端首次加载时串行 4 次 SSH 请求
 func (s *Server) handleArchiveToday(w http.ResponseWriter, r *http.Request) {
@@ -379,13 +378,13 @@ func (s *Server) handleArchiveToday(w http.ResponseWriter, r *http.Request) {
 	day := fmt.Sprintf("%02d", now.Day())
 
 	type archiveTodayResp struct {
-		Years   []ssh.DirEntry `json:"years"`
-		Months  []ssh.DirEntry `json:"months"`
-		Days    []ssh.DirEntry `json:"days"`
-		Files   []ssh.DirEntry `json:"files"`
-		Year    string         `json:"year"`
-		Month   string         `json:"month"`
-		Day     string         `json:"day"`
+		Years  []ssh.DirEntry `json:"years"`
+		Months []ssh.DirEntry `json:"months"`
+		Days   []ssh.DirEntry `json:"days"`
+		Files  []ssh.DirEntry `json:"files"`
+		Year   string         `json:"year"`
+		Month  string         `json:"month"`
+		Day    string         `json:"day"`
 	}
 
 	resp := archiveTodayResp{
@@ -429,21 +428,21 @@ func (s *Server) handleArchiveToday(w http.ResponseWriter, r *http.Request) {
 		case "days":
 			resp.Days = r.entries
 		case "files":
-				// 为 .md 文件提取 frontmatter 标题
-				files := r.entries
-				titles := s.sshClient.BatchExtractTitles(year+"/"+month+"/"+day, files)
-				titleMap := make(map[string]string)
-				for _, t := range titles {
-					titleMap[t.Name] = t.Title
-				}
-				for i := range files {
-					if !files[i].IsDir && strings.HasSuffix(strings.ToLower(files[i].Name), ".md") {
-						if t, ok := titleMap[files[i].Name]; ok {
-							files[i].Title = t
-						}
+			// 为 .md 文件提取 frontmatter 标题
+			files := r.entries
+			titles := s.sshClient.BatchExtractTitles(year+"/"+month+"/"+day, files)
+			titleMap := make(map[string]string)
+			for _, t := range titles {
+				titleMap[t.Name] = t.Title
+			}
+			for i := range files {
+				if !files[i].IsDir && strings.HasSuffix(strings.ToLower(files[i].Name), ".md") {
+					if t, ok := titleMap[files[i].Name]; ok {
+						files[i].Title = t
 					}
 				}
-				resp.Files = files
+			}
+			resp.Files = files
 		}
 	}
 
@@ -1727,15 +1726,15 @@ func (s *Server) handleHistoryEntry(w http.ResponseWriter, r *http.Request) {
 			title = entry.PublishTitle
 		}
 		jsonResp(w, map[string]interface{}{
-			"id":             entry.ID,
-			"content":        entry.Content,
-			"type":           entry.Type,
-			"timestamp":      entry.Timestamp.Format("2006-01-02 15:04:05"),
-			"nas_path":       entry.NASPath,
-			"tags":           entry.Tags,
-			"title":          title,
+			"id":              entry.ID,
+			"content":         entry.Content,
+			"type":            entry.Type,
+			"timestamp":       entry.Timestamp.Format("2006-01-02 15:04:05"),
+			"nas_path":        entry.NASPath,
+			"tags":            entry.Tags,
+			"title":           title,
 			"publish_summary": entry.PublishSummary,
-			"manual_edit":    entry.ManualEdit,
+			"manual_edit":     entry.ManualEdit,
 		})
 
 	case http.MethodPut:
@@ -2089,7 +2088,6 @@ func (s *Server) handleUploadsDownload(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ERROR] failed to stream file %s: %v", fullPath, err)
 	}
 }
-
 
 // handleClusters returns the current cluster result (GET).
 func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {

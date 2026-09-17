@@ -115,11 +115,12 @@ func main() {
 
 	// 初始化聚类引擎
 	clusterEngine := cluster.NewEngine(histStore, cluster.AIAPIConfig{
-		Enabled:  cfg.AI.Enabled,
-		Endpoint: cfg.AI.Endpoint,
-		APIKey:  cfg.AI.APIKey,
-		Model:   cfg.AI.Model,
-		Timeout: cfg.AI.Timeout,
+		Enabled:     cfg.AI.Enabled,
+		Endpoint:    cfg.AI.Endpoint,
+		APIKey:      cfg.AI.APIKey,
+		Model:       cfg.AI.Model,
+		Timeout:     cfg.AI.Timeout,
+		ClientToken: cfg.AI.ClientToken,
 	}, cluster.Config{Enabled: cfg.Clustering.Enabled, IntervalH: cfg.Clustering.IntervalH, MinScore: cfg.Clustering.MinScore, MaxEntries: cfg.Clustering.MaxEntries}, config.GetConfigDir())
 	clusterEngine.LoadClusters()
 
@@ -561,7 +562,7 @@ func syncAndArchiveText(client *ssh.Client, cfg *config.Config, content, source 
 		info, err := fetcher.FetchPage(ctx, urlStr)
 		cancel()
 		log.Printf("[INFO] Relay URL fetched in %.1fs", time.Since(urlStart).Seconds())
-		
+
 		if err == nil && info != nil {
 			var sb strings.Builder
 			sb.WriteString(content)

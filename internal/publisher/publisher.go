@@ -27,7 +27,7 @@ func extractTitle(content string) string {
 	// 规范化换行符
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	content = strings.ReplaceAll(content, "\r", "\n")
-	
+
 	lines := strings.Split(content, "\n")
 
 	// 跳过 YAML frontmatter（--- 包围的内容）
@@ -63,7 +63,7 @@ func extractTitle(content string) string {
 		// 找到第一个非空行，使用它作为标题
 		// 跳过日期行（如 2026-04-24 00:38:47）
 		if regexp.MustCompile(`^\d{4}-\d{2}-\d{2}`).MatchString(line) ||
-		   regexp.MustCompile(`^\d+分钟阅读`).MatchString(line) {
+			regexp.MustCompile(`^\d+分钟阅读`).MatchString(line) {
 			continue
 		}
 		// 使用第一行有意义文本的前 50 个字符作为标题
@@ -83,7 +83,7 @@ func stripMarkdown(md string) string {
 	// 规范化换行符
 	md = strings.ReplaceAll(md, "\r\n", "\n")
 	md = strings.ReplaceAll(md, "\r", "\n")
-	
+
 	lines := strings.Split(md, "\n")
 	var filtered []string
 	inFrontmatter := false
@@ -126,7 +126,7 @@ func stripFrontmatter(md string) string {
 	// 规范化换行符
 	md = strings.ReplaceAll(md, "\r\n", "\n")
 	md = strings.ReplaceAll(md, "\r", "\n")
-	
+
 	lines := strings.Split(md, "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return md
@@ -145,7 +145,7 @@ func extractOrganizedContent(md string, title string) string {
 	// 规范化换行符
 	md = strings.ReplaceAll(md, "\r\n", "\n")
 	md = strings.ReplaceAll(md, "\r", "\n")
-	
+
 	md = stripFrontmatter(md)
 
 	startIdx := strings.Index(md, "# 核心摘要")
@@ -172,7 +172,7 @@ func extractContentWithOriginal(md string, title string) string {
 	// 规范化换行符
 	md = strings.ReplaceAll(md, "\r\n", "\n")
 	md = strings.ReplaceAll(md, "\r", "\n")
-	
+
 	md = stripFrontmatter(md)
 
 	startIdx := strings.Index(md, "# 核心摘要")
@@ -204,7 +204,7 @@ func extractOriginalContent(md string, title string) string {
 	// 规范化换行符
 	md = strings.ReplaceAll(md, "\r\n", "\n")
 	md = strings.ReplaceAll(md, "\r", "\n")
-	
+
 	md = stripFrontmatter(md)
 
 	idx := strings.Index(md, "### 原始内容")
@@ -279,7 +279,7 @@ func formatHTMLForKindle(md string) string {
 		// 处理代码块
 		if strings.HasPrefix(stripped, "```") {
 			if inList {
-				result.WriteString("</"+listType+">\n")
+				result.WriteString("</" + listType + ">\n")
 				inList = false
 			}
 			inCodeBlock = !inCodeBlock
@@ -299,7 +299,7 @@ func formatHTMLForKindle(md string) string {
 		// 处理水平分隔线
 		if stripped == "---" || stripped == "***" {
 			if inList {
-				result.WriteString("</"+listType+">\n")
+				result.WriteString("</" + listType + ">\n")
 				inList = false
 			}
 			result.WriteString("<hr>\n")
@@ -309,7 +309,7 @@ func formatHTMLForKindle(md string) string {
 		// 处理空行
 		if stripped == "" {
 			if inList {
-				result.WriteString("</"+listType+">\n")
+				result.WriteString("</" + listType + ">\n")
 				inList = false
 			}
 			continue
@@ -318,7 +318,7 @@ func formatHTMLForKindle(md string) string {
 		// 处理标题
 		if strings.HasPrefix(stripped, "#") {
 			if inList {
-				result.WriteString("</"+listType+">\n")
+				result.WriteString("</" + listType + ">\n")
 				inList = false
 			}
 			level := 0
@@ -342,7 +342,7 @@ func formatHTMLForKindle(md string) string {
 		// 处理引用块
 		if strings.HasPrefix(stripped, ">") {
 			if inList {
-				result.WriteString("</"+listType+">\n")
+				result.WriteString("</" + listType + ">\n")
 				inList = false
 			}
 			quoteText := strings.TrimSpace(stripped[1:])
@@ -354,7 +354,7 @@ func formatHTMLForKindle(md string) string {
 		if strings.HasPrefix(stripped, "- ") || strings.HasPrefix(stripped, "* ") {
 			if !inList || listType != "ul" {
 				if inList {
-					result.WriteString("</"+listType+">\n")
+					result.WriteString("</" + listType + ">\n")
 				}
 				result.WriteString("<ul>\n")
 				inList = true
@@ -369,7 +369,7 @@ func formatHTMLForKindle(md string) string {
 		if matched, _ := regexp.MatchString(`^\d+\.\s`, stripped); matched {
 			if !inList || listType != "ol" {
 				if inList {
-					result.WriteString("</"+listType+">\n")
+					result.WriteString("</" + listType + ">\n")
 				}
 				result.WriteString("<ol>\n")
 				inList = true
@@ -382,7 +382,7 @@ func formatHTMLForKindle(md string) string {
 
 		// 普通段落
 		if inList {
-			result.WriteString("</"+listType+">\n")
+			result.WriteString("</" + listType + ">\n")
 			inList = false
 		}
 		processed := processInlineMarkdown(trimmed)
@@ -390,7 +390,7 @@ func formatHTMLForKindle(md string) string {
 	}
 
 	if inList {
-		result.WriteString("</"+listType+">\n")
+		result.WriteString("</" + listType + ">\n")
 	}
 
 	result.WriteString("</body>\n</html>")
