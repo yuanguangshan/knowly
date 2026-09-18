@@ -2010,6 +2010,26 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// 如果文件已存在，旧文件重命名加时间戳，新文件保持原文件名
 	if s.sshClient.FileExists(destPath) {
+		// 内容去重：先比大小，再比内容哈希；完全一致则直接跳过，
+		// 既不归档旧文件、也不重复写入。
+		// 起因：客户端（如 n2）反复推送同一批文件时，这里会每轮归档+重写一次，
+		// 导致 NAS uploads 目录堆积大量同名带时间戳的副本（曾出现单文件 600+ 份）。
+		if size, err := s.sshClient.FileSize(destPath); err == nil && size == int64(len(data)) {
+			if existing, err := s.sshClient.ReadFile(destPath); err == nil &&
+				ssh.ContentHash(existing) == ssh.ContentHash(data) {
+				log.Printf("[INFO] Duplicate upload skipped (identical content): %s (%d bytes)", safeName, size)
+				jsonResp(w, map[string]interface{}{
+					"status":   "ok",
+					"filename": header.Filename,
+					"saved_as": filepath.Base(destPath),
+					"path":     destPath,
+					"size":     size,
+					"skipped":  "duplicate",
+				})
+				return
+			}
+		}
+
 		timestamp := time.Now().Format("20060102_150405")
 		ext := filepath.Ext(safeName)
 		base := strings.TrimSuffix(safeName, ext)
